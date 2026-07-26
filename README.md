@@ -1,7 +1,13 @@
 # Flight Log Remastered
 
 A spike: a modern frontend reading live data from [flightlog.org](https://flightlog.org), which has no
-official API. Next.js 16 App Router, deployable to Vercel as-is.
+official API. Next.js 16 App Router, React 19, MapLibre.
+
+**Live:** https://flight-log-remastered.vercel.app
+
+Deployed on Vercel with `vercel deploy --prod`. Vercel's datacenter IPs are not blocked by
+flightlog.org's WAF, so the deployed app reads live data with no proxy in between. Deployment
+Protection is off so the site is publicly viewable.
 
 ```bash
 pnpm dev            # http://localhost:3000
