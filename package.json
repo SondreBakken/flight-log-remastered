@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:parsers": "tsx scripts/check-parsers.mts",
     "check:barogram": "tsx scripts/check-barogram.mts",
     "check:track-gradient": "tsx scripts/check-track-gradient.mts",
     "check:track-hover": "tsx scripts/check-track-hover.mts",
@@ -15,7 +16,7 @@
     "check:feed": "tsx scripts/check-feed.mts",
     "check:request-gate": "tsx scripts/check-request-gate.mts",
     "test": "vitest run",
-    "check": "tsc --noEmit && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:request-gate && pnpm test"
+    "check": "tsc --noEmit && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:request-gate && pnpm test"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
