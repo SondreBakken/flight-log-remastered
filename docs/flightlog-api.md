@@ -47,10 +47,10 @@ All confirmed working with an **anonymous** session.
 | 1 | `club_id`, `country_id` | text/html | Pilot stats table: Name, Flights, Distance (km), Time (hours) |
 | 2 | (ignores params) | text/html | Single most recent flight site-wide. Columns: `trip_id, tripdate, triptime, duration_hhmm, cnt, distance_km, description, brandmodel, user_id, user_name, club_id, club_name, country_id, country_name, start_id, start_name, class_id` |
 | 5 | `tz` | text/xml | Timezone → UTC time helper |
-| 8 | — | text/html | Takeoff full schema (header row only unless params found): `altitude, altitudediff, country_id, createdby, createdname, createdtime, description, id, img_id, lat, lon, name, region_id, subregion_id, timestamp, updatedby, updatedtime, url, wind, tracklog_id, img_key, country_name, region_name, subregion_name` |
+| 8 | — | text/html | Takeoff full schema, header row only (confirmed: 24 `<th>` cells, never any `<tr><td>` data — not fetched in production, used only to confirm field order): `altitude, altitudediff, country_id, createdby, createdname, createdtime, description, id, img_id, lat, lon, name, region_id, subregion_id, timestamp, updatedby, updatedtime, url, wind, tracklog_id, img_key, country_name, region_name, subregion_name` |
 | 9 | — | text/html | **All countries.** Plain `<table border=1>`, 11 `<td>` columns, id is column 5, name column 6. Norway=160, Sweden=203, Iceland=98, France=73 — see below |
-| 10 | `country_id` | text/html | Regions: `country_id, id, name, …` |
-| 11 | `country_id` **(required)** | text/html | **All takeoffs for a country** with coordinates: `id, name, lat, lon, wind, country_id, region_id, subregion_id, altitude, altitudediff`. Norway → 6012 rows |
+| 10 | `country_id` | text/html | Regions: `country_id, createdby, createdtime, id, name, timestamp, updatedby, updatedtime` — see below |
+| 11 | `country_id` **(required)** | text/html | **All takeoffs for a country** with coordinates: `id, name, lat, lon, wind, country_id, region_id, subregion_id, altitude, altitudediff`. Norway → 6012 rows — see below |
 | 12 | `country_id` / `region_id` | text/html | Takeoffs incl. long `description`, capped at 10 rows (recently-updated feed) |
 | 18 | `trip_id` | image/png | Barogram image (1024×~940) |
 | 19 | `trip_id` | application/vnd.google-earth.kml+xml | **Full tracklog KML** |
@@ -96,6 +96,78 @@ request is made *at build time*, not at request time — a flightlog.org outage 
 during a build fails the build itself, and therefore the deploy, not merely a page a user happens
 to hit while the site is down. `/countries/[countryId]` (`a=25`, clubs) is a Partial Prerender
 instead, so it does not carry this risk the same way.
+
+### rqtid=10 (regions in a country) and rqtid=11 (takeoffs in a country)
+
+```
+GET /fl.html?rqtid=11&country_id=160
+GET /fl.html?rqtid=10&country_id=160
+```
+
+Both share `rqtid=9`'s exact "plainest response on the site" shape: no page shell, no nav, **no
+honeypot, no `<a>` tags at all** (confirmed: zero `hp-nav` occurrences, zero anchors, across every
+capture of both endpoints, full and empty alike) — just one `<table border=1>` whose unwrapped
+`<th>` header cheerio synthesizes into a leading `<tr>`, followed by zero or more
+`<tr><td>…</td></tr>` data rows.
+
+```html
+<!-- rqtid=11&country_id=160, trimmed -->
+<html><body><table border=1><th>id</th><th>name</th><th>lat</th><th>lon</th><th>wind</th><th>country_id</th><th>region_id</th><th>subregion_id</th><th>altitude</th><th>altitudediff</th><tr><td>6246</td><td>	Jorde på Løten, Klæpa airport</td><td>60.79527778</td><td>11.34555556</td><td>56</td><td>160</td><td>6</td><td>0</td><td>180</td><td>0</td></tr>
+...
+</table></body></html>
+```
+
+- **Column order, rqtid=11:** `id, name, lat, lon, wind, country_id, region_id, subregion_id,
+  altitude, altitudediff` — exactly the 10 fields the doc table lists, in that order. No metadata
+  cruft to trim, unlike rqtid=9/countries or rqtid=10/regions (see below) — every field here is
+  something a server-side consumer plausibly needs.
+- **Column order, rqtid=10:** `country_id, createdby, createdtime, id, name, timestamp, updatedby,
+  updatedtime` — 8 fields. `createdby`/`createdtime`/`timestamp`/`updatedby`/`updatedtime` are the
+  same family of metadata cruft rqtid=9 carries and this app already drops; only `id`, `name` and
+  `country_id` are kept.
+- **Norway (`country_id=160`):** rqtid=11 returns exactly 6012 `<tr>` rows (matches the doc's
+  claim precisely), all unique `id`s, one `GET`, no pagination. rqtid=10 returns 29 regions.
+  `region_id` on a takeoff row references rqtid=10's `id` column for the same country; `0` means
+  "no region assigned" (29 of Norway's own region ids exist that no takeoff currently uses, and
+  many takeoffs carry `region_id=0`). `subregion_id` was `0` for every one of Norway's 6012 rows —
+  never seen non-zero in this dataset.
+- **Coordinates.** `lat`/`lon` are the only fields in either response observed with a decimal point
+  or a negative sign — one Norway takeoff (`Auenhaugen, Golsfjellet - Gol`, id 10778) carries a
+  genuinely negative latitude (`-1.01694444`), a live data-entry glitch, not a transcription error.
+  Every other numeric field (`wind`, `country_id`, `region_id`, `subregion_id`) was a bare
+  non-negative integer across all 6012 Norway rows; `altitude`/`altitudediff` were too, though a
+  negative `altitudediff` (landing above takeoff) or a below-sea-level `altitude` is physically
+  plausible and wasn't ruled out by sampling one country.
+- **`wind` encoding — confirmed, not assumed.** Across Norway's 6012 takeoffs, `wind` is always a
+  bare integer, range 0-255 (165 distinct values observed, spread across the full range). That
+  range is exactly one byte, consistent with an **8-bit bitmask over compass octants** (a site
+  usable from several directions sets multiple bits; `0` = none recorded, `255` = all eight) — not
+  a single compass point, confirming the caution in issue #12 that "sites work across ranges." The
+  bit-to-direction mapping itself was not independently confirmed (no site cross-referenced against
+  its known real-world wind exposure); only the shape of the encoding (integer bitmask, not an enum
+  or a string) is established here.
+- **Field order as the positive signal.** Neither response wraps its results in anything more
+  specific than `<table border=1>` — no other attribute or wrapping element distinguishes it from
+  rqtid=8's schema doc or the sibling endpoint's own response, both of which share the identical
+  bare-table shape. What distinguishes a genuine response is the exact header field **order**, not
+  merely the table's presence or its cell count — a column reorder on the live site would otherwise
+  silently swap two fields' values past a count-only check.
+- **Empty country (`country_id=29`, Bouvet Island).** Both endpoints return `200 OK`, the identical
+  header row, and **zero** `<tr>` data rows:
+  ```html
+  <html><body><table border=1><th>id</th><th>name</th><th>lat</th><th>lon</th><th>wind</th><th>country_id</th><th>region_id</th><th>subregion_id</th><th>altitude</th><th>altitudediff</th></table></body></html>
+  ```
+  Not a missing table and not a redirect — the header alone is present, matching the expected field
+  order exactly, with nothing after it. This is the same "container present, positive shape
+  confirmed, zero rows" pattern `a=25`/clubs uses (there via a unique table selector; here via the
+  header field order, since the table itself carries no other distinguishing attribute). A response
+  whose header does *not* match — e.g. rqtid=8's schema doc, which shares the identical
+  `<table border=1>` shell but a different 24-field header — is unrecognised markup, not a genuine
+  empty result, and is treated as a throw rather than an empty list.
+- **Nonexistent `country_id`** was not probed (out of request budget) but is expected, by the same
+  reasoning `a=25` documents for its own endpoint, to collapse to this identical empty shape —
+  meaning a caller that needs "real country, zero takeoffs" apart from "no such country" has to
+  cross-reference `rqtid=9` itself, same as clubs.
 
 ### rqtid=21 (the sync endpoint)
 
