@@ -1,4 +1,5 @@
 import type { Track } from '@/lib/flightlog/types'
+import { Barogram } from './barogram'
 import { TrackMap } from './track-map'
 
 type FlightTrackProps = {
@@ -30,6 +31,7 @@ export default function FlightTrack({ track }: FlightTrackProps) {
   return (
     <div className="flex flex-col gap-6">
       <TrackMap points={track.points} />
+      <Barogram points={track.points} />
       <StatGrid stats={toStats(track)} />
     </div>
   )

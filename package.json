@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:barogram": "tsx scripts/check-barogram.mts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

@@ -13,6 +13,7 @@ Protection is off so the site is publicly viewable.
 pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
 pnpm exec tsx scripts/check-parsers.mts   # parsers against saved fixtures
+pnpm exec tsx scripts/check-barogram.mts  # barogram downsampling and scaling math
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
 
@@ -72,8 +73,8 @@ flights hourly, tracks daily.
 - Writes. Login is `POST fl.html?l=1&a=37` (`form=login`, `login_name`, `pw`, no CSRF) and flight
   creation is a two-step wizard from `a=30`. Read-only for now.
 - Private flights and the XLSX export (`a=214`) need an authenticated session.
-- Barogram, altitude-coloured track, scoring geometries. The KML already carries all of it: FAI 3/4/5
-  point distance, open distance, out-and-return, flat and FAI triangle, plus per-point timestamps.
+- Altitude-coloured track, scoring geometries. The KML already carries all of it: FAI 3/4/5 point
+  distance, open distance, out-and-return, flat and FAI triangle, plus per-point timestamps.
 
 ## Before running this against flightlog.org at any volume
 
