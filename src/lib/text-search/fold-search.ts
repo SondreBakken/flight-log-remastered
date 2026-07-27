@@ -47,7 +47,11 @@ function applyCharacterFold(value: string): string {
 // similar-looking result is a smaller cost than the search silently failing on the exact case
 // it was filed to fix.
 function collapseRepeatedLetters(value: string): string {
-  return value.replace(/(.)\1+/g, '$1')
+  // \p{L} (Unicode "Letter" category) scopes this to letters — a bare `.` also collapses
+  // digits, whitespace and punctuation, which this rule was never meant to touch: a query of
+  // "--", "1111" or "..." would fold down to a single character and then match almost every
+  // name containing that run.
+  return value.replace(/(\p{L})\1+/gu, '$1')
 }
 
 export function foldForSearch(value: string): string {

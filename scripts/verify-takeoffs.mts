@@ -34,11 +34,24 @@ page.on('pageerror', (e) => pageErrors.push(e.message))
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
-// A DEFINITIVE settle condition — the fetched count line rendered, or the error state did
+// A DEFINITIVE settle condition — the fetched count line rendered, OR the error state did
 // (never "loading text absent", which is vacuously true before hydration has even started).
+// Settling into the error state is deliberately included here so the wait itself can't hang
+// forever on a real failure — but "settled" only means "stopped loading," not "succeeded":
+// see reachedErrorState below, which is what actually judges the outcome.
+//
+// The success half must be `/\d+ takeoffs/`, not a bare `' takeoffs'` substring — the page's
+// own static h1 ("{countryName} takeoffs") and the loading state ("Loading takeoffs…") both
+// contain that exact substring from the very first paint, before any fetch has even started.
+// A bare substring check is satisfied instantly regardless of the fetch, which means this
+// wait never actually waited for anything — confirmed empirically: without the `\d+` anchor,
+// `mainText()` below captured "Loading takeoffs…" as the "settled" state on a real run.
 const settled = await page
   .waitForFunction(
-    () => document.body.textContent?.includes(' takeoffs') || document.body.textContent?.includes('request failed'),
+    () => {
+      const text = document.body.textContent ?? ''
+      return /\d+ takeoffs/.test(text) || text.includes('request failed') || text.includes('timed out waiting for a response')
+    },
     { timeout: 20000 },
   )
   .then(() => true)
@@ -50,6 +63,17 @@ if (settled) {
 
   const initialText = await mainText()
   console.log('rendered <main> text (unfiltered):', initialText)
+
+  // Settling is not the same as succeeding — the wait above treats "the fetch itself failed"
+  // as an acceptable way to stop waiting, so it can't hang forever, but this script's entire
+  // purpose is proving the happy path against the prerendered artifact. A fetch failure here
+  // means the artifact/API round trip is broken, not something to silently pass through and
+  // leave to the row-count/notice assertions below to notice by proxy.
+  const reachedErrorState = initialText.includes('request failed') || initialText.includes('timed out waiting for a response')
+  report(
+    !reachedErrorState,
+    `the directory did not settle into a fetch-failure error state (rendered: "${initialText.trim()}")`,
+  )
 
   report(
     takeoffRequests.length > 0,
@@ -74,10 +98,16 @@ if (settled) {
   const filteredText = await mainText()
   console.log('rendered <main> text (filtered "Bodo"):', filteredText)
   report(filteredSettled, `typing the plain-ASCII query "Bodo" into the real input finds "Bodø" in the real rendered rows (rendered: "${filteredText.trim()}")`)
-  report(
-    !filteredText.includes(`Showing ${MAX_RENDERED_RESULTS} of ${EXPECTED_ROW_COUNT} matches`),
-    'the truncation notice reflects the narrowed match count, not the original unfiltered total, once a query is typed',
-  )
+  // Only meaningful once filteredSettled is confirmed true — an ABSENT string is trivially
+  // true of a blank or broken page too, so asserting it unconditionally would pass even if
+  // "Bodø" never rendered at all (i.e. filtering silently stopped working outright), not just
+  // when it rendered without the notice.
+  if (filteredSettled) {
+    report(
+      !filteredText.includes(`Showing ${MAX_RENDERED_RESULTS} of ${EXPECTED_ROW_COUNT} matches`),
+      'the truncation notice reflects the narrowed match count, not the original unfiltered total, once a query is typed',
+    )
+  }
 
   report(badResponses.length === 0, `no unexpected 4xx/5xx responses (saw: ${badResponses.length ? badResponses.join('; ') : 'none'})`)
   report(pageErrors.length === 0, `no uncaught page errors (saw: ${pageErrors.length ? pageErrors.join('; ') : 'none'})`)

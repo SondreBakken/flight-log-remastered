@@ -48,6 +48,21 @@ describe('foldForSearch — the fold table', () => {
     expect(foldForSearch('VAGAA')).toBe('vaga')
     expect(foldForSearch('Oslo')).toBe('oslo')
   })
+
+  // The collapse is a letter-repetition rule (see collapseRepeatedLetters' own doc comment:
+  // "Collapses runs of the same letter down to one"), not a generic "collapse any repeated
+  // character" rule — a query of just dashes, slashes, dots or digits must not fold down to a
+  // single character and then match almost everything containing that run. \p{L} is what
+  // scopes the regex to letters; a bare `.` would also collapse these.
+  it.each([
+    ['--', '--'],
+    ['//', '//'],
+    ['1111', '1111'],
+    ['...', '...'],
+    ['a--b', 'a--b'],
+  ])('does not collapse repeated non-letter characters: %j stays %j', (input, expected) => {
+    expect(foldForSearch(input)).toBe(expected)
+  })
 })
 
 describe('matchesFoldedQuery — the required cases from #9', () => {

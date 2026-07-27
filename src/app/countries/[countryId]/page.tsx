@@ -33,7 +33,7 @@ export async function Clubs({ params }: { params: CountryParams }) {
   // is the deliberate choice for an out-of-range numeric id.
   const countryName = countries.find((country) => country.countryId === id)?.name ?? `Country ${id}`
 
-  return <CountryClubs countryName={countryName} clubs={clubs} />
+  return <CountryClubs countryId={id} countryName={countryName} clubs={clubs} />
 }
 
 function ClubsSkeleton() {

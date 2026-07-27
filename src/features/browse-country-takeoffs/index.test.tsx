@@ -136,4 +136,68 @@ describe('TakeoffDirectory — input-driven filtering', () => {
 
     await screen.findByText('4 takeoffs')
   })
+
+  // flightlog.org's own regionId 0 convention: a takeoff whose region was never registered,
+  // 10.4% of Norway's real fixture — the literal `Region 0` string previously rendered here
+  // claimed a region existed under that number when none does.
+  it('labels a takeoff whose regionId has no matching region as "Unregioned", not the bare id', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Orphan', 0)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Orphan')
+
+    const list = screen.getByRole('list')
+    within(list).getByText('Unregioned')
+    expect(within(list).queryByText('Region 0')).toBeNull()
+  })
+
+  it('adds a selectable "Unregioned" entry to the region dropdown when an orphan regionId is present, and filtering by it works', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Orphan', 0)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    const regionSelect = screen.getByRole('combobox', { name: /region/i })
+    within(regionSelect).getByText('Unregioned')
+
+    fireEvent.change(regionSelect, { target: { value: '0' } })
+
+    await waitFor(() => expect(screen.queryByText('Alpha')).toBeNull())
+    screen.getByText('Orphan')
+  })
+
+  it('does not add an "Unregioned" entry when every takeoff has a known region', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 2)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    expect(screen.queryByText('Unregioned')).toBeNull()
+  })
+
+  it('orders the region dropdown alphabetically by name', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 2)])
+    const unsortedRegions: RegionOption[] = [
+      { regionId: 1, name: 'Østlandet' },
+      { regionId: 2, name: 'Agder' },
+    ]
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={unsortedRegions} />)
+    await screen.findByText('Alpha')
+
+    const options = screen.getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['All regions', 'Agder', 'Østlandet'])
+  })
+
+  it('blames the actual cause, not an untyped query, when a selected region has zero takeoffs', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /region/i }), { target: { value: '2' } })
+
+    await screen.findByText('No takeoffs recorded in Vestlandet.')
+    expect(screen.queryByText(/no takeoffs match/i)).toBeNull()
+  })
 })

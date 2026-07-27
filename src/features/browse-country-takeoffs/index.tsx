@@ -5,6 +5,10 @@ import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 import {
   selectVisibleTakeoffs,
+  foldTakeoffNames,
+  withUnregionedOptions,
+  sortRegionOptions,
+  UNREGIONED_LABEL,
   MAX_RENDERED_RESULTS,
   type RegionFilter,
   type RegionOption,
@@ -16,6 +20,10 @@ type TakeoffDirectoryProps = {
   regions: RegionOption[]
 }
 
+// No takeoffs to show yet at module scope, not `[]` re-allocated inline on every render —
+// keeps memoisation below referentially stable while state.status isn't 'success'.
+const NO_TAKEOFFS: TakeoffDirectoryEntry[] = []
+
 // #9's directory, replacing #38's proof-of-mechanism preview (that component's own comment
 // said as much: "the moment this grows an input with live filtering it is #9"). Filtering
 // runs entirely against `state.takeoffs`, the same array the browser already fetched once
@@ -24,6 +32,13 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   const state = useTakeoffs(countryId)
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
+
+  const takeoffs = state.status === 'success' ? state.takeoffs : NO_TAKEOFFS
+  // Only the dropdown needs this: a <select> can't fall back to a label the way a rendered
+  // row can (see UNREGIONED_LABEL's own doc comment for that fallback), it needs an actual
+  // selectable <option> — `regions` alone would silently make any takeoff whose regionId
+  // flightlog.org never registered reachable only through "All regions."
+  const regionsWithUnregioned = useMemo(() => withUnregionedOptions(regions, takeoffs), [regions, takeoffs])
 
   return (
     <section className="flex flex-col gap-6">
@@ -34,11 +49,11 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
       <SearchControls
         query={query}
         onQueryChange={setQuery}
-        regions={regions}
+        regions={regionsWithUnregioned}
         regionFilter={regionFilter}
         onRegionFilterChange={setRegionFilter}
       />
-      <TakeoffResults state={state} query={query} regionFilter={regionFilter} regions={regions} />
+      <TakeoffResults state={state} takeoffs={takeoffs} query={query} regionFilter={regionFilter} regions={regions} />
     </section>
   )
 }
@@ -61,7 +76,7 @@ function SearchControls({
   regionFilter: RegionFilter
   onRegionFilterChange: (value: RegionFilter) => void
 }) {
-  const sortedRegions = useMemo(() => [...regions].sort((a, b) => a.name.localeCompare(b.name)), [regions])
+  const sortedRegions = useMemo(() => sortRegionOptions(regions), [regions])
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -90,40 +105,39 @@ function SearchControls({
   )
 }
 
-// No takeoffs to show yet at module scope, not `[]` re-allocated inline on every render —
-// keeps the useMemo dependency below referentially stable while state.status isn't 'success'.
-const NO_TAKEOFFS: TakeoffDirectoryEntry[] = []
-
 function TakeoffResults({
   state,
+  takeoffs,
   query,
   regionFilter,
   regions,
 }: {
   state: TakeoffsState
+  takeoffs: TakeoffDirectoryEntry[]
   query: string
   regionFilter: RegionFilter
   regions: RegionOption[]
 }) {
-  // Both hooks run on every render regardless of state.status, so the branches below (which
+  // All hooks run on every render regardless of state.status, so the branches below (which
   // return early) never change how many hooks this component calls — the values they compute
   // are simply unused while loading or errored.
   const regionNameById = useMemo(() => new Map(regions.map((region) => [region.regionId, region.name])), [regions])
-  const takeoffs = state.status === 'success' ? state.takeoffs : NO_TAKEOFFS
+  // Keyed on `takeoffs` alone, not on `query` — `takeoffs` is referentially stable for the
+  // component's whole lifetime (one fetch, never refetched), so this fold runs once per
+  // dataset, not once per keystroke. See foldTakeoffNames' own doc comment for the measured
+  // cost this avoids.
+  const foldedNames = useMemo(() => foldTakeoffNames(takeoffs), [takeoffs])
   const { matches, totalMatchCount, isTruncated } = useMemo(
-    () => selectVisibleTakeoffs(takeoffs, query, regionFilter),
-    [takeoffs, query, regionFilter],
+    () => selectVisibleTakeoffs(takeoffs, foldedNames, query, regionFilter),
+    [takeoffs, foldedNames, query, regionFilter],
   )
 
   if (state.status === 'loading') return <p className="text-sm opacity-70">Loading takeoffs…</p>
   if (state.status === 'error') return <p className="text-sm text-red-600">{state.message}</p>
 
   if (totalMatchCount === 0) {
-    return (
-      <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-        No takeoffs match &ldquo;{query}&rdquo;.
-      </p>
-    )
+    const regionName = regionFilter === 'all' ? undefined : (regionNameById.get(regionFilter) ?? UNREGIONED_LABEL)
+    return <EmptyState query={query} regionFilter={regionFilter} regionName={regionName} />
   }
 
   return (
@@ -140,10 +154,37 @@ function TakeoffResults({
         {matches.map((takeoff) => (
           <li key={takeoff.takeoffId} className="flex justify-between gap-4 py-2 text-sm">
             <span>{takeoff.name}</span>
-            <span className="opacity-70">{regionNameById.get(takeoff.regionId) ?? `Region ${takeoff.regionId}`}</span>
+            <span className="opacity-70">{regionNameById.get(takeoff.regionId) ?? UNREGIONED_LABEL}</span>
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+// A blank query is not something the user typed — it's what's left after they picked a
+// region with zero takeoffs without touching the search box, or the directory is genuinely
+// empty. `No takeoffs match ""` blames a query that was never entered; this names the actual
+// cause instead; a query IS blamed once one was actually typed, region filter or not.
+function EmptyState({
+  query,
+  regionFilter,
+  regionName,
+}: {
+  query: string
+  regionFilter: RegionFilter
+  regionName: string | undefined
+}) {
+  const message =
+    query !== ''
+      ? `No takeoffs match “${query}”.`
+      : regionFilter !== 'all'
+        ? `No takeoffs recorded in ${regionName}.`
+        : 'No takeoffs recorded.'
+
+  return (
+    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
+      {message}
+    </p>
   )
 }
