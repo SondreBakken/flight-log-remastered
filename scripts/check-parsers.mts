@@ -6,6 +6,7 @@ import { parseClubs } from '../src/lib/flightlog/parse-clubs'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
 import { parseRegions } from '../src/lib/flightlog/parse-regions'
+import { encodeTakeoffRow, isTakeoffRows } from '../src/app/api/countries/[countryId]/takeoffs/contract'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -112,6 +113,29 @@ assert(
   jordeTakeoff?.name === 'Jorde på Løten, Klæpa airport',
   `takeoffs-160.html: takeoff id 6246 resolves to the expected name (got ${jordeTakeoff?.name ?? 'MISSING'})`,
 )
+
+// #38: the real transform (encodeTakeoffRow) run end to end against the full 6012-row
+// Norway fixture, not a hand-picked sample — proving the wire shape at the size it will
+// actually ship at, not at a size too small to notice a shape regression.
+const takeoffRows = takeoffs.map(encodeTakeoffRow)
+console.log(`takeoffs-160.html: encoded rows=${takeoffRows.length}`)
+assert(takeoffRows.length === 6012, `takeoffs-160.html: encodes all 6012 rows (got ${takeoffRows.length})`)
+// 10, not TAKEOFF_ROW_LENGTH: this is meant to catch encodeTakeoffRow and the constant that
+// defines its shape drifting apart — say, TAKEOFF_ROW_LENGTH bumped to 11 alongside a new
+// field added to the encoder. Importing TAKEOFF_ROW_LENGTH here instead would make that
+// exact mutation invisible, since both sides of the comparison would have moved together.
+assert(
+  takeoffRows.every((row) => row.length === 10),
+  'takeoffs-160.html: every encoded row has exactly 10 fields, independent of TAKEOFF_ROW_LENGTH (no dropped or duplicated field, and no field count bumped alongside it)',
+)
+assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes the wire-boundary shape check')
+
+// The payload-size sanity band that used to live here now lives in
+// check-takeoffs-prerender.mts (see curated-countries.ts's expectedPayloadBytes), asserted
+// against the real build artifact instead of this fixture — this script is gated on
+// fixtures/ (gitignored) and therefore never runs in CI on a clean checkout, which made the
+// band here invisible where it mattered most. Row count and shape are still pinned here,
+// against the fixture, same as everywhere else in this file.
 
 const emptyTakeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-29.html', 'utf8'), 29)
 console.log(`takeoffs-29.html (Bouvet Island): takeoffs=${emptyTakeoffs.length}`)
