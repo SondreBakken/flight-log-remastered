@@ -1,6 +1,6 @@
 # flightlog.org — reverse-engineered interface
 
-Verified live 2026-07-26. Nothing here is documented by the operator.
+Verified live 2026-07-27. Nothing here is documented by the operator.
 
 ## Transport rules (mandatory)
 
@@ -53,6 +53,10 @@ All confirmed working with an **anonymous** session.
 | 22 | `trip_id` | application/json | Tracklog timestamp for one trip — self-documenting |
 
 `rqtid=3` → `Could not find image`. `rqtid=14,15,16,23-30` → empty 200. `rqtid=4,6,7,13,17` → empty body.
+`rqtid=1` ignores name-fragment params — `name`, `pilot_name`, `search`, `q` each returned a
+response byte-identical to the unfiltered `club_id`/`country_id` call (verified by exact string
+comparison, not just length). No filter found; moot regardless since `a=114` is a full pilot search
+(below).
 
 ### rqtid=21 (the sync endpoint)
 
@@ -120,11 +124,23 @@ Full sweep of `a=1..200` done with an authenticated cookie. Real pages:
 | 56 | **Competition results** | `comp_id` | — |
 | 102 | Pilot options | `user_id` | — |
 | 107 | Takeoff search (POST `start`) | — | — |
+| 114 | **Pilot search** (POST `form=find_user`, field `user_fullname`) | — | — |
 | 142 | GpsDump info page | — | — |
 | 214 | **XLSX export of a pilot's flights** | `user_id` | auth, own account only |
 
-Seen only as link targets, unverified: 101, 111, 114, 139. Everything else in 1..200 returned the
-ambiguous 302 with no corroborating link anywhere in the crawl.
+Resolved live 2026-07-27 — `101, 111, 114, 139` were seen only as link targets before this pass:
+`a=114` is a real, working **pilot search**. `GET` renders a form (`action='/fl.html?l=1&a=114'`,
+hidden `form=find_user`, text input `user_fullname`, submit `go=Go`; page copy says wildcards `%`
+and `_` are supported). `POST`ing the same fields performs the search and returns matches as
+`a=28&user_id=<id>` links grouped by country. Confirmed with `user_fullname=Henden`: three distinct
+pilots matched (substring, not exact) — Børge Henden (2831), Nils Aage Henden (754), Patrick Henden
+(11072), all under Norway. `a=139` also renders a real `<form>` (`airspace_lat`, `airspace_lon`) but
+is an airspace/coordinate lookup, unrelated to pilots; not probed further. `a=101` and `a=111`
+render real, homepage-distinct pages with no `<form>` and empty content shells: 101 is
+`Pilots/Clubs > user > Flights > Test flights` (breadcrumb implies `user_id`-scoped), 111 is the
+generic Flights section landing page reached via the Competition breadcrumb (implies
+`comp_id`-scoped). Neither is pilot-related. Everything else in 1..200 returned the ambiguous 302
+with no corroborating link anywhere in the crawl.
 
 `comp_id` values observed: 1, 37, 161-168.
 
