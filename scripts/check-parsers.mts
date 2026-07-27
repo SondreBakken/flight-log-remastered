@@ -73,12 +73,20 @@ const emptyClubs = parseClubs(readFileSync('fixtures/clubs-29.html', 'utf8'), 29
 console.log(`clubs-29.html (Bouvet Island): clubs=${emptyClubs.length}`)
 assert(emptyClubs.length === 0, `clubs-29.html (Bouvet Island): genuinely zero clubs (got ${emptyClubs.length})`)
 
-// pilot-search-form.html is a=114's bare GET form: no query submitted, so the results
-// container is present with zero candidates — same "empty, not missing" shape as
-// pilot-search-zero.html, just reached without a POST.
-const formPageResults = parsePilotSearch(readFileSync('fixtures/pilot-search-form.html', 'utf8'))
-console.log(`pilot-search-form.html: results=${formPageResults.length}`)
-assert(formPageResults.length === 0, `pilot-search-form.html: bare form page parses as zero results (got ${formPageResults.length})`)
+// pilot-search-form.html is a=114's bare GET form: no query submitted, so it has zero candidate
+// rows AND no "-1 No match found" banner (that banner only renders on a POST response, zero-
+// match or otherwise). Production only ever parses POST responses, never this page, so it is
+// correct — not a regression — for the parser to throw here: zero candidates without the banner
+// is exactly the shape markup drift produces, and this page can't be told apart from that by the
+// parser alone.
+let formPageThrew = false
+try {
+  parsePilotSearch(readFileSync('fixtures/pilot-search-form.html', 'utf8'))
+} catch {
+  formPageThrew = true
+}
+console.log(`pilot-search-form.html: threw=${formPageThrew}`)
+assert(formPageThrew, 'pilot-search-form.html: bare GET form page (never parsed in production) throws rather than parsing as zero results')
 
 const groupedSearch = parsePilotSearch(readFileSync('fixtures/pilot-search-grouped.html', 'utf8'))
 const norwayHits = groupedSearch.filter((result) => result.country === 'Norway')
