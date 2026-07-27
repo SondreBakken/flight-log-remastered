@@ -16,6 +16,14 @@ describe('CountryClubs', () => {
     screen.getByText('Jetta Luftsportsklubb')
   })
 
+  it('links back to /countries, the actual index route, not a typo of it', () => {
+    render(<CountryClubs countryName="Norway" clubs={[]} />)
+
+    expect(screen.getByRole('link', { name: /back to countries/i }).getAttribute('href')).toBe(
+      '/countries',
+    )
+  })
+
   it('renders the deliberate empty state, not a table, when the country has no clubs', () => {
     render(<CountryClubs countryName="Bouvet Island" clubs={[]} />)
 

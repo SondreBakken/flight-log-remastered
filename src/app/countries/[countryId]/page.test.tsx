@@ -25,14 +25,26 @@ describe('Clubs route guard', () => {
     },
   )
 
-  it('fetches clubs and countries and renders the page for a valid id', async () => {
-    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
-    mockedGetClubs.mockResolvedValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+  it.each([
+    ['160', 160, 'Norway'],
+    ['203', 203, 'Sweden'],
+  ])(
+    'fetches clubs and countries and renders the page for id %s',
+    async (countryId, expectedId, expectedName) => {
+      // Two countries, listed with the match NOT at index 0, so `countries[0]` and
+      // `find(country => country.countryId === id)` disagree for the 203 case — and two
+      // different requested ids so `getClubs(160)` cannot be hardcoded to satisfy both runs.
+      mockedGetCountries.mockResolvedValue([
+        { countryId: 160, name: 'Norway' },
+        { countryId: 203, name: 'Sweden' },
+      ])
+      mockedGetClubs.mockResolvedValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
 
-    const element = await Clubs({ params: Promise.resolve({ countryId: '160' }) })
+      const element = await Clubs({ params: Promise.resolve({ countryId }) })
 
-    expect(mockedGetClubs).toHaveBeenCalledWith(160)
-    expect(element.props.countryName).toBe('Norway')
-    expect(element.props.clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
-  })
+      expect(mockedGetClubs).toHaveBeenCalledWith(expectedId)
+      expect(element.props.countryName).toBe(expectedName)
+      expect(element.props.clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+    },
+  )
 })
