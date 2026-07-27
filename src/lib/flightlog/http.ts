@@ -48,22 +48,32 @@ async function getSession(): Promise<Session> {
   return currentSession
 }
 
+// Every caller in this file passes a plain string-keyed header object (or nothing) — never a
+// `Headers` instance or a `[string, string][]` tuple list, both of which `RequestInit['headers']`
+// permits. That matters here specifically: `{ ...aHeadersInstance }` spreads to `{}` (its data
+// lives behind accessors, not enumerable own properties), so a caller that passed a real
+// `Headers` object would have its headers silently vanish with no type error, since `RequestInit`
+// itself would happily accept it. Narrowing the type to a plain record catches that at compile
+// time instead.
+type FlightlogRequestInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }
+
 // gatedFetch already reads the body inside the same gated task as the fetch, not after it
 // resolves — a server that sends headers and then stalls the body would otherwise release
 // its slot (and stop being covered by the timeout) the moment headers arrive, letting real
 // open connections exceed the gate's limit while it believes itself idle.
 //
-// `init` layers on top of the fixed headers below rather than replacing them, so a caller
-// passing e.g. a content-type or a POST body/method never has to repeat user-agent/cookie/
-// referer itself — those three stay mandatory for every request this file makes, GET or POST.
-function requestOnce(path: string, session: Session, referer: string, init: RequestInit = {}): Promise<GatedFetchResult> {
+// `init` layers UNDER the fixed headers below, not over them, so a caller passing e.g. a
+// content-type or a POST body/method never has to repeat user-agent/cookie/referer itself —
+// and, just as importantly, can never override them either: those three stay mandatory for
+// every request this file makes, GET or POST, which only holds if they are spread last.
+function requestOnce(path: string, session: Session, referer: string, init: FlightlogRequestInit = {}): Promise<GatedFetchResult> {
   return gatedFetch(`${FLIGHTLOG_ORIGIN}${path}`, {
     ...init,
     headers: {
+      ...init.headers,
       'user-agent': BROWSER_USER_AGENT,
       cookie: session.cookie,
       referer,
-      ...init.headers,
     },
     redirect: 'manual',
     cache: 'no-store',
@@ -76,7 +86,7 @@ function isSessionGate(result: GatedFetchResult): boolean {
   return result.status === 302
 }
 
-async function retryAfterReminting(path: string, referer: string, init?: RequestInit): Promise<GatedFetchResult> {
+async function retryAfterReminting(path: string, referer: string, init?: FlightlogRequestInit): Promise<GatedFetchResult> {
   currentSession = null
   const retry = await requestOnce(path, await getSession(), referer, init)
   if (isSessionGate(retry)) {
@@ -94,7 +104,7 @@ async function resolveGatedText(
   path: string,
   firstAttempt: GatedFetchResult,
   referer: string,
-  init?: RequestInit,
+  init?: FlightlogRequestInit,
 ): Promise<string> {
   const result = isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer, init) : firstAttempt
 
@@ -121,7 +131,7 @@ export async function postFlightlogText(
   body: string,
   { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
 ): Promise<string> {
-  const init: RequestInit = {
+  const init: FlightlogRequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body,
