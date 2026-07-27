@@ -20,16 +20,25 @@ pnpm run check:track-hover                # map/chart hover identity (shared ind
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
+pnpm test                                 # Vitest: components/hooks, jsdom + React Testing Library
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
 
-`pnpm run check` is pure, source-only logic — no server needed. `scripts/verify-*.mts`
-(`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`, `verify-feed.mts`) are a
-different kind of check: they drive a real headless browser against a running app (`pnpm dev`
-first, then e.g. `pnpm exec tsx scripts/verify-track-hover.mts`), so they are deliberately **not**
-part of `pnpm run check` or any other automated gate — there is nothing in this repo that starts a
-server, waits for it, and tears it down again. Run them by hand after touching the map, the
-barogram, or the feed.
+`pnpm run check` is pure, source-only logic — no server needed — plus, as its last step, `pnpm
+test`. `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`,
+`verify-track-hover.mts`, `verify-feed.mts`) are a different kind of check: they drive a real
+headless browser against a running app (`pnpm dev` first, then e.g. `pnpm exec tsx
+scripts/verify-track-hover.mts`), so they are deliberately **not** part of `pnpm run check` or any
+other automated gate — there is nothing in this repo that starts a server, waits for it, and tears
+it down again. Run them by hand after touching the map, the barogram, or the feed.
+
+Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
+under test is not React Compiler transformed the way it is under `next build`, and it never touches
+Turbopack. A passing Vitest test is not evidence the same code works in the app: this repo already
+lost time once to a bundler-specific failure (maplibre v6's worker resolving through
+`import.meta.url`, which Turbopack silently failed to wire up — raster tiles rendered, the GeoJSON
+source just never loaded). Confirm anything Vitest touches with `pnpm dev` or a `verify-*.mts` run
+too.
 
 ### Fixtures
 
