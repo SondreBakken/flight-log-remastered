@@ -10,10 +10,11 @@
 // later can never be admitted ahead of one already waiting.
 //
 // Every caller consumes a slot of the shared pool — a task calling back into this same
-// gate deadlocks once the limit is exhausted, since the outer call would hold the only
-// slot while waiting on an inner call that can never be admitted. Nothing in this codebase
-// does that today (see flightlog/outbound-gate.ts's callers), so this stays unhandled
-// rather than adding a mechanism for a shape that doesn't exist.
+// gate is still not supported once the limit is exhausted: the outer call holds its slot
+// while the inner call sits queued behind it, so the outer call times out instead of
+// hanging, and only resolves because every task shares the same timeout. Nothing in this
+// codebase does that today (see flightlog/outbound-gate.ts's callers), so this stays
+// unhandled rather than adding a mechanism for a shape that doesn't exist.
 
 export class RequestGateTimeoutError extends Error {
   constructor(timeoutMs: number) {
