@@ -15,17 +15,21 @@ const EMPTY_IDS: ReadonlySet<PilotId> = new Set()
 // use-follow-store.ts), so they live in one object: reading them from two separate calls let
 // them observe the store mid-update, which is the bug this shape rules out (issue #20).
 export interface FollowStoreSnapshot {
-  followedIds: ReadonlySet<PilotId>
-  hasHydrated: boolean
+  readonly followedIds: ReadonlySet<PilotId>
+  // False for the render that must match the server (no localStorage there); flips true once
+  // the real, browser-read value is available. Consumers use it to render a neutral/skeleton
+  // state instead of a value indistinguishable from "genuinely not followed".
+  readonly hasHydrated: boolean
 }
 
-// Referentially stable module constant, never mutated: the server can never know the
-// browser's followed list, so it always renders the same not-yet-hydrated snapshot.
+// The server can never know the browser's followed list, so it always renders the
+// same not-yet-hydrated snapshot.
 const SERVER_SNAPSHOT: FollowStoreSnapshot = { followedIds: EMPTY_IDS, hasHydrated: false }
 
-// Rebuilt only by setSnapshot, and only when ids actually change or hydration first happens,
-// so repeated getSnapshot() calls between those events return the same reference; that's what
-// keeps useSyncExternalStore from re-rendering (or looping) on every call.
+// Rebuilt only by setSnapshot — called from ensureHydrated() on first hydration, commit(), and
+// handleStorageEvent() when ids actually change — so repeated getSnapshot() calls in between
+// return the same reference; that's what keeps useSyncExternalStore from re-rendering (or
+// looping) on every call.
 let snapshot: FollowStoreSnapshot = SERVER_SNAPSHOT
 const subscribers = new Set<() => void>()
 
@@ -80,11 +84,19 @@ function commit(nextIds: ReadonlySet<PilotId>): void {
   notifySubscribers()
 }
 
+function idsEqual(a: ReadonlySet<PilotId>, b: ReadonlySet<PilotId>): boolean {
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
 // Another tab changing the same key is the only external write we need to react to;
 // other keys (or the same tab, which never fires `storage`) are none of our concern.
 function handleStorageEvent(event: StorageEvent): void {
   if (event.key !== null && event.key !== STORAGE_KEY) return
-  setSnapshot(readIds())
+  const nextIds = readIds()
+  if (idsEqual(nextIds, snapshot.followedIds)) return
+  setSnapshot(nextIds)
   notifySubscribers()
 }
 
@@ -99,8 +111,6 @@ export function subscribe(onStoreChange: () => void): () => void {
   }
 }
 
-// Referentially stable until setSnapshot() swaps it (via commit() or handleStorageEvent()),
-// which is what lets a single useSyncExternalStore call avoid re-rendering on every call.
 export function getSnapshot(): FollowStoreSnapshot {
   ensureHydrated()
   return snapshot
@@ -110,10 +120,8 @@ export function getServerSnapshot(): FollowStoreSnapshot {
   return SERVER_SNAPSHOT
 }
 
-function commitIfChanged(next: Set<PilotId>, previous: ReadonlySet<PilotId>): void {
-  // addId/removeId return a same-size copy when the id was invalid or already
-  // absent/present; skip the write and subscriber notification for that no-op.
-  if (next.size !== previous.size) commit(next)
+function commitIfChanged(next: ReadonlySet<PilotId>, previous: ReadonlySet<PilotId>): void {
+  if (!idsEqual(next, previous)) commit(next)
 }
 
 export function follow(pilotId: PilotId): void {
