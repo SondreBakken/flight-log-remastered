@@ -14,7 +14,7 @@ describe('SearchPilots', () => {
   it('prompts for more characters when the query is below minLength (results still null)', () => {
     render(<SearchPilots query="ab" minLength={3} results={null} />)
 
-    screen.getByText(/type at least 3 characters/i)
+    screen.getByText(/type at least 3 letters in a row/i)
   })
 
   it('renders a distinct "no matches" state for a real zero-match search, not the too-short prompt', () => {
@@ -48,5 +48,13 @@ describe('SearchPilots', () => {
     expect(input.value).toBe('Henden')
     // getByRole throws if not found, so its return alone is the assertion.
     screen.getByRole('button', { name: 'Search' })
+
+    // A plain GET to a real Next.js route, not a client-side handler — the only thing standing
+    // between a submitted query and the network is the server-side guard in pilot-search.ts, so
+    // it matters that this really is a full-page navigation and not, say, a POST that would
+    // silently change what gets guarded and when.
+    const form = screen.getByRole('search') as HTMLFormElement
+    expect(form.getAttribute('action')).toBe('/pilots/search')
+    expect(form.method).toBe('get')
   })
 })

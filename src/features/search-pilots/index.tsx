@@ -31,7 +31,7 @@ export default function SearchPilots({ query, minLength, results }: SearchPilots
 // the network, not timing.
 function SearchForm({ query }: { query: string }) {
   return (
-    <form action="/pilots/search" className="flex gap-2">
+    <form action="/pilots/search" method="get" role="search" className="flex gap-2">
       <input
         type="text"
         name="q"
@@ -62,7 +62,11 @@ function SearchStatus({
   if (query.trim() === '') return null
 
   if (results === null) {
-    return <p className="text-sm opacity-70">Type at least {minLength} characters to search.</p>
+    return (
+      <p className="text-sm opacity-70">
+        Type at least {minLength} letters in a row to search (% and _ wildcards don&rsquo;t count).
+      </p>
+    )
   }
 
   if (results.length === 0) {
