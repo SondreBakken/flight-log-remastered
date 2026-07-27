@@ -8,16 +8,38 @@ vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
 
 import { getClubs } from '@/lib/flightlog/clubs'
 import { getCountries } from '@/lib/flightlog/countries'
-import { Clubs } from './page'
+import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
+import { Clubs, generateStaticParams } from './page'
 
 const mockedGetClubs = vi.mocked(getClubs)
 const mockedGetCountries = vi.mocked(getCountries)
+
+describe('generateStaticParams', () => {
+  it('returns exactly the curated club country ids, as canonical decimal strings', async () => {
+    expect(await generateStaticParams()).toEqual(CURATED_CLUB_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) })))
+  })
+})
 
 describe('Clubs route guard', () => {
   it.each(['0', '-5', 'abc', ''])(
     'renders notFound for a malformed countryId %j without calling either fetcher',
     async (countryId) => {
       await expect(Clubs({ params: Promise.resolve({ countryId }) })).rejects.toMatchObject({
+        digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+      })
+      expect(mockedGetClubs).not.toHaveBeenCalled()
+      expect(mockedGetCountries).not.toHaveBeenCalled()
+    },
+  )
+
+  // Every alias here normalises to 160 under plain `Number()` (and `Number.isInteger` is
+  // true for all of them too), so a guard built on `Number()` + `Number.isInteger` alone
+  // would render the page for each of them — a distinct URL per alias, none of them
+  // prerendered, for content identical to the curated `/countries/160`.
+  it.each(['0xA0', '0Xa0', '160.0', '1.6e2', '+160', ' 160 ', '160.', '\n160\t'])(
+    'renders notFound for the alias %j even though it normalises to 160, without calling either fetcher',
+    async (alias) => {
+      await expect(Clubs({ params: Promise.resolve({ countryId: alias }) })).rejects.toMatchObject({
         digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
       })
       expect(mockedGetClubs).not.toHaveBeenCalled()
