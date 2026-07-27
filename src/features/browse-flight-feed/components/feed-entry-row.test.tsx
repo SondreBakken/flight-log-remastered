@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { FeedEntryRow } from '@/features/browse-flight-feed/components/feed-entry-row'
 import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 
+// Cell-scoped, not document-scoped: getByText anywhere in the document would still pass
+// if two field values swapped table cells. Indexing into row cells makes column order
+// part of what the test asserts.
 function renderRow(entry: FeedEntry) {
-  return render(
+  render(
     <table>
       <tbody>
         <FeedEntryRow entry={entry} />
       </tbody>
     </table>,
   )
+  return within(screen.getByRole('row')).getAllByRole('cell')
 }
 
 const baseEntry: FeedEntry = {
@@ -32,24 +36,27 @@ const baseEntry: FeedEntry = {
 }
 
 describe('FeedEntryRow', () => {
-  it('renders a pilot link, the formatted flight fields, and a track link when a track exists', () => {
-    renderRow(baseEntry)
+  it('renders the date, pilot link, and formatted flight fields in column order, plus a track link when a track exists', () => {
+    const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = renderRow(baseEntry)
 
-    const pilotLink = screen.getByRole('link', { name: 'Ada Lovelace' })
+    expect(dateCell.textContent).toBe('2026-05-01')
+
+    const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
     expect(pilotLink.getAttribute('href')).toBe('/pilots/42')
 
-    expect(screen.getByText('Voss')).toBeDefined()
-    expect(screen.getByText('2:15')).toBeDefined()
-    expect(screen.getByText('38.4 km')).toBeDefined()
+    expect(takeoffCell.textContent).toBe('Voss')
+    expect(durationCell.textContent).toBe('2:15')
+    expect(distanceCell.textContent).toBe('38.4 km')
 
-    const trackLink = screen.getByRole('link', { name: 'View track' })
+    const trackLink = within(trackCell).getByRole('link', { name: 'View track' })
     expect(trackLink.getAttribute('href')).toBe('/flights/501')
   })
 
   it('renders "none" instead of a track link when the flight has no track', () => {
-    renderRow({ ...baseEntry, hasTrack: false })
+    const cells = renderRow({ ...baseEntry, hasTrack: false })
+    const trackCell = cells[5]
 
-    expect(screen.queryByRole('link', { name: 'View track' })).toBeNull()
-    expect(screen.getByText('none')).toBeDefined()
+    expect(within(trackCell).queryByRole('link', { name: 'View track' })).toBeNull()
+    expect(trackCell.textContent).toBe('none')
   })
 })

@@ -20,7 +20,9 @@ pnpm run check:track-hover                # map/chart hover identity (shared ind
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
-pnpm test                                 # Vitest: components/hooks, jsdom + React Testing Library
+pnpm run check:request-gate               # outbound request gate: concurrency cap, in-flight tracking
+pnpm test                                 # Vitest: components, jsdom + React Testing Library
+pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
 
