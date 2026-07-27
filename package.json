@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check:barogram": "tsx scripts/check-barogram.mts"
+    "check:barogram": "tsx scripts/check-barogram.mts",
+    "check:follow-store": "tsx scripts/check-follow-store.mts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
