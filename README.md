@@ -65,6 +65,11 @@ curl -s -b /tmp/fl.txt -A "$UA" -H "Content-Type: application/x-www-form-urlenco
   --data "form=find_user&user_fullname=nde&go=Go" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-grouped.html
 curl -s -b /tmp/fl.txt -A "$UA" -H "Content-Type: application/x-www-form-urlencoded" \
   --data "form=find_user&user_fullname=zzznomatchxyz123&go=Go" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-zero.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=11&country_id=160" -o fixtures/takeoffs-160.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=11&country_id=29" -o fixtures/takeoffs-29.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=160" -o fixtures/regions-160.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=29" -o fixtures/regions-29.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=8" -o fixtures/takeoff-schema.html
 ```
 
 Routes:
@@ -89,6 +94,8 @@ There is no documented API. Two undocumented surfaces are used, both reachable a
 | Tracklog | `fl.html?rqtid=19&trip_id=N` | KML, ~1 Hz lon/lat/alt |
 | Country list | `fl.html?rqtid=9` | HTML table, scraped |
 | Clubs in a country | `fl.html?l=1&a=25&country_id=N` | HTML, scraped |
+| Regions in a country | `fl.html?rqtid=10&country_id=N` | HTML table, scraped |
+| Takeoffs in a country | `fl.html?rqtid=11&country_id=N` | HTML table, scraped |
 
 `rqtid=21` and `rqtid=22` return self-describing JSON and appear to exist for GpsDump's sync. They are
 the only real API-shaped thing on the site.

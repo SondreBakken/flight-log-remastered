@@ -1,9 +1,25 @@
-import * as cheerio from 'cheerio'
+import { extractDataRows, type Nodes } from './parse-flightlog-table'
 import type { Country } from './types'
 
-type Nodes = ReturnType<ReturnType<typeof cheerio.load>>
+// Confirmed field order for rqtid=9 (all countries, 240 rows, no country_id needed — this is
+// the one bare-table endpoint that isn't scoped per country). Same family as rqtid=10/regions
+// and rqtid=11/takeoffs: identical "plainest response on the site" shape, confirmed empirically
+// to carry zero <a> tags and zero hp-nav occurrences (see parse-flightlog-table.ts).
+const COUNTRY_HEADER = [
+  'a2_code',
+  'a3_code',
+  'createdby',
+  'createdtime',
+  'id',
+  'name',
+  'num_code',
+  'timestamp',
+  'updatedby',
+  'updatedtime',
+  'fips_a2',
+] as const
+const COUNTRY_FIELD_COUNT = COUNTRY_HEADER.length
 
-const COUNTRY_ROW_CELL_COUNT = 11
 const COUNTRY_ID_CELL_INDEX = 4
 const COUNTRY_NAME_CELL_INDEX = 5
 
@@ -19,8 +35,9 @@ function readPositiveInteger(raw: string): number | null {
   return Number.isSafeInteger(value) && value > 0 ? value : null
 }
 
-function toCountry(cells: Nodes): Country | null {
-  if (cells.length !== COUNTRY_ROW_CELL_COUNT) return null
+function toCountry(row: Nodes): Country | null {
+  const cells = row.children('td')
+  if (cells.length !== COUNTRY_FIELD_COUNT) return null
 
   const countryId = readPositiveInteger(cells.eq(COUNTRY_ID_CELL_INDEX).text())
   const name = cells.eq(COUNTRY_NAME_CELL_INDEX).text().trim()
@@ -30,31 +47,16 @@ function toCountry(cells: Nodes): Country | null {
 }
 
 export function parseCountries(html: string): Country[] {
-  const $ = cheerio.load(html)
-  // The 11 <th> header cells are not wrapped in a <tr> in the source, but cheerio's parser
-  // still synthesizes one as a leading sibling of the data rows — a real <tr>, just not a
-  // data row. `td` presence, not row position, is what tells the two apart: the synthesized
-  // header row has none.
-  const candidateRows = $('table tr')
-    .toArray()
-    .map((row) => $(row))
-    .filter((row) => row.children('td').length > 0)
-  if (candidateRows.length === 0) {
-    throw new Error('Country list markup not recognised: found no rows with <td> cells')
-  }
+  const rows = extractDataRows(html, COUNTRY_HEADER, 'Country list')
 
-  const countries = candidateRows
-    .map((row) => toCountry(row.children('td')))
-    .filter((country): country is Country => country !== null)
+  const countries = rows.map(toCountry).filter((country): country is Country => country !== null)
 
   // A row we failed to parse is not the same as a page with no data rows at all — every
   // candidate row on this response is a genuine country row (rqtid=9 has no nav, no other
   // table), so any gap between candidate rows and parsed countries means one silently
   // dropped rather than the list legitimately being shorter.
-  if (countries.length !== candidateRows.length) {
-    throw new Error(
-      `Country list partially unparsed: ${countries.length}/${candidateRows.length} rows recognised`,
-    )
+  if (countries.length !== rows.length) {
+    throw new Error(`Country list partially unparsed: ${countries.length}/${rows.length} rows recognised`)
   }
 
   return countries
