@@ -58,6 +58,10 @@ function minMaxInRange(points: TrackPoint[], [start, end]: [number, number]): Tr
  * because a bucket's max/min is exactly the series max/min wherever that extreme falls,
  * so climbs and the flight ceiling always survive, and it needs no per-point scoring
  * pass (unlike largest-triangle-three-buckets), which fits a single altitude trace fine.
+ *
+ * This guarantee is why the chart's y-axis extremes can be read straight off the
+ * downsampled array (see createAltitudeScale below) instead of the original points:
+ * the series max/min is always one of the surviving points.
  */
 export function downsampleByMinMax(points: TrackPoint[], maxPoints: number): TrackPoint[] {
   if (points.length <= maxPoints) return points
@@ -115,8 +119,11 @@ export function buildAltitudePath(points: TrackPoint[], scale: AltitudeScale): s
   return segments.join(' ')
 }
 
+// A zero-width range (a flat altitude profile, or a single-point/all-zero-seconds track)
+// collapses to one tick instead of repeating `min` `count` times, which would otherwise
+// stack identical gridlines and labels on the same React key.
 export function evenlySpacedValues(min: number, max: number, count: number): number[] {
-  if (count <= 1) return [min]
+  if (count <= 1 || min === max) return [min]
   const step = (max - min) / (count - 1)
   return Array.from({ length: count }, (_, index) => min + step * index)
 }
@@ -126,4 +133,16 @@ export function formatElapsed(seconds: number): string {
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   return hours > 0 ? `${hours}h${String(minutes).padStart(2, '0')}` : `${minutes}m`
+}
+
+// Folds the figures a sighted user reads off the axes into the chart's accessible name,
+// since `role="img"` on the SVG hides every individual tick label from assistive tech.
+export function describeAltitudeChart(
+  scale: Pick<AltitudeScale, 'minAltitude' | 'maxAltitude' | 'maxSeconds'>,
+): string {
+  const range =
+    scale.minAltitude === scale.maxAltitude
+      ? `${Math.round(scale.minAltitude)} m`
+      : `${Math.round(scale.minAltitude)} to ${Math.round(scale.maxAltitude)} m`
+  return `Altitude over elapsed time: ${range} over ${formatElapsed(scale.maxSeconds)}`
 }

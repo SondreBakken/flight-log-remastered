@@ -11,6 +11,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
+import { TRACK_LINE_COLOR } from './colors'
 
 type TrackMapProps = {
   points: TrackPoint[]
@@ -110,7 +111,7 @@ export function TrackMap({ points, className }: TrackMapProps) {
         type: 'line',
         source: TRACK_SOURCE_ID,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#2563eb', 'line-width': 3 },
+        paint: { 'line-color': TRACK_LINE_COLOR, 'line-width': 3 },
       })
     }
 
