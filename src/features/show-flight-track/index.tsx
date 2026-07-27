@@ -1,4 +1,5 @@
 import type { Track } from '@/lib/flightlog/types'
+import { formatAltitude } from './barogram-math'
 import { Barogram } from './barogram'
 import { TrackMap } from './track-map'
 
@@ -7,10 +8,6 @@ type FlightTrackProps = {
 }
 
 type Stat = { label: string; value: string }
-
-function formatAltitude(metres: number | null): string {
-  return metres === null ? '—' : `${metres} m`
-}
 
 function toStats(track: Track): Stat[] {
   const { stats, points } = track

@@ -70,7 +70,7 @@ export function downsampleByMinMax(points: TrackPoint[], maxPoints: number): Tra
   return bucketRanges(points.length, bucketCount).flatMap((range) => minMaxInRange(points, range))
 }
 
-function altitudeExtent(points: TrackPoint[]): { min: number; max: number } {
+export function altitudeExtent(points: TrackPoint[]): { min: number; max: number } {
   if (points.length === 0) return { min: 0, max: 0 }
   const altitudes = points.map((point) => point.altitude)
   return { min: Math.min(...altitudes), max: Math.max(...altitudes) }
@@ -126,6 +126,10 @@ export function evenlySpacedValues(min: number, max: number, count: number): num
   if (count <= 1 || min === max) return [min]
   const step = (max - min) / (count - 1)
   return Array.from({ length: count }, (_, index) => min + step * index)
+}
+
+export function formatAltitude(metres: number | null): string {
+  return metres === null ? '—' : `${Math.round(metres)} m`
 }
 
 export function formatElapsed(seconds: number): string {

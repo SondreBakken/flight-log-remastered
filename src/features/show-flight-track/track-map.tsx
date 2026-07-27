@@ -7,11 +7,20 @@ import {
   Marker,
   NavigationControl,
   ScaleControl,
+  type ExpressionSpecification,
   type MapOptions,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
-import { TRACK_LINE_COLOR } from './colors'
+import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
+import { formatAltitude } from './barogram-math'
+
+declare global {
+  interface Window {
+    // See the assignment in the effect below for why this exists.
+    __flightTrackMap?: MapLibreMap
+  }
+}
 
 type TrackMapProps = {
   points: TrackPoint[]
@@ -76,6 +85,19 @@ function trackBounds(points: TrackPoint[]): LngLatBounds {
   )
 }
 
+// `line-gradient` is keyed to `line-progress`, MapLibre's own normalised cumulative
+// distance along the line, so the stop positions built in altitude-color.ts (an
+// independent distance estimate) only need to be close, not exact, for the colours to
+// land at the right points along the rendered geometry.
+function toLineGradientExpression(stops: GradientStop[]): ExpressionSpecification {
+  return [
+    'interpolate',
+    ['linear'],
+    ['line-progress'],
+    ...stops.flatMap((stop) => [stop.fraction, stop.color]),
+  ] as ExpressionSpecification
+}
+
 function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
@@ -83,6 +105,7 @@ function classes(...values: Array<string | undefined>): string {
 export function TrackMap({ points, className }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const gradient = buildAltitudeGradient(points)
 
   useEffect(() => {
     const container = containerRef.current
@@ -95,6 +118,10 @@ export function TrackMap({ points, className }: TrackMapProps) {
       fitBoundsOptions: { padding: 48, maxZoom: 14 },
     })
     mapRef.current = map
+    // No test runner in this repo (see README); browser verification scripts drive a real
+    // page instead and need a handle on the live map to assert source/layer state
+    // programmatically rather than trust a screenshot (see scripts/verify-map.mts).
+    window.__flightTrackMap = map
 
     map.addControl(new NavigationControl())
     map.addControl(new ScaleControl())
@@ -105,13 +132,19 @@ export function TrackMap({ points, className }: TrackMapProps) {
 
     const addTrackLayer = () => {
       if (map.getSource(TRACK_SOURCE_ID)) return
-      map.addSource(TRACK_SOURCE_ID, { type: 'geojson', data: trackLineData(points) })
+      // lineMetrics computes line-progress per vertex, the only per-vertex colour
+      // mechanism MapLibre has; GeoJSON `properties` are per feature, not per point.
+      map.addSource(TRACK_SOURCE_ID, {
+        type: 'geojson',
+        data: trackLineData(points),
+        lineMetrics: true,
+      })
       map.addLayer({
         id: TRACK_LAYER_ID,
         type: 'line',
         source: TRACK_SOURCE_ID,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': TRACK_LINE_COLOR, 'line-width': 3 },
+        paint: { 'line-gradient': toLineGradientExpression(gradient.stops), 'line-width': 3 },
       })
     }
 
@@ -127,7 +160,7 @@ export function TrackMap({ points, className }: TrackMapProps) {
       map.remove()
       mapRef.current = null
     }
-  }, [points])
+  }, [points, gradient.stops])
 
   if (points.length === 0) {
     return (
@@ -144,9 +177,26 @@ export function TrackMap({ points, className }: TrackMapProps) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md', className)}
-    />
+    <div className={classes('flex flex-col gap-2', className)}>
+      <div
+        ref={containerRef}
+        className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')}
+      />
+      <AltitudeLegend minAltitude={gradient.minAltitude} maxAltitude={gradient.maxAltitude} />
+    </div>
+  )
+}
+
+function AltitudeLegend({ minAltitude, maxAltitude }: { minAltitude: number; maxAltitude: number }) {
+  return (
+    <div className="flex items-center gap-2 text-xs opacity-70">
+      <span className="tabular-nums">{formatAltitude(minAltitude)}</span>
+      <span
+        aria-hidden="true"
+        className="h-2 flex-1 rounded-full"
+        style={{ backgroundImage: altitudeColorRampCss() }}
+      />
+      <span className="tabular-nums">{formatAltitude(maxAltitude)}</span>
+    </div>
   )
 }
