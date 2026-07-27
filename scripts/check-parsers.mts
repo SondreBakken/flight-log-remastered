@@ -6,6 +6,7 @@ import { parseClubs } from '../src/lib/flightlog/parse-clubs'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
 import { parseRegions } from '../src/lib/flightlog/parse-regions'
+import { encodeTakeoffRow, isTakeoffRows, TAKEOFF_ROW_LENGTH } from '../src/app/api/countries/[countryId]/takeoffs/contract'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -111,6 +112,33 @@ assert(takeoffs.length === 6012, `takeoffs-160.html (Norway): parses all 6012 ta
 assert(
   jordeTakeoff?.name === 'Jorde på Løten, Klæpa airport',
   `takeoffs-160.html: takeoff id 6246 resolves to the expected name (got ${jordeTakeoff?.name ?? 'MISSING'})`,
+)
+
+// #38: the real transform (encodeTakeoffRow) run end to end against the full 6012-row
+// Norway fixture, not a hand-picked sample — proving the wire shape at the size it will
+// actually ship at, not at a size too small to notice a shape regression.
+const takeoffRows = takeoffs.map(encodeTakeoffRow)
+console.log(`takeoffs-160.html: encoded rows=${takeoffRows.length}`)
+assert(takeoffRows.length === 6012, `takeoffs-160.html: encodes all 6012 rows (got ${takeoffRows.length})`)
+assert(
+  takeoffRows.every((row) => row.length === TAKEOFF_ROW_LENGTH),
+  `takeoffs-160.html: every encoded row has exactly ${TAKEOFF_ROW_LENGTH} fields (no dropped or duplicated field)`,
+)
+assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes the wire-boundary shape check')
+
+// Literal bounds, not derived from encodeTakeoffRow's own output or from TAKEOFF_ROW_LENGTH —
+// anchored to the measured value for this exact fixture (413,728 bytes uncompressed, #38's
+// decision comment on the issue) with headroom for incidental JSON.stringify formatting
+// differences, tight enough that "a silent shape change that doubles the payload" (an extra
+// field re-added, a field re-keyed instead of positional, a row duplicated) still fails it.
+const TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES = 370_000
+const TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES = 460_000
+const takeoffRowsBytes = Buffer.byteLength(JSON.stringify(takeoffRows), 'utf8')
+console.log(`takeoffs-160.html: encoded rows serialise to ${takeoffRowsBytes} bytes`)
+assert(
+  takeoffRowsBytes >= TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES && takeoffRowsBytes <= TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES,
+  `takeoffs-160.html: encoded payload size (${takeoffRowsBytes} bytes) falls within the expected ` +
+    `${TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES}-${TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES} byte band`,
 )
 
 const emptyTakeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-29.html', 'utf8'), 29)
