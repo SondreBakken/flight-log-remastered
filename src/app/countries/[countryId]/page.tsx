@@ -16,7 +16,10 @@ export default function CountryPage({ params }: { params: CountryParams }) {
 
 // Exported (unlike the equivalent inner component on the other dynamic routes) so the
 // notFound() guard can be exercised directly in page.test.tsx without a running Next.js
-// request context — notFound() just throws a plain Error, so a unit test is enough.
+// request context. notFound() throws a special Next.js control-flow error carrying a
+// `NEXT_HTTP_ERROR_FALLBACK;404` digest (asserted in page.test.tsx) — not a plain Error —
+// but Vitest's plain `await`/`rejects` handling is enough to catch and assert on it without
+// a router or request context.
 export async function Clubs({ params }: { params: CountryParams }) {
   const { countryId } = await params
   const id = Number(countryId)
