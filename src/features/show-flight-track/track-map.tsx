@@ -14,6 +14,8 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
 import { formatAltitude } from './barogram-math'
+import { TRACK_LINE_COLOR } from './colors'
+import { nearestPointByLocation, nearestPointBySeconds, sortBySeconds } from './track-hover'
 
 declare global {
   interface Window {
@@ -24,6 +26,8 @@ declare global {
 
 type TrackMapProps = {
   points: TrackPoint[]
+  hoveredSeconds: number | null
+  onHoverPoint: (seconds: number | null) => void
   className?: string
 }
 
@@ -102,10 +106,12 @@ function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
-export function TrackMap({ points, className }: TrackMapProps) {
+export function TrackMap({ points, hoveredSeconds, onHoverPoint, className }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const hoverMarkerRef = useRef<Marker | null>(null)
   const gradient = buildAltitudeGradient(points)
+  const sortedPoints = sortBySeconds(points)
 
   useEffect(() => {
     const container = containerRef.current
@@ -146,6 +152,23 @@ export function TrackMap({ points, className }: TrackMapProps) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-gradient': toLineGradientExpression(gradient.stops), 'line-width': 3 },
       })
+
+      // Scoped to the track layer rather than the whole map: MapLibre only calls this
+      // handler when the cursor is actually over the rendered line (its own hit-testing
+      // against the rendered pixels), so a per-event nearest-point scan over the full
+      // ~7000-point track only ever runs while hovering the line, not on every mouse move
+      // across the whole viewport.
+      map.on('mousemove', TRACK_LAYER_ID, (event) => {
+        const point = nearestPointByLocation(points, event.lngLat.lng, event.lngLat.lat)
+        if (point) onHoverPoint(point.secondsFromStart)
+      })
+      map.on('mouseenter', TRACK_LAYER_ID, () => {
+        map.getCanvas().style.cursor = 'crosshair'
+      })
+      map.on('mouseleave', TRACK_LAYER_ID, () => {
+        map.getCanvas().style.cursor = ''
+        onHoverPoint(null)
+      })
     }
 
     // An inline style needs no fetch, so it can finish loading before this effect
@@ -156,11 +179,29 @@ export function TrackMap({ points, className }: TrackMapProps) {
     new Marker({ color: '#16a34a' }).setLngLat(toLngLat(points[0])).addTo(map)
     new Marker({ color: '#dc2626' }).setLngLat(toLngLat(points[points.length - 1])).addTo(map)
 
+    // Created once and hidden, then only ever repositioned/toggled below: adding and
+    // removing a marker on every pointer move would thrash the DOM at pointer-move rate
+    // and risks racing the start/end markers above.
+    const hoverMarker = new Marker({ color: TRACK_LINE_COLOR }).setLngLat(toLngLat(points[0])).addTo(map)
+    hoverMarker.getElement().style.display = 'none'
+    hoverMarker.getElement().setAttribute('data-testid', 'hover-marker')
+    hoverMarkerRef.current = hoverMarker
+
     return () => {
       map.remove()
       mapRef.current = null
+      hoverMarkerRef.current = null
     }
-  }, [points, gradient.stops])
+  }, [points, gradient.stops, onHoverPoint])
+
+  useEffect(() => {
+    const hoverMarker = hoverMarkerRef.current
+    if (!hoverMarker) return
+
+    const point = hoveredSeconds === null ? null : nearestPointBySeconds(sortedPoints, hoveredSeconds)
+    hoverMarker.getElement().style.display = point ? '' : 'none'
+    if (point) hoverMarker.setLngLat(toLngLat(point))
+  }, [hoveredSeconds, sortedPoints])
 
   if (points.length === 0) {
     return (

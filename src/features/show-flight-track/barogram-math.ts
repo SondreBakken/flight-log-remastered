@@ -109,6 +109,17 @@ export function createAltitudeScale(
   }
 }
 
+// Inverse of AltitudeScale.x: maps a chart-local pixel x back to the seconds value it
+// represents. Clamped to the plotted range so a pointer that has strayed past the plot's
+// left/right edge (or the container's own edge) still resolves to the nearest real point
+// on the series instead of extrapolating off it.
+export function xToSecondsFromStart(scale: AltitudeScale, x: number): number {
+  const plotWidth = scale.bounds.width - scale.bounds.paddingLeft - scale.bounds.paddingRight
+  const timeSpan = scale.maxSeconds || 1
+  const raw = ((x - scale.bounds.paddingLeft) / plotWidth) * timeSpan
+  return Math.min(scale.maxSeconds, Math.max(0, raw))
+}
+
 export function buildAltitudePath(points: TrackPoint[], scale: AltitudeScale): string {
   if (points.length === 0) return ''
 
