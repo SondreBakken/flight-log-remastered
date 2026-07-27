@@ -6,6 +6,10 @@ import type { Country } from './types'
 
 const COUNTRY_LIST = 9
 
+// The only caller, /countries (src/app/countries/page.tsx), has no dynamic API in its tree,
+// so `next build` prerenders it fully static — this request runs at BUILD time. A
+// flightlog.org outage or WAF block during a build fails the build/deploy, not just a page
+// a user happens to hit while the site is down. See docs/flightlog-api.md (rqtid=9).
 export async function getCountries(): Promise<Country[]> {
   'use cache'
   cacheLife('days')
