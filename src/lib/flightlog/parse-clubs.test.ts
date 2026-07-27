@@ -4,11 +4,13 @@ import { parseClubs } from './parse-clubs'
 // Trimmed from the real `a=25&country_id=160` response, with real quirks preserved: the
 // malformed trailing `</a>` after the flight-count cell (needs cheerio, not a strict
 // parser), non-ASCII in a name (Ålesund), an HTML entity in a name (Alta Hang &amp;
-// Paragliderklubb), and a genuine zero-flight club (Salangen). Two rows are constructed
-// rather than lifted verbatim: a duplicate `club_id=53` row, and a honeypot-shaped row
-// placed *inside* the results table (real traps only ever appear in the shared nav chrome
-// above it — this proves the parser rejects one by its markers even when structural
-// position alone would not save it).
+// Paragliderklubb), and a genuine zero-flight club (Salangen). Three rows are constructed
+// rather than lifted verbatim: a duplicate `club_id=53` row, a honeypot-shaped row placed
+// *inside* the results table (real traps only ever appear in the shared nav chrome above
+// it — this proves the parser rejects one by its markers even when structural position
+// alone would not save it), and a row for a club that lists its own website before its
+// flightlog link (real clubs do this) — this proves `findClubAnchor` picks the `club_id=`
+// anchor specifically, not just the first anchor in the row.
 const CLUBS_HTML = `<html><body>
 <table width='96%'><tr><td><a href='/resources/546b6d9d1a350c66' class='hp-nav' style='position:absolute;left:-9999px;top:-9999px;' rel='nofollow' data-trap='1'>Resources</a></td></tr></table>
 <div style='padding:0px 10px'>
@@ -19,6 +21,7 @@ const CLUBS_HTML = `<html><body>
 <tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=6'>Salangen Paragliderklubb</a></td><td bgcolor='white'>0</a></td></tr>
 <tr><td bgcolor='white'><a href='/fl.html?a=26&club_id=999' class='hp-nav' style='position:absolute;left:-9999px;top:-9999px;' rel='nofollow' data-trap='1'>Resources</a></td><td bgcolor='white'>0</a></td></tr>
 <tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=53'>Albatross Aero Klubb (duplicate row)</a></td><td bgcolor='white'>1</a></td></tr>
+<tr><td bgcolor='white'><a href='http://www.bergen-pgklubb.no' target='_blank'>www.bergen-pgklubb.no</a> <a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=77'>Bergen Paragliderklubb</a></td><td bgcolor='white'>15</a></td></tr>
 </table>
 </div>
 </body></html>`
@@ -32,7 +35,7 @@ const EMPTY_COUNTRY_HTML = `<html><body>
 </body></html>`
 
 describe('parseClubs', () => {
-  it('reads club id, name and flight count; excludes an in-table honeypot; dedupes a repeated club id', () => {
+  it('reads club id, name and flight count; excludes an in-table honeypot; ignores a preceding non-club anchor; dedupes a repeated club id', () => {
     const clubs = parseClubs(CLUBS_HTML, 160)
 
     expect(clubs).toEqual([
@@ -40,6 +43,7 @@ describe('parseClubs', () => {
       { clubId: 31, name: 'Ålesund Paragliderklubb', flightCount: 77 },
       { clubId: 42, name: 'Alta Hang & Paragliderklubb', flightCount: 8 },
       { clubId: 6, name: 'Salangen Paragliderklubb', flightCount: 0 },
+      { clubId: 77, name: 'Bergen Paragliderklubb', flightCount: 15 },
     ])
   })
 
