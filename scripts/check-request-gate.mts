@@ -9,6 +9,7 @@ import {
   REQUEST_GATE_MIN_SPACING_MS,
   REQUEST_GATE_TIMEOUT_MS,
   flightlogRequestGate,
+  gatedFetch,
 } from '../src/lib/flightlog/outbound-gate'
 import { CONCURRENCY_LIMIT } from '../src/features/browse-flight-feed/use-flight-feed'
 import { MAX_YEARS_PER_PILOT } from '../src/features/browse-flight-feed/feed'
@@ -29,8 +30,28 @@ function assert(condition: boolean, label: string): void {
   if (!condition) failures++
 }
 
+// Object.is at every leaf, not JSON.stringify: stringify collapses distinct values to the
+// same text (NaN and null both become "null"; undefined and a function both become
+// `undefined`, the non-string), so it can call two genuinely different values equal. This
+// only walks arrays and plain objects, which is everything this file ever compares.
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((value, index) => deepEqual(value, b[index]))
+  }
+  if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+    const aEntries = Object.entries(a as Record<string, unknown>)
+    const bRecord = b as Record<string, unknown>
+    return (
+      aEntries.length === Object.keys(bRecord).length &&
+      aEntries.every(([key, value]) => deepEqual(value, bRecord[key]))
+    )
+  }
+  return false
+}
+
 function assertEqual<T>(actual: T, expected: T, label: string): void {
-  const pass = Object.is(actual, expected) || JSON.stringify(actual) === JSON.stringify(expected)
+  const pass = deepEqual(actual, expected)
   console.log(`${pass ? 'ok' : 'FAIL'} - ${label}`)
   if (!pass) {
     failures++
@@ -56,6 +77,24 @@ type FakeClock = GateClock & { advance(ms: number): Promise<void>; pendingTimerC
 // a fixed tick budget silently could.
 async function flushMicrotasks(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
+}
+
+// Bounds every "release/advance until N have started" polling loop below. Without this, a
+// mutation that stops the gate making progress (e.g. dropping pump() from release()) turns
+// a bounded wait into a real hang — measured at 25+ real seconds with no output and no
+// diagnostic, since a loop that keeps DOING something (releasing, advancing) each iteration
+// never goes idle, so Node's own unsettled-top-level-await diagnostic (which only fires on
+// an idle event loop) never fires either. `step` is expected to already yield to a real
+// macrotask itself (a fake clock's advance() does via setImmediate; a real-timer block uses
+// an actual setTimeout) — this only adds the missing bound and a loud, specific failure.
+async function drainUntil(label: string, isDone: () => boolean, step: () => Promise<void>): Promise<void> {
+  const MAX_ITERATIONS = 1000
+  for (let i = 0; !isDone(); i++) {
+    if (i >= MAX_ITERATIONS) {
+      throw new Error(`${label}: gate made no further progress after ${MAX_ITERATIONS} drain iterations — likely stalled`)
+    }
+    await step()
+  }
 }
 
 function createFakeClock(): FakeClock {
@@ -184,12 +223,12 @@ assertEqual(REQUEST_GATE_TIMEOUT_MS, 8_000, 'REQUEST_GATE_TIMEOUT_MS is pinned t
   const feedLoadWorstCaseMs = (rawFetchesPerFeedLoad - 1) * REQUEST_GATE_MIN_SPACING_MS
   assertEqual(feedLoadWorstCaseMs, 550, 'sizing: the worst-case spacing-added latency to fully DISPATCH a full 4-pilot feed load is 550ms')
 
-  // fetch-pilot-feed.ts's own FETCH_TIMEOUT_MS (15_000) is private to that module and not
-  // imported here — this is a separate, independently chosen ceiling being checked against,
-  // not the constant under test being echoed back at itself.
-  const CLIENT_SIDE_TIMEOUT_CEILING_MS = 15_000
-  assert(feedLoadWorstCaseMs < CLIENT_SIDE_TIMEOUT_CEILING_MS, 'sizing: the full feed load worst case (550ms) stays far under the browser-side 15s ceiling')
-
+  // fetch-pilot-feed.ts's own FETCH_TIMEOUT_MS (15_000, well above the 550ms figure above)
+  // is private to that module and not imported here, and not asserted against directly —
+  // feedLoadWorstCaseMs is already pinned to an exact value (550) above, so a `< 15000`
+  // check on top of it can only ever fail once that pin has already failed. Documented
+  // here, not asserted, so it stays honest about being commentary rather than coverage.
+  //
   // This model counts only the common (no session-remint) case. A session gate on every
   // fetch can drive one logical fetchFlightlog call to 4 gated calls (mint, first attempt,
   // re-mint, retry) instead of 1, worst-casing nearer 48 gated fetches and ~2350ms of
@@ -242,10 +281,14 @@ assertEqual(REQUEST_GATE_TIMEOUT_MS, 8_000, 'REQUEST_GATE_TIMEOUT_MS is pinned t
   // Releasing only the ones started so far would miss any caller that starts only once
   // one of these releases frees its slot — so this keeps releasing whatever is newly
   // pending until every one of them has both started and been released.
-  while (releases.length > 0 || started < CALLERS) {
-    releases.splice(0).forEach((release) => release())
-    if (started < CALLERS) await new Promise((resolve) => setTimeout(resolve, 10))
-  }
+  await drainUntil(
+    'production gate: draining 5 real callers',
+    () => releases.length === 0 && started === CALLERS,
+    async () => {
+      releases.splice(0).forEach((release) => release())
+      if (started < CALLERS) await new Promise((resolve) => setTimeout(resolve, 10))
+    },
+  )
   await Promise.all(runs)
 }
 
@@ -340,10 +383,14 @@ for (const badTimeout of [NaN, 0, -1]) {
   assertEqual(harness.startedCount(), LIMIT, 'many waiters: callers arriving while the gate is saturated do not start early')
 
   // Drain everything one release at a time; concurrency must never exceed LIMIT at any point.
-  while (harness.pendingCount() > 0 || harness.startedCount() < 9) {
-    harness.releaseOldest()
-    await flushMicrotasks()
-  }
+  await drainUntil(
+    'many waiters: draining 9 callers',
+    () => harness.pendingCount() === 0 && harness.startedCount() === 9,
+    async () => {
+      harness.releaseOldest()
+      await flushMicrotasks()
+    },
+  )
   await Promise.all([...firstBatch, ...lateBatch])
 
   assert(harness.maxInFlight() <= LIMIT, `many waiters: concurrency never exceeded ${LIMIT} at any point, including late arrivals`)
@@ -392,6 +439,58 @@ for (const badTimeout of [NaN, 0, -1]) {
 
   tasks.forEach((t, i) => t.resolve(`v${i}`))
   await Promise.all(results)
+}
+
+{
+  // The spacing test above uses limit=10 against 4 waiters, so it never exercises a freed
+  // slot being handed back into an ALREADY-SATURATED pool — every admission there is into
+  // an idle slot. lastStartTime is one shared value for the whole gate, not one per slot,
+  // so spacing has to keep binding across reuse too: saturate to LIMIT concurrently first,
+  // then keep releasing only the oldest active task (freeing a slot while the rest stay in
+  // flight) and re-admitting from the same queue, and check every start globally, not per
+  // slot, is still >= SPACING apart.
+  const clock = createFakeClock()
+  const LIMIT = 4
+  const SPACING = 30
+  const gate = createRequestGate({ limit: LIMIT, minSpacingMs: SPACING, timeoutMs: 1_000_000, clock })
+  const COUNT = 12
+  const startTimes: number[] = []
+  const active: Array<() => void> = []
+
+  const runs = Array.from({ length: COUNT }, () =>
+    gate.run(
+      () =>
+        new Promise<void>((resolve) => {
+          startTimes.push(clock.now())
+          active.push(resolve)
+        }),
+    ),
+  )
+  await flushMicrotasks()
+
+  await drainUntil(
+    'spacing survives slot reuse: saturating to the concurrency limit',
+    () => startTimes.length >= LIMIT,
+    () => clock.advance(SPACING),
+  )
+  assertEqual(active.length, LIMIT, `spacing survives slot reuse: exactly ${LIMIT} tasks are concurrently active once saturated`)
+
+  await drainUntil(
+    'spacing survives slot reuse: draining the remaining callers',
+    () => startTimes.length === COUNT,
+    async () => {
+      active.shift()!() // free the oldest active slot; the rest stay in flight
+      await clock.advance(SPACING)
+    },
+  )
+  active.splice(0).forEach((release) => release())
+  await Promise.all(runs)
+
+  const gaps = startTimes.slice(1).map((t, i) => t - startTimes[i]!)
+  assert(
+    gaps.every((gap) => gap >= SPACING),
+    `spacing survives slot reuse: every one of ${COUNT} starts (limit ${LIMIT}, slots reused under saturation) is >= ${SPACING}ms after the previous start (gaps: ${gaps.join(', ')})`,
+  )
 }
 
 // =====================================================================================
@@ -510,6 +609,27 @@ for (const badTimeout of [NaN, 0, -1]) {
   await nextPromise
 }
 
+{
+  // A task that throws SYNCHRONOUSLY, before ever returning a promise, must still cancel
+  // the timeout timer set for it — run() rejecting correctly is not enough on its own, the
+  // timer that would otherwise fire TIMEOUT ms later has to actually be torn down too.
+  const clock = createFakeClock()
+  const TIMEOUT = 1000
+  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: TIMEOUT, clock })
+  const thrown = new Error('synchronous boom')
+
+  let caught: unknown
+  try {
+    await gate.run(() => {
+      throw thrown
+    })
+  } catch (error) {
+    caught = error
+  }
+  assert(caught === thrown, "sync throw: run() rejects with the task's own synchronously-thrown error, unchanged")
+  assertEqual(clock.pendingTimerCount(), 0, 'sync throw: the timeout timer set for the task is cancelled, not leaked, when the task throws synchronously')
+}
+
 // =====================================================================================
 // No leaked timers: a caller signal to cancel a queued wait, and reentrant nested calls,
 // were both removed from the gate (see concurrency/request-gate.ts's doc comment) — no
@@ -538,12 +658,188 @@ for (const badTimeout of [NaN, 0, -1]) {
   // call would leave behind alongside the first.
   assertEqual(clock.pendingTimerCount(), 2, 'no leaked timers: a later spacing wakeup replaces the pending one instead of accumulating a duplicate')
 
-  while (harness.pendingCount() > 0 || harness.startedCount() < 3) {
-    harness.releaseOldest()
-    await clock.advance(20)
-  }
+  await drainUntil(
+    'no leaked timers: draining 3 callers',
+    () => harness.pendingCount() === 0 && harness.startedCount() === 3,
+    async () => {
+      harness.releaseOldest()
+      await clock.advance(20)
+    },
+  )
   await Promise.all(runs)
   assertEqual(clock.pendingTimerCount(), 0, 'no leaked timers: nothing remains pending once every caller has completed normally')
+}
+
+// =====================================================================================
+// gatedFetch: the shared function outbound-gate.ts exports so http.ts's two call sites can
+// be one-liners, instead of each hand-rolling its own gate.run(fetch(...)) — this is what
+// makes the actual outbound path testable at all despite http.ts itself living behind
+// 'server-only'. Takes an injectable gate (production callers never pass one, so they
+// always run through the real singleton) so these can drive a fake clock instead of paying
+// for the real 8s production timeout on every check run — see gatedFetch's own doc comment.
+// =====================================================================================
+
+function stubFetch(handler: (url: string, init?: RequestInit) => Promise<Response>): () => void {
+  const original = globalThis.fetch
+  globalThis.fetch = handler as unknown as typeof fetch
+  return () => {
+    globalThis.fetch = original
+  }
+}
+
+{
+  // Acquires a slot: concurrent calls beyond the gate's limit must queue behind it exactly
+  // like any other task, not bypass it because they're routed through gatedFetch.
+  const clock = createFakeClock()
+  const LIMIT = 2
+  const gate = createRequestGate({ limit: LIMIT, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
+  const releases: Array<() => void> = []
+  const restoreFetch = stubFetch(
+    () =>
+      new Promise<Response>((resolve) => {
+        releases.push(() => resolve(new Response('', { status: 200 })))
+      }),
+  )
+
+  const COUNT = 5
+  const runs = Array.from({ length: COUNT }, (_, i) => gatedFetch(`https://example.test/${i}`, {}, gate))
+  await flushMicrotasks()
+  assertEqual(releases.length, LIMIT, `gatedFetch: acquires a slot — only ${LIMIT} of ${COUNT} concurrent calls reach fetch(), the rest queue behind the gate`)
+
+  await drainUntil(
+    'gatedFetch acquires a slot: draining',
+    () => releases.length === 0 && runs.length === COUNT,
+    async () => {
+      releases.splice(0).forEach((release) => release())
+      await flushMicrotasks()
+    },
+  )
+  await Promise.all(runs)
+  restoreFetch()
+}
+
+{
+  // Applies the timeout: a fetch() that never settles must still be bounded by the gate's
+  // timeout, and the signal handed to fetch() must be the one that aborts.
+  const clock = createFakeClock()
+  const TIMEOUT = 500
+  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: TIMEOUT, clock })
+  let capturedSignal: AbortSignal | undefined
+  const restoreFetch = stubFetch((_url, init) => {
+    capturedSignal = init?.signal ?? undefined
+    return new Promise<Response>(() => {}) // never settles — simulates a hung connection
+  })
+
+  const resultPromise = gatedFetch('https://example.test/hang', {}, gate)
+  // Attached before advancing the clock, not after — the timeout fires DURING advance()
+  // below, and a promise with no handler attached yet at that moment is what Node's own
+  // unhandled-rejection detection flags as a crash, even though the try/await further down
+  // handles it "for real" a few lines later.
+  void resultPromise.catch(() => undefined)
+  await flushMicrotasks()
+  assert(
+    capturedSignal !== undefined && !capturedSignal.aborted,
+    'gatedFetch: applies the timeout — fetch() is called with a not-yet-aborted signal',
+  )
+
+  await clock.advance(TIMEOUT)
+  let caught: unknown
+  try {
+    await resultPromise
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof RequestGateTimeoutError,
+    "gatedFetch: applies the timeout — a hung fetch() rejects with RequestGateTimeoutError once the gate's timeout elapses",
+  )
+  assert(capturedSignal?.aborted === true, 'gatedFetch: applies the timeout — the signal handed to fetch() is aborted once the timeout fires')
+  restoreFetch()
+}
+
+{
+  // Headers-then-stall probe: a server that resolves fetch() (headers available) but then
+  // stalls the BODY must not let the gate believe the slot is free. gatedFetch reads the
+  // body inside the same gated task as the fetch — this is the property that closes the
+  // gap where a real open connection could exceed the gate's limit while the gate itself
+  // believes it is idle, and directly exercises the same read that http.ts's requestOnce
+  // relies on gatedFetch to do.
+  //
+  // The ground-truth signal here is whether the SECOND caller's own fetch() is reached at
+  // all — not whether gatedFetch's outer promise has resolved. A version that reads the
+  // body OUTSIDE the gated task still ends up awaiting that same stalled body before ITS
+  // OWN promise resolves, so checking gatedFetch's return value can't tell the two apart;
+  // only the gate's internal slot-release timing can, and fetchCallCount observes that
+  // directly.
+  const clock = createFakeClock()
+  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
+  let fetchCallCount = 0
+  let resolveText!: (value: string) => void
+  const textPromise = new Promise<string>((resolve) => {
+    resolveText = resolve
+  })
+  const restoreFetch = stubFetch(async () => {
+    fetchCallCount++
+    return {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      text: () => textPromise,
+    } as unknown as Response
+  })
+
+  const firstPromise = gatedFetch('https://example.test/stall', {}, gate)
+  await flushMicrotasks()
+  assertEqual(fetchCallCount, 1, 'gatedFetch: the first call reaches fetch()')
+
+  const secondPromise = gatedFetch('https://example.test/second', {}, gate)
+  await flushMicrotasks()
+  assertEqual(
+    fetchCallCount,
+    1,
+    "gatedFetch: reads the body inside the slot — a queued second caller's fetch() is not reached while the first call's body is still stalled, headers having already arrived",
+  )
+
+  resolveText('the body')
+  const first = await firstPromise
+  assertEqual(first.text, 'the body', 'gatedFetch: the resolved result carries the body read inside the gated task')
+
+  await drainUntil(
+    "headers-then-stall probe: waiting for the second caller's fetch()",
+    () => fetchCallCount === 2,
+    () => flushMicrotasks(),
+  )
+  assertEqual(fetchCallCount, 2, "gatedFetch: the slot is released once the first call's body finally resolves, admitting the queued second caller")
+  await secondPromise
+  restoreFetch()
+}
+
+{
+  // Releases on both success and failure: a rejecting fetch() must free the slot exactly
+  // like a resolving one does, not hold it hostage for the next queued caller.
+  const clock = createFakeClock()
+  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
+  const failure = new Error('network exploded')
+  const restoreFailingFetch = stubFetch(() => {
+    throw failure
+  })
+
+  let caught: unknown
+  try {
+    await gatedFetch('https://example.test/fail', {}, gate)
+  } catch (error) {
+    caught = error
+  }
+  assert(caught === failure, "gatedFetch: propagates a rejecting fetch()'s error unchanged")
+  restoreFailingFetch()
+
+  const restoreOkFetch = stubFetch(async () => new Response('ok', { status: 200 }))
+  const next = await gatedFetch('https://example.test/next', {}, gate)
+  assert(
+    next.ok,
+    'gatedFetch: releases its slot on failure — the next call (limit=1) is admitted right away instead of hanging behind the failed one',
+  )
+  restoreOkFetch()
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)

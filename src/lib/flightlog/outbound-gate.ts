@@ -63,3 +63,32 @@ export const flightlogRequestGate: RequestGate = createRequestGate({
   minSpacingMs: REQUEST_GATE_MIN_SPACING_MS,
   timeoutMs: REQUEST_GATE_TIMEOUT_MS,
 })
+
+export type GatedFetchResult = {
+  readonly status: number
+  readonly ok: boolean
+  readonly headers: Headers
+  readonly text: string
+}
+
+// The only place a raw fetch() to flightlog.org is allowed to happen (enforced for
+// src/lib/flightlog/http.ts by the no-restricted-globals rule scoped to it in
+// eslint.config.mjs). Both http.ts call sites become one-line callers of this, which is
+// what makes the gate's real behaviour — slot acquisition, timeout, and the body read that
+// must happen INSIDE the slot (see requestOnce's old doc comment, now here) — directly
+// testable with a stubbed global fetch, instead of living entirely behind 'server-only'.
+//
+// `gate` defaults to the production singleton, so http.ts's two call sites (which never
+// pass it) always run through the real limit/spacing/timeout. Tests inject a fake-clock
+// gate instead — asserting a real 8s timeout would mean actually waiting 8 real seconds
+// every check run, which a fake clock avoids without weakening what gets asserted.
+export function gatedFetch(
+  url: string,
+  init: RequestInit,
+  gate: RequestGate = flightlogRequestGate,
+): Promise<GatedFetchResult> {
+  return gate.run(async (signal) => {
+    const response = await fetch(url, { ...init, signal })
+    return { status: response.status, ok: response.ok, headers: response.headers, text: await response.text() }
+  })
+}

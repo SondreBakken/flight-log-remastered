@@ -130,16 +130,24 @@ export function createRequestGate(options: RequestGateOptions): RequestGate {
         timeoutController.abort()
         reject(new RequestGateTimeoutError(timeoutMs))
       })
-      Promise.resolve(task(timeoutController.signal)).then(
-        (value) => {
-          cancelTimer()
-          resolve(value)
-        },
-        (error: unknown) => {
-          cancelTimer()
-          reject(error)
-        },
-      )
+      // Calling task() from inside a .then() rather than bare defers the call by a
+      // microtask, which is what routes a SYNCHRONOUS throw (before the task ever returns
+      // a promise) into the rejection branch below instead of skipping past cancelTimer()
+      // entirely — a bare call's synchronous throw unwinds straight out of this executor,
+      // which still rejects the outer promise correctly, but leaves the timeout timer set
+      // moments earlier with nothing left to cancel it.
+      Promise.resolve()
+        .then(() => task(timeoutController.signal))
+        .then(
+          (value) => {
+            cancelTimer()
+            resolve(value)
+          },
+          (error: unknown) => {
+            cancelTimer()
+            reject(error)
+          },
+        )
     })
   }
 
