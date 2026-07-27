@@ -16,6 +16,7 @@ pnpm exec tsx scripts/check-parsers.mts   # parsers against saved fixtures
 pnpm exec tsx scripts/check-barogram.mts  # barogram downsampling and scaling math
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
+pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 ```
 
 ### Fixtures
