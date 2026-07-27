@@ -1,4 +1,5 @@
 import 'server-only'
+import { gatedFetch, type GatedFetchResult } from './outbound-gate'
 
 export const FLIGHTLOG_ORIGIN = 'https://flightlog.org'
 
@@ -20,7 +21,7 @@ function isExpired(session: Session): boolean {
   return Date.now() - session.mintedAt > SESSION_MAX_AGE_MS
 }
 
-function readSessionCookie(response: Response): string {
+function readSessionCookie(response: GatedFetchResult): string {
   const cookies = response.headers.getSetCookie()
   const flightlogCookie = cookies.find((cookie) => cookie.startsWith('flightlog='))
   if (!flightlogCookie) throw new Error('flightlog.org did not issue a session cookie')
@@ -28,7 +29,7 @@ function readSessionCookie(response: Response): string {
 }
 
 async function mintSession(): Promise<Session> {
-  const response = await fetch(FLIGHTLOG_ORIGIN, {
+  const response = await gatedFetch(FLIGHTLOG_ORIGIN, {
     headers: { 'user-agent': BROWSER_USER_AGENT },
     cache: 'no-store',
   })
@@ -47,8 +48,12 @@ async function getSession(): Promise<Session> {
   return currentSession
 }
 
-function requestOnce(path: string, session: Session, referer: string): Promise<Response> {
-  return fetch(`${FLIGHTLOG_ORIGIN}${path}`, {
+// gatedFetch already reads the body inside the same gated task as the fetch, not after it
+// resolves — a server that sends headers and then stalls the body would otherwise release
+// its slot (and stop being covered by the timeout) the moment headers arrive, letting real
+// open connections exceed the gate's limit while it believes itself idle.
+function requestOnce(path: string, session: Session, referer: string): Promise<GatedFetchResult> {
+  return gatedFetch(`${FLIGHTLOG_ORIGIN}${path}`, {
     headers: {
       'user-agent': BROWSER_USER_AGENT,
       cookie: session.cookie,
@@ -61,17 +66,11 @@ function requestOnce(path: string, session: Session, referer: string): Promise<R
 
 // A 302 to the root means either a dead session or a request the site won't serve.
 // We cannot tell those apart from the response, so we re-mint once and retry.
-function isSessionGate(response: Response): boolean {
-  return response.status === 302
+function isSessionGate(result: GatedFetchResult): boolean {
+  return result.status === 302
 }
 
-export async function fetchFlightlog(
-  path: string,
-  { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
-): Promise<Response> {
-  const firstAttempt = await requestOnce(path, await getSession(), referer)
-  if (!isSessionGate(firstAttempt)) return firstAttempt
-
+async function retryAfterReminting(path: string, referer: string): Promise<GatedFetchResult> {
   currentSession = null
   const retry = await requestOnce(path, await getSession(), referer)
   if (isSessionGate(retry)) {
@@ -82,11 +81,13 @@ export async function fetchFlightlog(
 
 export async function fetchFlightlogText(
   path: string,
-  options?: { referer?: string },
+  { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
 ): Promise<string> {
-  const response = await fetchFlightlog(path, options)
-  if (!response.ok) {
-    throw new Error(`flightlog.org returned ${response.status} for ${path}`)
+  const firstAttempt = await requestOnce(path, await getSession(), referer)
+  const result = isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer) : firstAttempt
+
+  if (!result.ok) {
+    throw new Error(`flightlog.org returned ${result.status} for ${path}`)
   }
-  return response.text()
+  return result.text
 }
