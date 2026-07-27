@@ -89,6 +89,14 @@ The plainest response on the site — no page shell, no nav, no honeypot, no lin
   The` carries id 237, alphabetically between `Congo, Republic of the` id 49 and `Cook Islands`
   id 50). Confirmed: Norway=160, Sweden=203.
 
+**Consequence for this app:** `/countries` (`src/app/countries/page.tsx`) calls `getCountries()`
+with no dynamic APIs in the tree above it, so `next build` prerenders it as fully static output
+(confirmed: `pnpm run build` marks the route `○ (Static)`). That means this specific `rqtid=9`
+request is made *at build time*, not at request time — a flightlog.org outage or a WAF block
+during a build fails the build itself, and therefore the deploy, not merely a page a user happens
+to hit while the site is down. `/countries/[countryId]` (`a=25`, clubs) is a Partial Prerender
+instead, so it does not carry this risk the same way.
+
 ### rqtid=21 (the sync endpoint)
 
 ```
@@ -226,14 +234,23 @@ honeypot copy, same as every other page) around one results block:
 </div>
 ```
 
-- `club_id` comes from the row's `href`, not a cell — select `a[href*="a=26"]`, read `club_id=(\d+)`.
-  Same discipline as `parse-flights.ts`: matching a specific action code in the `href` is what
-  keeps this off the honeypot, which never carries `a=26` and lives only in the shared nav chrome
-  above the results table, never inside it.
+- `club_id` comes from the row's `href`, not a cell — select `a[href*="club_id="]`, read
+  `club_id=(\d+)`, and confirm the same href also contains `a=26`.
+- Matching a specific action code in the `href` is **not**, by itself, what keeps the honeypot
+  out of the results — the honeypot's own href never carries `club_id=`, and the live trap
+  happens to sit only in the shared nav chrome above the results table, never inside it, so
+  immunity today is incidental to where the trap happens to be, not to what the selector checks.
+  A trap constructed with a `club_id=` and an `a=26` href, placed inside the results table, is
+  indistinguishable from a real row by href alone. The parser (`parse-clubs.ts`) therefore
+  excludes anchors carrying `class="hp-nav"`, `data-trap`, or `rel="nofollow"` explicitly,
+  regardless of where in the document they sit or what their href contains — a structural check,
+  not a positional one.
 - The stray `</a>` closing the second `<td>` (no matching open tag) is real markup, not a transcription
   error — another malformed-HTML case like the flight rows, needs cheerio.
 - Second `<td>` is a plain integer, the club's total flight count — not a link, not a member count.
-- Club names are not guaranteed trimmed (`Oslo Paragliderklubb ` has a trailing space in the source).
+- Club names are not guaranteed trimmed (`Oslo Paragliderklubb ` has a trailing space in the source),
+  contain non-ASCII (`Ålesund Paragliderklubb`), and contain HTML entities (`Alta Hang &amp;
+  Paragliderklubb`).
 - Norway (`country_id=160`) returned 91 clubs, alphabetical by name, one unpaginated response, no
   result cap observed.
 - **Country with no clubs** (`country_id=29`, Bouvet Island): identical shell, `200 OK`, and the
@@ -241,6 +258,20 @@ honeypot copy, same as every other page) around one results block:
   bgcolor='black'></table>`, zero `<tr>`. Not a missing table and not a redirect; a parser should
   treat "table present, zero rows" as a valid empty result and "table missing" as unrecognised
   markup worth throwing on.
+- **Nonexistent `country_id`** (a syntactically valid id that names no real country, e.g. a very
+  large integer never assigned in the `rqtid=9` id space): same shell, `200 OK`, same empty
+  `<table ...></table>` as Bouvet Island. The response gives no way to distinguish "real country,
+  genuinely zero clubs" from "no such country" — both collapse to the identical empty-results
+  page. A caller that needs that distinction has to cross-reference `rqtid=9` itself; the clubs
+  endpoint alone cannot make it. (See also `a=8` and `a=32`, which are expected to share this
+  shape once investigated.)
+- **Container anchor.** The results table itself
+  (`table[cellspacing="1"][cellpadding="3"][bgcolor="black"]`) is a safer anchor than the div
+  wrapping it (`div[style*="padding:0px 10px"]`): that div is generic page chrome present on
+  pages that are not the clubs list at all (e.g. a pilot page), so anchoring on it alone lets an
+  unrelated page — including the documented `a=6`-`a=19` homepage-fallback class above — parse as
+  "zero clubs" instead of failing loudly. The table's three attributes together were not observed
+  anywhere else across the fixtures on hand.
 
 `comp_id` values observed: 1, 37, 161-168.
 

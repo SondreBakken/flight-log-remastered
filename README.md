@@ -12,8 +12,8 @@ Protection is off so the site is publicly viewable.
 ```bash
 pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
-pnpm exec tsx scripts/check-parsers.mts   # parsers against saved fixtures
 pnpm run check                            # every check: below, in one pass
+pnpm run check:parsers                    # parsers against saved fixtures; SKIPs (exit 0) if fixtures/ is absent
 pnpm run check:barogram                   # barogram downsampling and scaling math
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
@@ -45,12 +45,16 @@ too.
 ### Fixtures
 
 `scripts/check-parsers.mts` runs against saved pages under `fixtures/`, which are **not committed**:
-scraped profile pages carry contact details, both the account owner's and other pilots'. Regenerate
-them locally (any pilot id works; the second is one with GPS tracks):
+scraped profile pages carry contact details, both the account owner's and other pilots'. Absent
+fixtures make `check:parsers` SKIP (exit 0) rather than fail — it never blocks `pnpm run check` in a
+clean checkout, only in a checkout where fixtures were regenerated and then drifted from what the
+parsers expect. Regenerate them locally (12677 is the account owner's own pilot id, with no GPS
+tracks; 4549 is a pilot with GPS tracks; any pilot id works for either):
 
 ```bash
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /dev/null
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
