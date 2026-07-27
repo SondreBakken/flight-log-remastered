@@ -1,4 +1,5 @@
 import 'server-only'
+import { flightlogRequestGate } from './request-gate'
 
 export const FLIGHTLOG_ORIGIN = 'https://flightlog.org'
 
@@ -28,10 +29,13 @@ function readSessionCookie(response: Response): string {
 }
 
 async function mintSession(): Promise<Session> {
-  const response = await fetch(FLIGHTLOG_ORIGIN, {
-    headers: { 'user-agent': BROWSER_USER_AGENT },
-    cache: 'no-store',
-  })
+  const response = await flightlogRequestGate.run((signal) =>
+    fetch(FLIGHTLOG_ORIGIN, {
+      headers: { 'user-agent': BROWSER_USER_AGENT },
+      cache: 'no-store',
+      signal,
+    }),
+  )
   if (!response.ok) {
     throw new Error(`flightlog.org refused the session request (${response.status})`)
   }
@@ -48,15 +52,18 @@ async function getSession(): Promise<Session> {
 }
 
 function requestOnce(path: string, session: Session, referer: string): Promise<Response> {
-  return fetch(`${FLIGHTLOG_ORIGIN}${path}`, {
-    headers: {
-      'user-agent': BROWSER_USER_AGENT,
-      cookie: session.cookie,
-      referer,
-    },
-    redirect: 'manual',
-    cache: 'no-store',
-  })
+  return flightlogRequestGate.run((signal) =>
+    fetch(`${FLIGHTLOG_ORIGIN}${path}`, {
+      headers: {
+        'user-agent': BROWSER_USER_AGENT,
+        cookie: session.cookie,
+        referer,
+      },
+      redirect: 'manual',
+      cache: 'no-store',
+      signal,
+    }),
+  )
 }
 
 // A 302 to the root means either a dead session or a request the site won't serve.
