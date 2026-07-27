@@ -132,6 +132,9 @@ function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
         Open a pilot&apos;s logbook and use the Follow button there to add their flights to this
         feed.
       </p>
+      <Link className="underline" href="/pilots/search">
+        Search for a pilot by name
+      </Link>
       <Link className="underline" href={`/pilots/${defaultPilotId}`}>
         Browse a pilot&apos;s logbook
       </Link>

@@ -60,6 +60,11 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=160" -o fixtures/clubs-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=29" -o fixtures/clubs-29.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-form.html
+curl -s -b /tmp/fl.txt -A "$UA" -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "form=find_user&user_fullname=nde&go=Go" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-grouped.html
+curl -s -b /tmp/fl.txt -A "$UA" -H "Content-Type: application/x-www-form-urlencoded" \
+  --data "form=find_user&user_fullname=zzznomatchxyz123&go=Go" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-zero.html
 ```
 
 Routes:
@@ -67,6 +72,7 @@ Routes:
 - `/` a feed of recent flights across every followed pilot (the follow list lives in
   `localStorage`, read client-side via `/api/pilots/[userId]/recent-flights`)
 - `/pilots/[userId]` logbook, one row per flight, linking flights that have a GPS track
+- `/pilots/search` find a pilot by name, with a follow button per result
 - `/flights/[tripId]` track on a map plus flight statistics
 - `/countries` every country, linking into its club list
 - `/countries/[countryId]` clubs in that country, with each club's total flight count
@@ -78,6 +84,7 @@ There is no documented API. Two undocumented surfaces are used, both reachable a
 | What | Endpoint | Format |
 | --- | --- | --- |
 | Pilot profile + flights | `fl.html?l=1&a=28&user_id=N` | HTML, scraped |
+| Pilot search | `POST fl.html?l=1&a=114` (`form=find_user`, `user_fullname`, `go=Go`) | HTML, scraped |
 | Tracklog index for a pilot/year | `fl.html?rqtid=21&user_id=N&year=Y&ts=0` | JSON |
 | Tracklog | `fl.html?rqtid=19&trip_id=N` | KML, ~1 Hz lon/lat/alt |
 | Country list | `fl.html?rqtid=9` | HTML table, scraped |
@@ -103,7 +110,15 @@ the only real API-shaped thing on the site.
   source never loads, no console error. v5 inlines the worker as a blob.
 
 Caching uses Cache Components (`use cache` + `cacheLife`) so repeated views do not re-hit the site:
-flights hourly, tracks daily.
+flights hourly, tracks daily. Pilot search is deliberately **not** cached: every distinct query
+string is its own cache key, so caching it would accumulate one entry per substring anyone ever
+typed and would keep serving stale results for pilots who registered after the entry was cached —
+unlike flights/tracks/countries/clubs, which all key on a closed, enumerable dimension (a pilot id,
+a country id). It also has no minimum-length-driven debounce: `/pilots/search` is a plain GET
+`<form>` read via `searchParams`, so a search only ever fires once, on explicit submit, not per
+keystroke — there is nothing for a debounce to throttle. What *is* enforced is a floor on real
+(non-wildcard) query characters before a query ever reaches the network — see
+`src/lib/flightlog/pilot-search.ts`.
 
 ## Not done
 

@@ -48,13 +48,29 @@ async function getSession(): Promise<Session> {
   return currentSession
 }
 
+// Every caller in this file passes a plain string-keyed header object (or nothing) — never a
+// `Headers` instance or a `[string, string][]` tuple list, both of which `RequestInit['headers']`
+// permits. That matters here specifically: `{ ...aHeadersInstance }` spreads to `{}` (its data
+// lives behind accessors, not enumerable own properties), so a caller that passed a real
+// `Headers` object would have its headers silently vanish with no type error, since `RequestInit`
+// itself would happily accept it. Narrowing the type to a plain record catches that at compile
+// time instead.
+type FlightlogRequestInit = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }
+
 // gatedFetch already reads the body inside the same gated task as the fetch, not after it
 // resolves — a server that sends headers and then stalls the body would otherwise release
 // its slot (and stop being covered by the timeout) the moment headers arrive, letting real
 // open connections exceed the gate's limit while it believes itself idle.
-function requestOnce(path: string, session: Session, referer: string): Promise<GatedFetchResult> {
+//
+// `init` layers UNDER the fixed headers below, not over them, so a caller passing e.g. a
+// content-type or a POST body/method never has to repeat user-agent/cookie/referer itself —
+// and, just as importantly, can never override them either: those three stay mandatory for
+// every request this file makes, GET or POST, which only holds if they are spread last.
+function requestOnce(path: string, session: Session, referer: string, init: FlightlogRequestInit = {}): Promise<GatedFetchResult> {
   return gatedFetch(`${FLIGHTLOG_ORIGIN}${path}`, {
+    ...init,
     headers: {
+      ...init.headers,
       'user-agent': BROWSER_USER_AGENT,
       cookie: session.cookie,
       referer,
@@ -70,13 +86,32 @@ function isSessionGate(result: GatedFetchResult): boolean {
   return result.status === 302
 }
 
-async function retryAfterReminting(path: string, referer: string): Promise<GatedFetchResult> {
+async function retryAfterReminting(path: string, referer: string, init?: FlightlogRequestInit): Promise<GatedFetchResult> {
   currentSession = null
-  const retry = await requestOnce(path, await getSession(), referer)
+  const retry = await requestOnce(path, await getSession(), referer, init)
   if (isSessionGate(retry)) {
     throw new Error(`flightlog.org refused ${path} — session gate, or the resource does not exist`)
   }
   return retry
+}
+
+// Shared by fetchFlightlogText and postFlightlogText: decide whether the first attempt hit
+// the session gate (re-mint and retry once if so), then turn a non-ok response into a thrown
+// error. Whether re-issuing `init` a second time is actually safe is a per-caller question —
+// see postFlightlogText's own comment at its call site, since a GET and a POST don't carry
+// the same idempotency guarantee just because they share this plumbing.
+async function resolveGatedText(
+  path: string,
+  firstAttempt: GatedFetchResult,
+  referer: string,
+  init?: FlightlogRequestInit,
+): Promise<string> {
+  const result = isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer, init) : firstAttempt
+
+  if (!result.ok) {
+    throw new Error(`flightlog.org returned ${result.status} for ${path}`)
+  }
+  return result.text
 }
 
 export async function fetchFlightlogText(
@@ -84,10 +119,33 @@ export async function fetchFlightlogText(
   { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
 ): Promise<string> {
   const firstAttempt = await requestOnce(path, await getSession(), referer)
-  const result = isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer) : firstAttempt
+  return resolveGatedText(path, firstAttempt, referer)
+}
 
-  if (!result.ok) {
-    throw new Error(`flightlog.org returned ${result.status} for ${path}`)
+// The sibling POST fetcher — first write-shaped verb in this file, though the one request it
+// currently backs (a=114 pilot search) is not itself a write. Body is caller-supplied,
+// already `application/x-www-form-urlencoded`-encoded (see pilot-search.ts's buildSearchBody,
+// which uses URLSearchParams so non-ASCII query characters are percent-encoded correctly).
+export async function postFlightlogText(
+  path: string,
+  body: string,
+  { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
+): Promise<string> {
+  const init: FlightlogRequestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
   }
-  return result.text
+
+  const firstAttempt = await requestOnce(path, await getSession(), referer, init)
+  // resolveGatedText re-issues `init` verbatim against a freshly-minted session when the
+  // first attempt hits the session gate — the same policy fetchFlightlogText uses, but that
+  // policy was reasoned for a GET with no body, safe to repeat by construction. Repeating
+  // this POST is safe for a different, POST-specific reason: `form=find_user` performs a
+  // read — it looks up a name and renders matches — with no create/update/delete effect on
+  // flightlog.org's data, so re-submitting it a second time after a re-mint cannot double
+  // anything. That argument is specific to this one target; a future POST added here for an
+  // actual write (e.g. a=30's new-flight wizard, a=37 login) must not inherit it — a
+  // session-gated write needs its own judgement about whether retrying is safe, not this one.
+  return resolveGatedText(path, firstAttempt, referer, init)
 }

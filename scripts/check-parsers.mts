@@ -3,6 +3,7 @@ import { parseFlights, parsePilot } from '../src/lib/flightlog/parse-flights'
 import { parseTrack } from '../src/lib/flightlog/parse-track'
 import { parseCountries } from '../src/lib/flightlog/parse-countries'
 import { parseClubs } from '../src/lib/flightlog/parse-clubs'
+import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -18,6 +19,9 @@ const requiredFixtures = [
   'fixtures/countries.html',
   'fixtures/clubs-160.html',
   'fixtures/clubs-29.html',
+  'fixtures/pilot-search-form.html',
+  'fixtures/pilot-search-grouped.html',
+  'fixtures/pilot-search-zero.html',
 ]
 const missing = requiredFixtures.filter((f) => !existsSync(f))
 if (missing.length > 0) {
@@ -68,6 +72,31 @@ assert(clubs.length === 91, `clubs-160.html (Norway): parses all 91 clubs (got $
 const emptyClubs = parseClubs(readFileSync('fixtures/clubs-29.html', 'utf8'), 29)
 console.log(`clubs-29.html (Bouvet Island): clubs=${emptyClubs.length}`)
 assert(emptyClubs.length === 0, `clubs-29.html (Bouvet Island): genuinely zero clubs (got ${emptyClubs.length})`)
+
+// pilot-search-form.html is a=114's bare GET form: no query submitted, so it has zero candidate
+// rows AND no "-1 No match found" banner (that banner only renders on a POST response, zero-
+// match or otherwise). Production only ever parses POST responses, never this page, so it is
+// correct — not a regression — for the parser to throw here: zero candidates without the banner
+// is exactly the shape markup drift produces, and this page can't be told apart from that by the
+// parser alone.
+let formPageThrew = false
+try {
+  parsePilotSearch(readFileSync('fixtures/pilot-search-form.html', 'utf8'))
+} catch {
+  formPageThrew = true
+}
+console.log(`pilot-search-form.html: threw=${formPageThrew}`)
+assert(formPageThrew, 'pilot-search-form.html: bare GET form page (never parsed in production) throws rather than parsing as zero results')
+
+const groupedSearch = parsePilotSearch(readFileSync('fixtures/pilot-search-grouped.html', 'utf8'))
+const norwayHits = groupedSearch.filter((result) => result.country === 'Norway')
+console.log(`pilot-search-grouped.html: results=${groupedSearch.length} norway=${norwayHits.length}`)
+assert(groupedSearch.length === 407, `pilot-search-grouped.html (user_fullname=nde): parses all 407 rows (got ${groupedSearch.length})`)
+assert(norwayHits.length > 0, `pilot-search-grouped.html: at least one Norway hit (got ${norwayHits.length})`)
+
+const zeroMatchSearch = parsePilotSearch(readFileSync('fixtures/pilot-search-zero.html', 'utf8'))
+console.log(`pilot-search-zero.html: results=${zeroMatchSearch.length}`)
+assert(zeroMatchSearch.length === 0, `pilot-search-zero.html: genuinely zero matches (got ${zeroMatchSearch.length})`)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)

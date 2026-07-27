@@ -186,6 +186,16 @@ All confirmed working with an **anonymous** session. `GET` renders a form advert
 GET /fl.html?l=1&a=114
 ```
 
+**Full field list** (the GET form page has exactly these three inputs, no hidden field beyond
+what was already documented):
+
+```html
+<form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'>
+<input name='form' type='hidden' value='find_user'> Find pilot (wildcards: % _): <input name='user_fullname' type='text' size='15' style='font-size:9px' value=''>
+<input name='go' type='submit' value='Go' style='font-size:9px'>
+</form>
+```
+
 `POST`ing the same fields performs the search and returns matches as `a=28&user_id=<id>` links
 grouped by country under country-name headers:
 
@@ -194,26 +204,68 @@ POST /fl.html?l=1&a=114
 form=find_user & user_fullname=<query> & go=Go
 ```
 
+**Response markup — grouped results** (`user_fullname=nde`, trimmed). Unlike every other scraped
+surface on this site, results are **not** a table: they are bare text and `<a>` siblings inside
+the same div that holds the search form itself, with `<br>` as the only separator:
+
+```html
+<div style='padding:0px 10px'>
+
+      <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'>
+      <input name='form' type='hidden' value='find_user'> Find pilot (wildcards: % _): <input name='user_fullname' type='text' size='15' style='font-size:9px' value='nde'>
+      <input name='go' type='submit' value='Go' style='font-size:9px'>
+      </form>
+      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=6924'>JHON ALEXANDER QUINTERO GUTIERREZ</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=8167'>Anders Steffensen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11048'>Lars Funder</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=10258'>Sofie K. H. Andersen</a><br>France:<br>...
+      ...&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=3140'>Anders Lindmarker</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11512'>Matt Sanders</a><br><hr>
+</div>
+```
+
+- **Results container.** There is no table to anchor on, and the div wrapping the form
+  (`div[style*="padding:0px 10px"]`) is the same generic chrome `a=25`/clubs uses — anchoring on
+  it alone repeats that parser's original bug (a pilot page would parse as "zero results" instead
+  of throwing). The safe anchor is the search `<form>` itself
+  (`action='/fl.html?l=1&a=114'`): it renders identically on the GET form page, the POST results
+  page, and the POST zero-match page, and does not appear on any other page type on the site.
+  `parse-pilot-search.ts` selects that form and treats its parent as the results container.
+- **Country group headers** are plain, untagged text nodes reading `<CountryName>:` immediately
+  followed by `<br>` — not a heading element, not a class, nothing to select. A parser has to walk
+  sibling nodes in document order and track "the last country-header text node seen" as it goes.
+- **Each result row** is `&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=<id>'>Name</a><br>` —
+  a plain sibling of the header text, not wrapped in any row element. `user_id` comes from the
+  `href`, exactly like every other pilot link on the site. The leading `&nbsp;&nbsp;&nbsp;` indent
+  text nodes decode to U+00A0, which JavaScript's `trim()` strips as whitespace, so they vanish
+  the same way an empty text node does — nothing special to special-case there.
+- The whole result set is closed by a bare `<hr>` before the div closes; there is no other
+  terminator.
+- Non-ASCII names appear undecorated (`Samúel Alexandersson`, `ú`) and decode normally as HTML
+  text content.
+
 **Matching semantics**, resolved with two queries against the known-good `Henden` set (Børge 2831,
 Nils Aage 754, Patrick 11072, all Norway):
 
 - `user_fullname=nde` — an interior substring of "Henden" (not a token, not a prefix or suffix, not
-  the surname itself) returned 300+ pilots, including the 3 known Hendens and many whose *first*
-  name alone contains "nde" (e.g. "Anders...", "Aleksander..."). This confirms **case-insensitive
-  substring match against the full display name** (first + last, not a surname-only column) — it
-  rules out token match, surname-prefix match, and exact-surname-column match in the one query.
+  the surname itself) returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
+  India, Netherlands, Northern Mariana Islands, Norway, Sweden, United Kingdom in the fixture on
+  hand), including the 3 known Hendens and many whose *first* name alone contains "nde" (e.g.
+  "Anders...", "Aleksander..."). This confirms **case-insensitive substring match against the full
+  display name** (first + last, not a surname-only column) — it rules out token match,
+  surname-prefix match, and exact-surname-column match in the one query.
 - `user_fullname=H_nden` (literal underscore) returned exactly the same 3 Hendens. This confirms
   the advertised `_` wildcard is a real SQL `LIKE` single-char wildcard layered on top of the
   implicit substring wrap, not a literal character requiring escaping — the wildcard claim is
   accurate, and it is not made redundant by the implicit substring behavior since it lets a caller
   narrow a match that plain substring would over-select.
 
-No result cap or pagination was observed: the `nde` query returned 300+ rows in a single 48.6 KB
+No result cap or pagination was observed: the `nde` query returned 407 rows in a single 48.7 KB
 response with no truncation notice or "N of M" count.
 
-**Zero-match response** (`user_fullname=zzznomatchxyz123`): `200 OK`, same page shell, the search
-box re-populated with the query, no results list and no "no results" message — just an empty
-content div.
+**Zero-match response** (`user_fullname=zzznomatchxyz123`): `200 OK`, same page shell. Correction
+to an earlier pass over this endpoint, which claimed no "no results" message exists — there is
+one, just not inside the results div: a banner immediately above it,
+`<div style='background-color:yellow'>-1 No match found</div>`. The results div itself is present
+(same form, same container) but has nothing after `</form>` — zero candidate rows, not a missing
+container, the same "container present, zero rows" shape `a=25`/clubs uses for a country with no
+clubs.
 
 ### Clubs in a country (`a=25`)
 
