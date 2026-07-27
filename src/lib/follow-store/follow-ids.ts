@@ -1,11 +1,16 @@
 export type PilotId = number
 
 // A hostile or corrupted payload could be an arbitrarily long garbage string;
-// reject it by length before ever handing it to JSON.parse.
-const STORED_RAW_MAX_LENGTH = 20_000
+// reject it by length before ever handing it to JSON.parse. Exported so storage.ts
+// can apply the same limit on write, and the check script can build a payload that
+// exercises it precisely.
+export const STORED_RAW_MAX_LENGTH = 20_000
 
 function isValidPilotId(value: unknown): value is PilotId {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0
+  // isSafeInteger, not isInteger: values past 2^53 (e.g. from `1e308` or an
+  // over-precision literal in the stored JSON) still pass isInteger after float
+  // coercion but are not real ids.
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 export function parseStoredIds(raw: string | null): Set<PilotId> {

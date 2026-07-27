@@ -14,6 +14,7 @@ pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
 pnpm exec tsx scripts/check-parsers.mts   # parsers against saved fixtures
 pnpm exec tsx scripts/shot.mts <url> <out.png>
+pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 ```
 
 ### Fixtures

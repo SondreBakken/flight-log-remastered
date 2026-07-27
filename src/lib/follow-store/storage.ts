@@ -1,4 +1,11 @@
-import { addId, parseStoredIds, removeId, serializeIds, type PilotId } from './follow-ids'
+// `client-only` (the symmetric counterpart to `server-only`, already used under
+// src/lib/flightlog/) is not a dependency of this project, so this file is marked with the
+// 'use client' directive instead. It is a weaker guarantee: unlike server-only's guaranteed
+// throw on misuse, 'use client' only forces a Server Component that imports this module into
+// a client boundary, which surfaces most misuse without silently no-opping.
+'use client'
+
+import { addId, parseStoredIds, removeId, serializeIds, STORED_RAW_MAX_LENGTH, type PilotId } from './follow-ids'
 
 const STORAGE_KEY = 'flight-log:followed-pilots'
 
@@ -20,8 +27,19 @@ function readIds(): Set<PilotId> {
 
 function writeIds(ids: ReadonlySet<PilotId>): void {
   if (typeof window === 'undefined') return
+  const serialized = serializeIds(ids)
+  // Mirror the read-side length guard: a payload past it would just parse back to an
+  // empty set on next load (parseStoredIds rejects it outright), so skip persisting it
+  // rather than silently lose the list. The in-memory snapshot still updates for this
+  // tab; only durability across reloads is given up.
+  if (serialized.length > STORED_RAW_MAX_LENGTH) {
+    console.warn(
+      `follow-store: ${ids.size} followed pilots serialize past the ${STORED_RAW_MAX_LENGTH}-char storage limit; not persisting.`,
+    )
+    return
+  }
   try {
-    window.localStorage.setItem(STORAGE_KEY, serializeIds(ids))
+    window.localStorage.setItem(STORAGE_KEY, serialized)
   } catch {
     // Storage can be unavailable or full; the in-memory snapshot still updates for this tab.
   }
@@ -60,7 +78,9 @@ if (typeof window !== 'undefined') {
 
 export function subscribe(onStoreChange: () => void): () => void {
   subscribers.add(onStoreChange)
-  return () => subscribers.delete(onStoreChange)
+  return () => {
+    subscribers.delete(onStoreChange)
+  }
 }
 
 // Referentially stable until commit()/handleStorageEvent() swap it, which is what
@@ -70,20 +90,42 @@ export function getSnapshot(): ReadonlySet<PilotId> {
 }
 
 // The server can never know the browser's followed list, so it always renders empty.
-// Returning the same frozen-shape reference every time keeps React from looping.
+// Returning the same object reference every time keeps useSyncExternalStore from
+// treating this as a change on every call.
 export function getServerSnapshot(): ReadonlySet<PilotId> {
   return EMPTY_IDS
 }
 
+// Hydration happens lazily on the first read (see ensureHydrated), so this is only
+// meaningful once something has called getSnapshot/follow/unfollow/toggleFollow at least
+// once. Paired with getServerHasHydrated below through the same useSyncExternalStore
+// subscription that already drives getSnapshot/getServerSnapshot, so consumers can render
+// a neutral state until this flips, instead of a value indistinguishable from "not followed".
+export function getHasHydrated(): boolean {
+  return hydrated
+}
+
+export function getServerHasHydrated(): boolean {
+  return false
+}
+
+function commitIfChanged(next: Set<PilotId>, previous: ReadonlySet<PilotId>): void {
+  // addId/removeId return a same-size copy when the id was invalid or already
+  // absent/present; skip the write and subscriber notification for that no-op.
+  if (next.size !== previous.size) commit(next)
+}
+
 export function follow(pilotId: PilotId): void {
-  commit(addId(ensureHydrated(), pilotId))
+  const ids = ensureHydrated()
+  commitIfChanged(addId(ids, pilotId), ids)
 }
 
 export function unfollow(pilotId: PilotId): void {
-  commit(removeId(ensureHydrated(), pilotId))
+  const ids = ensureHydrated()
+  commitIfChanged(removeId(ids, pilotId), ids)
 }
 
 export function toggleFollow(pilotId: PilotId): void {
   const ids = ensureHydrated()
-  commit(ids.has(pilotId) ? removeId(ids, pilotId) : addId(ids, pilotId))
+  commitIfChanged(ids.has(pilotId) ? removeId(ids, pilotId) : addId(ids, pilotId), ids)
 }
