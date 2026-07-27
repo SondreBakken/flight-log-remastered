@@ -1,7 +1,6 @@
 import * as cheerio from 'cheerio'
+import type { Nodes } from './parse-flightlog-table'
 import type { Flight, Pilot } from './types'
-
-type Nodes = ReturnType<ReturnType<typeof cheerio.load>>
 
 const FLIGHT_ROW_CELL_COUNT = 7
 const COUNTRY_LINK_ACTION = 47

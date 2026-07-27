@@ -29,6 +29,13 @@ const WRONG_ENDPOINT_HTML =
 const DECOY_TABLE_FIRST_HTML = `<html><body><table><tr><td>unrelated</td></tr></table><table border=1><th>country_id</th><th>createdby</th><th>createdtime</th><th>id</th><th>name</th><th>timestamp</th><th>updatedby</th><th>updatedtime</th><tr><td>160</td><td>1</td><td>2001-02-23 10:41:35</td><td>2</td><td>Akershus</td><td>2002-03-18 02:18:49</td><td>1</td><td>2001-02-23 10:41:35</td></tr>
 </table></body></html>`
 
+// Same 8 field names as REGION_HEADER, same count, but `id` and `name` swapped — a column
+// reorder on the live site, not a field being added or removed. Regression guard for the
+// header check degrading to a count-only comparison: same length would pass, but the values
+// under `id`/`name` would then be silently swapped for every row.
+const REORDERED_HEADER_HTML =
+  '<html><body><table border=1><th>country_id</th><th>createdby</th><th>createdtime</th><th>name</th><th>id</th><th>timestamp</th><th>updatedby</th><th>updatedtime</th><tr><td>160</td><td>1</td><td>2001-02-23 10:41:35</td><td>2</td><td>Akershus</td><td>2002-03-18 02:18:49</td><td>1</td><td>2001-02-23 10:41:35</td></tr></table></body></html>'
+
 describe('parseRegions', () => {
   it('finds the results table by its border="1" attribute, ignoring an unrelated table that precedes it', () => {
     // Regression guard for the container selector degrading to a bare `table` (any table,
@@ -58,6 +65,13 @@ describe('parseRegions', () => {
 
   it('throws when a response sharing the bare-table shape carries the wrong header, even with zero data rows', () => {
     expect(() => parseRegions(WRONG_ENDPOINT_HTML, 29)).toThrow()
+  })
+
+  it('throws when the header has the right field count but a reordered field name, instead of silently swapping values', () => {
+    // Regression guard for the header check degrading to `actualHeader.length ===
+    // expectedHeader.length` alone — every other negative case here differs in field *count*,
+    // so none exercises the per-position equality check this one pins.
+    expect(() => parseRegions(REORDERED_HEADER_HTML, 160)).toThrow()
   })
 
   it('throws rather than silently dropping a row when an extra cell shifts the field mapping', () => {

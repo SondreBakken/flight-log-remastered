@@ -6,8 +6,9 @@ export type Nodes = ReturnType<ReturnType<typeof cheerio.load>>
 // "plainest response on the site" shape (see docs/flightlog-api.md): no page shell, no nav,
 // no honeypot, no links at all — just `<table border=1>` with an unwrapped `<th>` header
 // cheerio synthesizes into a leading `<tr>`, followed by zero or more `<tr><td>…</td></tr>`
-// data rows. Confirmed empirically for both rqtid=10 and rqtid=11 (Norway, country_id=160,
-// and Bouvet Island, country_id=29 — zero <a> tags, zero hp-nav occurrences in every capture).
+// data rows. Confirmed empirically for rqtid=9 (zero <a> tags, zero hp-nav occurrences), and
+// for both rqtid=10 and rqtid=11 (Norway, country_id=160, and Bouvet Island, country_id=29 —
+// same, in every capture of either endpoint).
 const RESULTS_TABLE_SELECTOR = 'table[border="1"]'
 
 function isDataRow(row: Nodes): boolean {
@@ -21,9 +22,10 @@ function headerFields($: ReturnType<typeof cheerio.load>, row: Nodes): string[] 
     .get()
 }
 
-// Shared by parse-takeoffs.ts and parse-regions.ts. Returns every candidate data row —
-// callers still have to run their own strict per-row extraction and floor check on top,
-// the same division of labour parse-clubs.ts and parse-pilot-search.ts use.
+// Shared by parse-countries.ts, parse-regions.ts and parse-takeoffs.ts. Returns every
+// candidate data row — callers still have to run their own strict per-row extraction and
+// floor check on top, the same division of labour parse-clubs.ts and parse-pilot-search.ts
+// use.
 export function extractDataRows(html: string, expectedHeader: readonly string[], entityLabel: string): Nodes[] {
   const $ = cheerio.load(html)
   const table = $(RESULTS_TABLE_SELECTOR).first()

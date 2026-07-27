@@ -128,9 +128,9 @@ capture of both endpoints, full and empty alike) — just one `<table border=1>`
 - **Norway (`country_id=160`):** rqtid=11 returns exactly 6012 `<tr>` rows (matches the doc's
   claim precisely), all unique `id`s, one `GET`, no pagination. rqtid=10 returns 29 regions.
   `region_id` on a takeoff row references rqtid=10's `id` column for the same country; `0` means
-  "no region assigned" (29 of Norway's own region ids exist that no takeoff currently uses, and
-  many takeoffs carry `region_id=0`). `subregion_id` was `0` for every one of Norway's 6012 rows —
-  never seen non-zero in this dataset.
+  "no region assigned" (6 of Norway's own 29 region ids — 110, 130, 137, 140, 153, 164 — are never
+  used by any takeoff, and many takeoffs carry `region_id=0`). `subregion_id` was `0` for every one
+  of Norway's 6012 rows — never seen non-zero in this dataset.
 - **Coordinates.** `lat`/`lon` are the only fields in either response observed with a decimal point
   or a negative sign — one Norway takeoff (`Auenhaugen, Golsfjellet - Gol`, id 10778) carries a
   genuinely negative latitude (`-1.01694444`), a live data-entry glitch, not a transcription error.
@@ -139,13 +139,20 @@ capture of both endpoints, full and empty alike) — just one `<table border=1>`
   negative `altitudediff` (landing above takeoff) or a below-sea-level `altitude` is physically
   plausible and wasn't ruled out by sampling one country.
 - **`wind` encoding — confirmed, not assumed.** Across Norway's 6012 takeoffs, `wind` is always a
-  bare integer, range 0-255 (165 distinct values observed, spread across the full range). That
-  range is exactly one byte, consistent with an **8-bit bitmask over compass octants** (a site
-  usable from several directions sets multiple bits; `0` = none recorded, `255` = all eight) — not
-  a single compass point, confirming the caution in issue #12 that "sites work across ranges." The
-  bit-to-direction mapping itself was not independently confirmed (no site cross-referenced against
-  its known real-world wind exposure); only the shape of the encoding (integer bitmask, not an enum
-  or a string) is established here.
+  bare integer, range 0-255 — exactly one byte. 166 distinct values appear (90 of the 256 possible
+  never do), and the distribution is heavily skewed, not spread evenly: 3017 of 6012 rows fall in
+  0-31 alone, `0` by itself is 991 rows and `255` is 366. The stronger evidence is structural, not
+  the distinct-value count: treating each value as an 8-bit mask over compass octants, 4319 of
+  6012 values are a single **circularly contiguous run of set bits** (e.g. `0b00011100`, three
+  adjacent octants — a run that wraps past bit 7 back to bit 0 still counts), and another 1357 are
+  `0` or `255` (all-clear or all-set) — together 5676 of 6012 rows (94%) are empty, full, or one
+  contiguous arc, exactly the shape a site's real-world wind exposure would produce under an
+  **8-bit bitmask over compass octants** (a site usable from several adjacent directions sets
+  multiple adjacent bits; `0` = none recorded, `255` = all eight) — not a single compass point,
+  confirming the caution in issue #12 that "sites work across ranges." The bit-to-direction
+  mapping itself was not independently confirmed (no site cross-referenced against its known
+  real-world wind exposure); only the shape of the encoding (integer bitmask, not an enum or a
+  string) is established here.
 - **Field order as the positive signal.** Neither response wraps its results in anything more
   specific than `<table border=1>` — no other attribute or wrapping element distinguishes it from
   rqtid=8's schema doc or the sibling endpoint's own response, both of which share the identical

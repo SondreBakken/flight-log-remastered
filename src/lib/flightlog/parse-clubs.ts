@@ -1,7 +1,6 @@
 import * as cheerio from 'cheerio'
+import type { Nodes } from './parse-flightlog-table'
 import type { Club } from './types'
-
-type Nodes = ReturnType<ReturnType<typeof cheerio.load>>
 
 const CLUB_LINK_ACTION = 26
 // Every page on the site carries an `hp-nav` honeypot link — regenerated per request,

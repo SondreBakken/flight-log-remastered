@@ -5,7 +5,16 @@ import type { Region } from './types'
 // country_id=29 — 0 rows, both header-only-verified). createdby/createdtime/timestamp/
 // updatedby/updatedtime are metadata cruft, same family as rqtid=9/countries' a2_code/
 // fips_a2/etc — trimmed at the parse boundary rather than carried, following that precedent.
-const REGION_HEADER = ['country_id', 'createdby', 'createdtime', 'id', 'name', 'timestamp', 'updatedby', 'updatedtime'] as const
+const REGION_HEADER = [
+  'country_id',
+  'createdby',
+  'createdtime',
+  'id',
+  'name',
+  'timestamp',
+  'updatedby',
+  'updatedtime',
+] as const
 const REGION_FIELD_COUNT = REGION_HEADER.length
 
 const COUNTRY_ID_CELL_INDEX = 0

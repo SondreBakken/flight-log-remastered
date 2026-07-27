@@ -69,6 +69,7 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=11&country_
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=11&country_id=29" -o fixtures/takeoffs-29.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=160" -o fixtures/regions-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=29" -o fixtures/regions-29.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=8" -o fixtures/takeoff-schema.html
 ```
 
 Routes:

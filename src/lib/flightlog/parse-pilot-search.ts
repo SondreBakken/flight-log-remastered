@@ -1,7 +1,6 @@
 import * as cheerio from 'cheerio'
+import type { Nodes } from './parse-flightlog-table'
 import type { PilotSearchResult } from './types'
-
-type Nodes = ReturnType<ReturnType<typeof cheerio.load>>
 
 const PROFILE_LINK_ACTION = 28
 // The a=114 response never wraps its results in a table (see docs/flightlog-api.md) — country

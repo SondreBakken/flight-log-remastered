@@ -30,6 +30,18 @@ const SCHEMA_DOC_HTML =
 const DECOY_TABLE_FIRST_HTML = `<html><body><table><tr><td>unrelated</td></tr></table><table border=1><th>id</th><th>name</th><th>lat</th><th>lon</th><th>wind</th><th>country_id</th><th>region_id</th><th>subregion_id</th><th>altitude</th><th>altitudediff</th><tr><td>6246</td><td>Jorde på Løten</td><td>60.79527778</td><td>11.34555556</td><td>56</td><td>160</td><td>6</td><td>0</td><td>180</td><td>0</td></tr>
 </table></body></html>`
 
+// Same 10 field names as TAKEOFF_HEADER, same count, but `lat` and `lon` swapped — a column
+// reorder on the live site, not a field being added or removed. Regression guard for the
+// header check degrading to a count-only comparison: same length would pass, but the values
+// under `lat`/`lon` would then be silently swapped for every row.
+const REORDERED_HEADER_HTML =
+  '<html><body><table border=1><th>id</th><th>name</th><th>lon</th><th>lat</th><th>wind</th><th>country_id</th><th>region_id</th><th>subregion_id</th><th>altitude</th><th>altitudediff</th><tr><td>6246</td><td>Jorde på Løten</td><td>60.79527778</td><td>11.34555556</td><td>56</td><td>160</td><td>6</td><td>0</td><td>180</td><td>0</td></tr></table></body></html>'
+
+// A negative altitudediff (landing above takeoff) is physically real and wasn't ruled out by
+// sampling one country — readSignedInteger has to accept it, not just a bare `\d+`.
+const NEGATIVE_ALTITUDEDIFF_HTML =
+  '<html><body><table border=1><th>id</th><th>name</th><th>lat</th><th>lon</th><th>wind</th><th>country_id</th><th>region_id</th><th>subregion_id</th><th>altitude</th><th>altitudediff</th><tr><td>6246</td><td>Jorde på Løten</td><td>60.79527778</td><td>11.34555556</td><td>56</td><td>160</td><td>6</td><td>0</td><td>180</td><td>-40</td></tr></table></body></html>'
+
 describe('parseTakeoffs', () => {
   it('finds the results table by its border="1" attribute, ignoring an unrelated table that precedes it', () => {
     // Regression guard for the container selector degrading to a bare `table` (any table,
@@ -65,6 +77,21 @@ describe('parseTakeoffs', () => {
     // Regression guard for a header-shape check that degrades to "any table is present" —
     // rqtid=8's real response would otherwise parse as a genuinely empty takeoff list.
     expect(() => parseTakeoffs(SCHEMA_DOC_HTML, 4)).toThrow()
+  })
+
+  it('throws when the header has the right field count but a reordered field name, instead of silently swapping values', () => {
+    // Regression guard for the header check degrading to `actualHeader.length ===
+    // expectedHeader.length` alone — both other negative cases here differ in field *count*,
+    // so neither exercises the per-position equality check this one pins.
+    expect(() => parseTakeoffs(REORDERED_HEADER_HTML, 160)).toThrow()
+  })
+
+  it('accepts a negative altitudediff, not just a bare unsigned integer', () => {
+    // Regression guard for readSignedInteger degrading to `^\d+$` — landing above takeoff is
+    // physically real and wasn't ruled out by sampling one country.
+    expect(parseTakeoffs(NEGATIVE_ALTITUDEDIFF_HTML, 160)).toEqual([
+      { takeoffId: 6246, name: 'Jorde på Løten', lat: 60.79527778, lon: 11.34555556, wind: 56, countryId: 160, regionId: 6, subregionId: 0, altitude: 180, altitudeDiff: -40 },
+    ])
   })
 
   it('throws rather than silently dropping a row when an extra cell shifts the field mapping', () => {
