@@ -135,6 +135,9 @@ function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
       <Link className="underline" href={`/pilots/${defaultPilotId}`}>
         Browse a pilot&apos;s logbook
       </Link>
+      <Link className="underline" href="/countries">
+        Browse clubs by country
+      </Link>
     </div>
   )
 }

@@ -47,3 +47,14 @@ export type TrackIndexEntry = {
   tripId: number
   updatedAt: string
 }
+
+export type Country = {
+  countryId: number
+  name: string
+}
+
+export type Club = {
+  clubId: number
+  name: string
+  flightCount: number
+}
