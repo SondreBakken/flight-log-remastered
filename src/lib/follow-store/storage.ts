@@ -42,7 +42,10 @@ let snapshot: FollowStoreSnapshot = SERVER_SNAPSHOT
 const subscribers = new Set<() => void>()
 
 function readIds(): StoredIdsRead {
-  if (typeof window === 'undefined') return { ok: true, ids: new Set() }
+  // No window means no read was attempted, not a successful read of nothing — reporting
+  // ok: true here would claim a read that never happened, in the one type whose entire job
+  // is telling that apart from a genuine read.
+  if (typeof window === 'undefined') return { ok: false }
   try {
     return parseStoredIds(window.localStorage.getItem(STORAGE_KEY))
   } catch {
@@ -54,10 +57,10 @@ function readIds(): StoredIdsRead {
 function writeIds(ids: ReadonlySet<PilotId>): void {
   if (typeof window === 'undefined') return
   const serialized = serializeIds(ids)
-  // Mirror the read-side length guard: a payload past it would just parse back to an
-  // empty set on next load (parseStoredIds rejects it outright), so skip persisting it
-  // rather than silently lose the list. The in-memory snapshot still updates for this
-  // tab; only durability across reloads is given up.
+  // Mirror the read-side length guard: a payload past it would fail to parse on next load
+  // (parseStoredIds rejects it outright, a failed read rather than an empty one), so skip
+  // persisting it rather than silently lose the list. The in-memory snapshot still updates
+  // for this tab; only durability across reloads is given up.
   if (serialized.length > STORED_RAW_MAX_LENGTH) {
     console.warn(
       `follow-store: ${ids.size} followed pilots serialize past the ${STORED_RAW_MAX_LENGTH}-char storage limit; not persisting.`,
@@ -107,9 +110,10 @@ function handleStorageEvent(event: StorageEvent): void {
   if (event.key !== null && event.key !== STORAGE_KEY) return
   const result = readIds()
   // Unlike ensureHydrated, there is a good in-memory list here worth keeping: a failed read
-  // (corrupted payload, missing key, over-length payload) must not be mistaken for "the user
-  // now follows nobody" and wipe it out. A genuinely empty list ("[]") is not a failed read,
-  // so it still reaches the equality check below and propagates like any other change.
+  // (corrupted payload, missing key, over-length payload, or a non-empty array where every
+  // element fails id validation — see parseStoredIds) must not be mistaken for "the user now
+  // follows nobody" and wipe it out. A genuinely empty list ("[]") is not a failed read, so it
+  // still reaches the equality check below and propagates like any other change.
   if (!result.ok) return
   if (idsEqual(result.ids, snapshot.followedIds)) return
   setSnapshot(result.ids)
