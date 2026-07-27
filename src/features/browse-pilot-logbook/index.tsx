@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
-import { FollowButton } from '@/lib/follow-store/follow-button'
+import { FollowButton } from '@/components/follow-button'
 import { FlightRow } from './components/flight-row'
 
 type PilotLogbookProps = {
@@ -33,7 +33,9 @@ function PilotHeader({
     <header className="flex flex-col gap-1">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{pilot.name}</h1>
-        <FollowButton pilotId={pilot.userId} variant="prominent" />
+        <span className="shrink-0 whitespace-nowrap">
+          <FollowButton pilotId={pilot.userId} variant="prominent" />
+        </span>
       </div>
       <p className="text-sm opacity-70">
         {[pilot.club, pilot.country].filter(Boolean).join(' · ')}

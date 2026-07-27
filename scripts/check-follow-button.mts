@@ -1,4 +1,4 @@
-import { getFollowButtonPresentation, type FollowButtonPresentation } from '../src/lib/follow-store/follow-button-presentation'
+import { getFollowButtonPresentation } from '../src/components/follow-button/presentation'
 
 let failures = 0
 
@@ -41,24 +41,29 @@ for (const isFollowed of [true, false]) {
 
 // The neutral render must be identical whether the store's default is followed or not: a
 // hydrated=false pilot that happens to be followed once hydration lands must not leak a
-// different neutral presentation than one that isn't.
-assertEqual(
-  getFollowButtonPresentation({ isFollowed: true, hasHydrated: false, variant: 'prominent' }),
-  getFollowButtonPresentation({ isFollowed: false, hasHydrated: false, variant: 'prominent' }),
-  'neutral presentation is identical for isFollowed true vs false, at the same variant',
-)
+// different neutral presentation than one that isn't. Checked per variant since compact and
+// prominent compute their neutral presentation independently.
+for (const variant of ['prominent', 'compact'] as const) {
+  assertEqual(
+    getFollowButtonPresentation({ isFollowed: true, hasHydrated: false, variant }),
+    getFollowButtonPresentation({ isFollowed: false, hasHydrated: false, variant }),
+    `neutral presentation is identical for isFollowed true vs false, variant: ${variant}`,
+  )
+}
 
-// --- Hydrated state: label and aria-pressed reflect isFollowed ---
+// --- Hydrated state: label and aria-pressed reflect isFollowed, for every variant ---
 
-const followedProminent = getFollowButtonPresentation({ isFollowed: true, hasHydrated: true, variant: 'prominent' })
-assertEqual(followedProminent.label, 'Following', 'hydrated + followed: label is "Following"')
-assertEqual(followedProminent.ariaPressed, true, 'hydrated + followed: aria-pressed is true')
-assert(!followedProminent.disabled, 'hydrated + followed: button is enabled')
+for (const variant of ['prominent', 'compact'] as const) {
+  const followed = getFollowButtonPresentation({ isFollowed: true, hasHydrated: true, variant })
+  assertEqual(followed.label, 'Following', `hydrated + followed + variant: ${variant} — label is "Following"`)
+  assertEqual(followed.ariaPressed, true, `hydrated + followed + variant: ${variant} — aria-pressed is true`)
+  assert(!followed.disabled, `hydrated + followed + variant: ${variant} — button is enabled`)
 
-const unfollowedProminent = getFollowButtonPresentation({ isFollowed: false, hasHydrated: true, variant: 'prominent' })
-assertEqual(unfollowedProminent.label, 'Follow', 'hydrated + not followed: label is "Follow"')
-assertEqual(unfollowedProminent.ariaPressed, false, 'hydrated + not followed: aria-pressed is false')
-assert(!unfollowedProminent.disabled, 'hydrated + not followed: button is enabled')
+  const unfollowed = getFollowButtonPresentation({ isFollowed: false, hasHydrated: true, variant })
+  assertEqual(unfollowed.label, 'Follow', `hydrated + not followed + variant: ${variant} — label is "Follow"`)
+  assertEqual(unfollowed.ariaPressed, false, `hydrated + not followed + variant: ${variant} — aria-pressed is false`)
+  assert(!unfollowed.disabled, `hydrated + not followed + variant: ${variant} — button is enabled`)
+}
 
 // --- Variant classes differ, independent of follow state ---
 
@@ -87,7 +92,8 @@ assert(
   'compact uses the smaller text-xs sizing, not prominent\'s text-sm',
 )
 
-// --- Followed vs unfollowed classes differ within a variant, so the pressed state is not color-blind ---
+// --- Followed vs unfollowed classes differ within a variant (color tokens only; the label carries
+// the non-color signal, asserted separately above) ---
 
 assert(
   classesFor('prominent', true) !== classesFor('prominent', false),
@@ -104,12 +110,16 @@ function neutralClassesFor(variant: 'prominent' | 'compact'): string {
   return getFollowButtonPresentation({ isFollowed: false, hasHydrated: false, variant }).className
 }
 
-const presentationShapeCheck: FollowButtonPresentation = getFollowButtonPresentation({
-  isFollowed: false,
-  hasHydrated: true,
-  variant: 'prominent',
-})
-assert(typeof presentationShapeCheck.className === 'string', 'className is always a string')
+// Neutral must paint at its own variant's size pre-hydration, not borrow the other variant's
+// (e.g. compact rendering at prominent's size and shifting layout once hydration lands).
+assert(
+  neutralClassesFor('prominent').includes('text-sm') && !neutralClassesFor('prominent').includes('text-xs'),
+  'neutral prominent uses the larger text-sm sizing, not compact\'s text-xs',
+)
+assert(
+  neutralClassesFor('compact').includes('text-xs') && !neutralClassesFor('compact').includes('text-sm'),
+  'neutral compact uses the smaller text-xs sizing, not prominent\'s text-sm',
+)
 
 assert(
   neutralClassesFor('prominent') !== classesFor('prominent', false) &&

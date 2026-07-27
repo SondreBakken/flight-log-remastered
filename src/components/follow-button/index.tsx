@@ -1,8 +1,8 @@
 'use client'
 
-import { getFollowButtonPresentation, type FollowButtonVariant } from './follow-button-presentation'
-import { useFollowPilot } from './use-follow-store'
-import type { PilotId } from './follow-ids'
+import { getFollowButtonPresentation, type FollowButtonVariant } from './presentation'
+import { useFollowPilot } from '@/lib/follow-store/use-follow-store'
+import type { PilotId } from '@/lib/follow-store/follow-ids'
 
 type FollowButtonProps = {
   pilotId: PilotId
