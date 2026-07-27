@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchTakeoffCount } from './fetch-takeoff-count'
+import { fetchTakeoffs } from './fetch-takeoffs'
 
 function stubFetch(response: { ok: boolean; status: number; body: unknown }): void {
   vi.stubGlobal(
@@ -16,27 +16,42 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('fetchTakeoffCount', () => {
-  it('resolves to the row count for a valid 200 response', async () => {
-    stubFetch({ ok: true, status: 200, body: [[1, 'a', 2, 3, 4, 5, 6, 7, 8, 9], [10, 'b', 20, 30, 40, 50, 60, 70, 80, 90]] })
+describe('fetchTakeoffs', () => {
+  it('resolves to the decoded directory entries for a valid 200 response, not the raw rows', async () => {
+    stubFetch({
+      ok: true,
+      status: 200,
+      body: [
+        [1, 'Bodø', 2, 3, 4, 5, 6, 7, 8, 9],
+        [10, 'Ålesund', 20, 30, 40, 50, 61, 70, 80, 90],
+      ],
+    })
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
-    expect(result).toEqual({ status: 'success', count: 2 })
+    expect(result).toEqual({
+      status: 'success',
+      // Field order pinned to TakeoffRow's own (index 0 takeoffId, 1 name, 6 regionId) —
+      // wrong indices here would still "succeed" with plausible-looking but wrong values.
+      takeoffs: [
+        { takeoffId: 1, name: 'Bodø', regionId: 6 },
+        { takeoffId: 10, name: 'Ålesund', regionId: 61 },
+      ],
+    })
   })
 
-  it('resolves to a success result with count 0 for a genuinely takeoff-free country', async () => {
+  it('resolves to a success result with an empty list for a genuinely takeoff-free country', async () => {
     stubFetch({ ok: true, status: 200, body: [] })
 
-    const result = await fetchTakeoffCount(29)
+    const result = await fetchTakeoffs(29)
 
-    expect(result).toEqual({ status: 'success', count: 0 })
+    expect(result).toEqual({ status: 'success', takeoffs: [] })
   })
 
   it('requests the exact country id it was called with, not a fixed one', async () => {
     stubFetch({ ok: true, status: 200, body: [] })
 
-    await fetchTakeoffCount(203)
+    await fetchTakeoffs(203)
 
     expect(vi.mocked(fetch)).toHaveBeenCalledWith('/api/countries/203/takeoffs', expect.anything())
   })
@@ -44,7 +59,7 @@ describe('fetchTakeoffCount', () => {
   it('resolves to an error result, not a thrown exception, for a non-ok response', async () => {
     stubFetch({ ok: false, status: 404, body: { error: 'not found' } })
 
-    const result = await fetchTakeoffCount(999)
+    const result = await fetchTakeoffs(999)
 
     expect(result.status).toBe('error')
   })
@@ -52,7 +67,7 @@ describe('fetchTakeoffCount', () => {
   it('reports the real status for a non-ok JSON response', async () => {
     stubFetch({ ok: false, status: 500, body: { error: 'boom' } })
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
     expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: server returned 500' })
   })
@@ -70,7 +85,7 @@ describe('fetchTakeoffCount', () => {
       }),
     )
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
     expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: server returned 500' })
   })
@@ -78,7 +93,7 @@ describe('fetchTakeoffCount', () => {
   it('resolves to an error result for a 200 response with a malformed body, not trusted blindly', async () => {
     stubFetch({ ok: true, status: 200, body: { rows: [] } })
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
     expect(result.status).toBe('error')
   })
@@ -86,7 +101,7 @@ describe('fetchTakeoffCount', () => {
   it('resolves to an error result when fetch itself rejects (network failure)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network error')))
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
     expect(result.status).toBe('error')
   })
@@ -97,7 +112,7 @@ describe('fetchTakeoffCount', () => {
   it('resolves to a distinct timed-out message when the abort signal fires as a TimeoutError, not the generic failure message', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError')))
 
-    const result = await fetchTakeoffCount(160)
+    const result = await fetchTakeoffs(160)
 
     expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: timed out waiting for a response' })
   })
@@ -106,7 +121,7 @@ describe('fetchTakeoffCount', () => {
     stubFetch({ ok: true, status: 200, body: [] })
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
 
-    await fetchTakeoffCount(160)
+    await fetchTakeoffs(160)
 
     expect(timeoutSpy).toHaveBeenCalledWith(15_000)
   })
