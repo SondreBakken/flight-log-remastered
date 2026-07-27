@@ -70,4 +70,56 @@ describe('useTakeoffs', () => {
 
     await waitFor(() => expect(result.current.status).toBe('error'))
   })
+
+  // Pins the `cancelled` guard in the effect body — the same cleanup flag fires whether the
+  // component unmounts or the effect re-runs for a new countryId, so this exercises it via a
+  // countryId change, which (unlike unmount) is actually observable: React 19 silently no-ops
+  // a setState called after a component has unmounted, so an unmount-then-resolve test cannot
+  // tell a guarded effect apart from an unguarded one. A slow fetch started for countryId 160
+  // that resolves AFTER a fast fetch for countryId 203 has already landed must not clobber
+  // the 203 result with its own stale one — deleting `if (!cancelled)` makes this fail.
+  it('a late-arriving response from a stale countryId does not clobber a newer one', async () => {
+    let resolveStale!: (value: unknown) => void
+    const stale = new Promise((resolve) => {
+      resolveStale = resolve
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) =>
+        url.includes('/160/')
+          ? stale.then(() => ({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve([[1, 'Stale', 1, 1, 1, 1, 1, 1, 1, 1]]),
+            }))
+          : Promise.resolve({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve([[2, 'Fresh', 1, 1, 1, 1, 1, 1, 1, 1]]),
+            }),
+      ),
+    )
+
+    const { result, rerender } = renderHook(({ countryId }) => useTakeoffs(countryId), {
+      initialProps: { countryId: 160 },
+    })
+
+    rerender({ countryId: 203 })
+
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        status: 'success',
+        takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1 }],
+      }),
+    )
+
+    resolveStale(undefined)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(result.current).toEqual({
+      status: 'success',
+      takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1 }],
+    })
+  })
 })

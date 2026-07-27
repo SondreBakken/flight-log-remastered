@@ -128,6 +128,28 @@ describe('selectVisibleTakeoffs', () => {
     expect(result.isTruncated).toBe(false)
     expect(result.matches).toHaveLength(1)
   })
+
+  // Pins WHICH rows survive truncation, not just how many — a prior version of this suite
+  // only ever asserted `matches` had the right LENGTH, which passes even for an arbitrary
+  // 200-row subset. Names are zero-padded so alphabetical order and numeric order coincide,
+  // which lets `expectedNames` be derived straight from the naming scheme instead of by
+  // sorting `result.matches` itself — deriving the expectation from the actual output would
+  // pass even if selectVisibleTakeoffs returned the right SET of rows in the wrong order, or
+  // the wrong set shaped to look right once re-sorted.
+  it('keeps the alphabetically-first MAX_RENDERED_RESULTS rows when truncated, not an arbitrary subset', () => {
+    const sortableName = (i: number) => `Site${String(i).padStart(4, '0')}`
+    const takeoffs: TakeoffDirectoryEntry[] = Array.from({ length: MAX_RENDERED_RESULTS + 37 }, (_, i) => ({
+      takeoffId: i,
+      name: sortableName(i),
+      regionId: 1,
+    }))
+
+    const result = select(takeoffs, '', 'all')
+
+    const expectedNames = Array.from({ length: MAX_RENDERED_RESULTS }, (_, i) => sortableName(i))
+    expect(result.matches.map((takeoff) => takeoff.name)).toEqual(expectedNames)
+    expect(result.matches.map((takeoff) => takeoff.name)).not.toContain(sortableName(MAX_RENDERED_RESULTS))
+  })
 })
 
 describe('foldTakeoffNames', () => {

@@ -63,6 +63,16 @@ describe('foldForSearch — the fold table', () => {
   ])('does not collapse repeated non-letter characters: %j stays %j', (input, expected) => {
     expect(foldForSearch(input)).toBe(expected)
   })
+
+  // Pins the whitespace regression directly: restricting collapseRepeatedLetters to \p{L}
+  // (correctly, so it doesn't eat digits/punctuation) also stopped it collapsing whitespace,
+  // and 79 real Norway names carry a double space — "Bodø Tverlandet  Oddan" (takeoffId 1786)
+  // among them — where the name typed by a pilot has only one.
+  it('collapses a run of whitespace to a single space — a real double-spaced fixture name', () => {
+    // "Oddan"'s doubled 'd' also collapses under collapseRepeatedLetters (see above) — both
+    // rules fire on this one real name, same as Ægirbakken does for the character fold.
+    expect(foldForSearch('Tverlandet  Oddan')).toBe('tverlandet odan')
+  })
 })
 
 describe('matchesFoldedQuery — the required cases from #9', () => {
@@ -103,5 +113,12 @@ describe('matchesFoldedQuery — the required cases from #9', () => {
   it('an empty query matches every name — the directory browses when nothing has been typed yet', () => {
     expect(matchesFoldedQuery('Bodø', '')).toBe(true)
     expect(matchesFoldedQuery('', '')).toBe(true)
+  })
+
+  // The regression this fixes, end to end: a pilot who can see "Bodø Tverlandet Oddan" on
+  // screen and types it with a single space must still find takeoffId 1786, whose real name
+  // in the fixture is double-spaced.
+  it('a single-spaced query finds a real fixture name that is double-spaced', () => {
+    expect(matchesFoldedQuery('Bodø Tverlandet  Oddan', 'tverlandet oddan')).toBe(true)
   })
 })

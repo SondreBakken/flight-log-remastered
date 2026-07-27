@@ -21,8 +21,9 @@ export async function generateStaticParams(): Promise<{ countryId: string }[]> {
 // page.test.tsx without a request context.
 //
 // Region names: #8's wire payload carries `regionId` but nothing maps it to a name, and
-// getRegions had no caller before this. Norway's 29 regions are a few hundred bytes —
-// nowhere near the 970 KB that made #38 fetch takeoffs as a SEPARATE browser-fetched asset
+// getRegions had no caller before this. Norway's 29 regions serialise to 1041 bytes as
+// `{regionId, name}[]` (measured against the real fixture) — nowhere near the 970 KB that
+// made #38 fetch takeoffs as a SEPARATE browser-fetched asset
 // (worth its own round trip specifically because embedding that much JSON directly in this
 // page's initial HTML would bloat every load of it). At this size that tradeoff doesn't
 // apply: calling getRegions here, inside the same generateStaticParams-prerendered page,

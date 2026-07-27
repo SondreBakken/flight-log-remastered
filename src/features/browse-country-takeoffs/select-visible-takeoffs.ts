@@ -3,9 +3,12 @@ import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 
 export type RegionOption = { regionId: number; name: string }
 
-// 'all' rather than a bare number sentinel like -1 or 0 — parse-regions.ts's own boundary
-// check (readNonNegativeInteger) accepts 0 as a real regionId, so 0 is not free to reuse as
-// "no filter" here without risking a real region silently becoming unselectable.
+// 'all' rather than a bare number sentinel like -1 or 0 — 0 never appears in the regions
+// list itself (Norway's 29 regions all carry positive ids), but it IS a real, meaningful
+// value on takeoff rows, where it means "unassigned" (see UNREGIONED_LABEL below), and
+// withUnregionedOptions turns that into a genuine, selectable RegionOption. Reusing bare 0
+// as "no filter" would make selecting that Unregioned option indistinguishable from
+// selecting no filter at all.
 export type RegionFilter = number | 'all'
 
 // 6012 rows (Norway's full fixture) rendered as DOM nodes on every keystroke, with no
