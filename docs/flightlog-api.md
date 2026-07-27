@@ -1,6 +1,6 @@
 # flightlog.org — reverse-engineered interface
 
-Verified live 2026-07-26. Nothing here is documented by the operator.
+Verified live 2026-07-27. Nothing here is documented by the operator.
 
 ## Transport rules (mandatory)
 
@@ -48,7 +48,7 @@ All confirmed working with an **anonymous** session.
 | 2 | (ignores params) | text/html | Single most recent flight site-wide. Columns: `trip_id, tripdate, triptime, duration_hhmm, cnt, distance_km, description, brandmodel, user_id, user_name, club_id, club_name, country_id, country_name, start_id, start_name, class_id` |
 | 5 | `tz` | text/xml | Timezone → UTC time helper |
 | 8 | — | text/html | Takeoff full schema (header row only unless params found): `altitude, altitudediff, country_id, createdby, createdname, createdtime, description, id, img_id, lat, lon, name, region_id, subregion_id, timestamp, updatedby, updatedtime, url, wind, tracklog_id, img_key, country_name, region_name, subregion_name` |
-| 9 | — | text/html | **All countries.** `a2_code, a3_code, id, name, num_code, fips_a2, …` (ISO codes). Norway=160, Sweden=203, Iceland=98, France=73 |
+| 9 | — | text/html | **All countries.** Plain `<table border=1>`, 11 `<td>` columns, id is column 5, name column 6. Norway=160, Sweden=203, Iceland=98, France=73 — see below |
 | 10 | `country_id` | text/html | Regions: `country_id, id, name, …` |
 | 11 | `country_id` **(required)** | text/html | **All takeoffs for a country** with coordinates: `id, name, lat, lon, wind, country_id, region_id, subregion_id, altitude, altitudediff`. Norway → 6012 rows |
 | 12 | `country_id` / `region_id` | text/html | Takeoffs incl. long `description`, capped at 10 rows (recently-updated feed) |
@@ -64,6 +64,30 @@ response byte-identical to the unfiltered `club_id`/`country_id` call (verified 
 comparison, not just length). No filter found. `a=114` (below) supersedes this for resolving a name
 to a `user_id`; it does not supersede it for a name-filtered stats table — `rqtid=1` returns
 Name/Flights/Distance/Time with no `user_id`, `a=114` returns `user_id` links with no stats.
+
+### rqtid=9 (country list)
+
+```
+GET /fl.html?rqtid=9
+```
+
+The plainest response on the site — no page shell, no nav, no honeypot, no links at all:
+
+```html
+<html><body><table border=1><th>a2_code</th><th>a3_code</th><th>createdby</th><th>createdtime</th><th>id</th><th>name</th><th>num_code</th><th>timestamp</th><th>updatedby</th><th>updatedtime</th><th>fips_a2</th><tr><td>AF</td><td>AFG</td><td>1</td><td>2002-02-22 22:03:23</td><td>1</td><td>Afghanistan</td><td>004</td><td>2005-09-03 18:08:18</td><td>1</td><td>2005-09-03 20:08:18</td><td>AF</td></tr>
+...
+</table></body></html>
+```
+
+- The 11 `<th>` header cells are not wrapped in a `<tr>` — cheerio still finds them as a leading
+  header sibling of the data rows; select `table tr` and ignore rows without exactly 11 `<td>`s.
+- Column order: `a2_code, a3_code, createdby, createdtime, id, name, num_code, timestamp,
+  updatedby, updatedtime, fips_a2`. `id` is `<td>` index 4 (0-based), `name` index 5. No `href`
+  anywhere in this response — ids come only from the cell.
+- 240 rows, one `GET`, no pagination, no truncation notice.
+- Ids are not name-sorted — insertion order leaks through (`Congo, The Democratic Republic Of
+  The` carries id 237, alphabetically between `Congo, Republic of the` id 49 and `Cook Islands`
+  id 50). Confirmed: Norway=160, Sweden=203.
 
 ### rqtid=21 (the sync endpoint)
 
@@ -182,6 +206,41 @@ response with no truncation notice or "N of M" count.
 **Zero-match response** (`user_fullname=zzznomatchxyz123`): `200 OK`, same page shell, the search
 box re-populated with the query, no results list and no "no results" message — just an empty
 content div.
+
+### Clubs in a country (`a=25`)
+
+All confirmed working with an **anonymous** session.
+
+```
+GET /fl.html?l=1&a=25&country_id=160
+```
+
+Ordinary page shell (breadcrumb, top nav, language switcher — each carrying its own `hp-nav`
+honeypot copy, same as every other page) around one results block:
+
+```html
+<div style='padding:0px 10px'>
+<table cellspacing='1' cellpadding='3' bgcolor='black'><tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=53'>Albatross Aero Klubb</a></td><td bgcolor='white'>1</a></td></tr><tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=31'>Ålesund Paragliderklubb</a></td><td bgcolor='white'>77</a></td></tr>
+...
+</table>
+</div>
+```
+
+- `club_id` comes from the row's `href`, not a cell — select `a[href*="a=26"]`, read `club_id=(\d+)`.
+  Same discipline as `parse-flights.ts`: matching a specific action code in the `href` is what
+  keeps this off the honeypot, which never carries `a=26` and lives only in the shared nav chrome
+  above the results table, never inside it.
+- The stray `</a>` closing the second `<td>` (no matching open tag) is real markup, not a transcription
+  error — another malformed-HTML case like the flight rows, needs cheerio.
+- Second `<td>` is a plain integer, the club's total flight count — not a link, not a member count.
+- Club names are not guaranteed trimmed (`Oslo Paragliderklubb ` has a trailing space in the source).
+- Norway (`country_id=160`) returned 91 clubs, alphabetical by name, one unpaginated response, no
+  result cap observed.
+- **Country with no clubs** (`country_id=29`, Bouvet Island): identical shell, `200 OK`, and the
+  results table is present but empty — `<table cellspacing='1' cellpadding='3'
+  bgcolor='black'></table>`, zero `<tr>`. Not a missing table and not a redirect; a parser should
+  treat "table present, zero rows" as a valid empty result and "table missing" as unrecognised
+  markup worth throwing on.
 
 `comp_id` values observed: 1, 37, 161-168.
 

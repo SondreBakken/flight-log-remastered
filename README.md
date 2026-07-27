@@ -53,6 +53,9 @@ UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, l
 mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /dev/null
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=160" -o fixtures/clubs-160.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=29" -o fixtures/clubs-29.html
 ```
 
 Routes:
@@ -61,6 +64,8 @@ Routes:
   `localStorage`, read client-side via `/api/pilots/[userId]/recent-flights`)
 - `/pilots/[userId]` logbook, one row per flight, linking flights that have a GPS track
 - `/flights/[tripId]` track on a map plus flight statistics
+- `/countries` every country, linking into its club list
+- `/countries/[countryId]` clubs in that country, with each club's total flight count
 
 ## How it talks to flightlog.org
 
@@ -71,6 +76,8 @@ There is no documented API. Two undocumented surfaces are used, both reachable a
 | Pilot profile + flights | `fl.html?l=1&a=28&user_id=N` | HTML, scraped |
 | Tracklog index for a pilot/year | `fl.html?rqtid=21&user_id=N&year=Y&ts=0` | JSON |
 | Tracklog | `fl.html?rqtid=19&trip_id=N` | KML, ~1 Hz lon/lat/alt |
+| Country list | `fl.html?rqtid=9` | HTML table, scraped |
+| Clubs in a country | `fl.html?l=1&a=25&country_id=N` | HTML, scraped |
 
 `rqtid=21` and `rqtid=22` return self-describing JSON and appear to exist for GpsDump's sync. They are
 the only real API-shaped thing on the site.
