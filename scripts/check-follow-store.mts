@@ -82,6 +82,19 @@ assertEqual(
   'valid JSON past the length guard is rejected before parsing, not because it fails to parse',
 )
 
+// Boundary: exactly at the limit, not past it, must still parse ('>' is the correct check
+// against STORED_RAW_MAX_LENGTH, not '>='). Trailing spaces are legal JSON whitespace and
+// JSON.parse ignores them, so padding a small valid array out to exactly the limit produces a
+// payload that is both valid JSON and exactly STORED_RAW_MAX_LENGTH chars long — landing
+// precisely on the boundary instead of merely near it.
+const exactLimitBase = JSON.stringify([11_111, 22_222])
+const exactLimitPayload = exactLimitBase + ' '.repeat(STORED_RAW_MAX_LENGTH - exactLimitBase.length)
+assertEqual(
+  idsOf(parseStoredIds(exactLimitPayload)),
+  [11_111, 22_222],
+  'a payload exactly at the length guard boundary still parses (the guard rejects past the limit, not at it)',
+)
+
 // Malformed / hostile input to addId itself, not just at parse time
 assertEqual(idsOf(addId(new Set([1]), -5)), [1], 'addId rejects a negative id')
 assertEqual(idsOf(addId(new Set([1]), 2.5)), [1], 'addId rejects a non-integer id')
@@ -108,17 +121,6 @@ function assert(condition: boolean, label: string): void {
   if (!condition) failures++
 }
 
-// The invariant this whole fix exists for: ids and hasHydrated always agree, because they come
-// from one read of one object, never populated ids paired with hasHydrated: false. Applied to
-// every snapshot producer (ensureHydrated, commit, handleStorageEvent) below, not just the
-// first hydration, so a regression in any one of them fails this check.
-function assertSnapshotConsistent(snapshot: FollowStoreSnapshot, label: string): void {
-  assert(
-    !(snapshot.followedIds.size > 0 && snapshot.hasHydrated === false),
-    `${label}: snapshot never carries populated ids alongside hasHydrated: false`,
-  )
-}
-
 class FakeLocalStorage {
   private store = new Map<string, string>()
   private throwing = false
@@ -128,6 +130,12 @@ class FakeLocalStorage {
   // false — invisible by inspecting the snapshot alone, since the next read silently
   // self-heals it, but not invisible as an extra read this counter would catch).
   getItemCalls = 0
+  // Counts real writes. The write guard's whole point is that an over-limit commit must
+  // reach neither this counter nor `store` (see the write-guard section below, which reads
+  // this instead of trusting the persisted raw value alone — a mutation that clobbers the
+  // raw value with something that happens to match what a correct guard would have left
+  // behind is invisible to a raw-value comparison but not to a call count).
+  setItemCalls = 0
 
   setThrowing(value: boolean): void {
     this.throwing = value
@@ -140,8 +148,14 @@ class FakeLocalStorage {
   }
 
   setItem(key: string, value: string): void {
+    this.setItemCalls++
     if (this.throwing) throw new Error('storage disabled')
     this.store.set(key, value)
+  }
+
+  removeItem(key: string): void {
+    if (this.throwing) throw new Error('storage disabled')
+    this.store.delete(key)
   }
 
   raw(key: string): string | null {
@@ -170,6 +184,16 @@ function dispatchStorageEvent(key: string | null): void {
   storageListeners.forEach((listener) => listener({ key }))
 }
 
+// Bundles "capture the counter" and "perform the read being measured" into one call, so the
+// two can't drift apart: sampling the counter on a line before the read it's meant to bracket
+// (as opposed to inside the same closure) lets anything inserted in between — even an
+// unrelated assertion — silently start measuring the wrong thing.
+function readItemCallsDuring(action: () => void): number {
+  const before = fakeLocalStorage.getItemCalls
+  action()
+  return fakeLocalStorage.getItemCalls - before
+}
+
 const STORAGE_KEY = 'flight-log:followed-pilots'
 
 const storage = await import('../src/lib/follow-store/storage')
@@ -193,7 +217,6 @@ fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([12677])))
 const firstSnapshot = storage.getSnapshot()
 assertEqual(idsOf(firstSnapshot.followedIds), [12677], 'first getSnapshot reads the stored ids')
 assert(firstSnapshot.hasHydrated === true, 'hasHydrated flips true once the store has been read')
-assertSnapshotConsistent(firstSnapshot, 'getSnapshot (first hydration)')
 
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([1, 2, 3])))
 const cachedSnapshot = storage.getSnapshot()
@@ -223,7 +246,6 @@ assertEqual(
   [4549, 12677],
   'follow persists the new id to localStorage',
 )
-assertSnapshotConsistent(afterFollowSnapshot, 'getSnapshot (after follow)')
 
 // Notify-on-commit: unfollow, symmetric with follow — removes, persists, notifies
 storage.unfollow(4549)
@@ -239,7 +261,6 @@ assertEqual(
   [12677],
   'unfollow persists the removal to localStorage',
 )
-assertSnapshotConsistent(afterUnfollowSnapshot, 'getSnapshot (after unfollow)')
 
 // No-op guard: an invalid id to follow, or an absent id to unfollow, must not write or notify
 const beforeNoopSnapshot = storage.getSnapshot()
@@ -296,6 +317,23 @@ assert(otherNotifications === 1, 'unsubscribing one listener leaves another stil
 storage.unfollow(7) // undo, so the tracked set stays [12677] for what follows
 unsubscribeOther()
 
+// Tearing (issue #20): useSyncExternalStore reads getSnapshot() synchronously from inside the
+// listener it registers via subscribe(), so a subscriber notified before the snapshot is
+// rebuilt would render the id it just saw committed alongside a snapshot that still reflects
+// the old state. Prove commit() rebuilds the snapshot before it notifies, not after, by
+// reading getSnapshot() from inside the callback itself.
+let idsSeenInsideCommitCallback: PilotId[] = []
+const unsubscribeCommitTearing = storage.subscribe(() => {
+  idsSeenInsideCommitCallback = idsOf(storage.getSnapshot().followedIds)
+})
+storage.follow(31_415)
+assert(
+  idsSeenInsideCommitCallback.includes(31_415),
+  'a subscriber reading getSnapshot() inside its own callback already sees the id just committed',
+)
+unsubscribeCommitTearing()
+storage.unfollow(31_415) // undo, so the tracked set stays [12677] for what follows
+
 // Cross-tab storage event
 let crossTabNotifications = 0
 storage.subscribe(() => {
@@ -304,19 +342,20 @@ storage.subscribe(() => {
 
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([1])))
 dispatchStorageEvent(STORAGE_KEY)
-const getItemCallsAfterFirstEvent = fakeLocalStorage.getItemCalls
-const afterFirstCrossTabEvent = storage.getSnapshot()
+let afterFirstCrossTabEvent!: FollowStoreSnapshot
+// A handler that updates the ids but leaves hasHydrated: false would be invisible by
+// inspecting this snapshot: the getSnapshot() call self-heals it via ensureHydrated before we
+// ever see it. What ensureHydrated's self-heal cannot hide is the extra localStorage read it
+// performs to do so — genuinely-hydrated state needs none.
+const itemCallsDuringFirstEventRead = readItemCallsDuring(() => {
+  afterFirstCrossTabEvent = storage.getSnapshot()
+})
 assertEqual(idsOf(afterFirstCrossTabEvent.followedIds), [1], 'a storage event for our key re-reads localStorage')
 assert(crossTabNotifications === 1, 'a storage event for our key notifies subscribers')
-// A handler that updates the ids but leaves hasHydrated: false would be invisible by
-// inspecting this snapshot: the getSnapshot() call above self-heals it via ensureHydrated
-// before we ever see it. What ensureHydrated's self-heal cannot hide is the extra
-// localStorage read it performs to do so — genuinely-hydrated state needs none.
 assert(
-  fakeLocalStorage.getItemCalls === getItemCallsAfterFirstEvent,
+  itemCallsDuringFirstEventRead === 0,
   'a storage event leaves the store genuinely hydrated: reading the snapshot right after triggers no further localStorage read',
 )
-assertSnapshotConsistent(afterFirstCrossTabEvent, 'getSnapshot (after cross-tab event for our key)')
 
 // Another tab writing byte-identical data must not rebuild the snapshot: same reference, no
 // notification, so subscribers don't re-render for a change that never actually happened.
@@ -334,8 +373,10 @@ assertEqual(idsOf(storage.getSnapshot().followedIds), [1], 'a storage event for 
 assert(crossTabNotifications === 1, 'a storage event for an unrelated key does not notify')
 
 dispatchStorageEvent(null) // another tab calling localStorage.clear() reports key: null
-const getItemCallsAfterNullKeyEvent = fakeLocalStorage.getItemCalls
-const afterNullKeyEvent = storage.getSnapshot()
+let afterNullKeyEvent!: FollowStoreSnapshot
+const itemCallsDuringNullKeyEventRead = readItemCallsDuring(() => {
+  afterNullKeyEvent = storage.getSnapshot()
+})
 assertEqual(
   idsOf(afterNullKeyEvent.followedIds),
   [9],
@@ -343,23 +384,106 @@ assertEqual(
 )
 assert(crossTabNotifications === 2, 'a storage event with key === null notifies subscribers')
 assert(
-  fakeLocalStorage.getItemCalls === getItemCallsAfterNullKeyEvent,
+  itemCallsDuringNullKeyEventRead === 0,
   'a storage event with key === null leaves the store genuinely hydrated: reading the snapshot right after triggers no further localStorage read',
 )
-assertSnapshotConsistent(afterNullKeyEvent, 'getSnapshot (after cross-tab clear event)')
+
+// Tearing (issue #20): same guarantee as the commit-path tearing test above, but for the
+// cross-tab path — a subscriber notified of a storage event must already see the new ids if
+// it calls getSnapshot() synchronously inside its own callback.
+let idsSeenInsideStorageEventCallback: PilotId[] = []
+const unsubscribeStorageEventTearing = storage.subscribe(() => {
+  idsSeenInsideStorageEventCallback = idsOf(storage.getSnapshot().followedIds)
+})
+fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([27_182])))
+dispatchStorageEvent(STORAGE_KEY)
+assert(
+  idsSeenInsideStorageEventCallback.includes(27_182),
+  'a subscriber reading getSnapshot() inside its own callback already sees the cross-tab id just applied',
+)
+unsubscribeStorageEventTearing()
+
+// handleStorageEvent input paths not otherwise exercised above. First re-sync to a known,
+// two-id baseline so each case below is judged against a known starting point rather than
+// whatever the tests above happened to leave behind.
+fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([7, 9])))
+dispatchStorageEvent(STORAGE_KEY)
+const handlerPathBaseline = storage.getSnapshot()
+assertEqual(idsOf(handlerPathBaseline.followedIds), [7, 9], 'handleStorageEvent input paths: baseline is [7, 9]')
+let handlerPathNotifications = 0
+const unsubscribeHandlerPath = storage.subscribe(() => {
+  handlerPathNotifications++
+})
+
+// Reordered payload: same set, different array order — parseStoredIds produces the same set,
+// so idsEqual must treat this as no change at all.
+fakeLocalStorage.setItem(STORAGE_KEY, JSON.stringify([9, 7]))
+dispatchStorageEvent(STORAGE_KEY)
+assert(
+  storage.getSnapshot() === handlerPathBaseline,
+  'a reordered but set-equal cross-tab payload does not rebuild the snapshot',
+)
+assert(handlerPathNotifications === 0, 'a reordered but set-equal cross-tab payload does not notify')
+
+// Duplicate ids: parseStoredIds dedupes on parse, so this is also a same-set no-op.
+fakeLocalStorage.setItem(STORAGE_KEY, JSON.stringify([9, 7, 7, 9]))
+dispatchStorageEvent(STORAGE_KEY)
+assert(
+  storage.getSnapshot() === handlerPathBaseline,
+  'a cross-tab payload with duplicate ids of the same set does not rebuild the snapshot',
+)
+assert(handlerPathNotifications === 0, 'a cross-tab payload with duplicate ids of the same set does not notify')
+
+// Malformed payload arriving cross-tab while we hold ids: parseStoredIds rejects it to an
+// empty set, and handleStorageEvent applies whatever readIds() returns without judging it, so
+// this wipes this tab's in-memory list. Pre-existing behaviour (not something issue #20
+// changes) — pinned here so a change to it is a deliberate, visible decision rather than an
+// accident. A malicious or corrupted write in another tab destroying this tab's followed list
+// is a real silent-data-loss path; worth its own follow-up issue, out of scope here.
+fakeLocalStorage.setItem(STORAGE_KEY, 'not json')
+dispatchStorageEvent(STORAGE_KEY)
+assertEqual(idsOf(storage.getSnapshot().followedIds), [], 'a malformed cross-tab payload wipes this tab to empty')
+assert(handlerPathNotifications === 1, 'a malformed cross-tab payload notifies subscribers')
+
+// Key removed (another tab cleared just our key, so getItem returns null): readIds() sees
+// parseStoredIds(null), same empty-set outcome as a malformed payload. Same pre-existing
+// data-loss shape as above; pinned, not changed.
+fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([3])))
+dispatchStorageEvent(STORAGE_KEY)
+handlerPathNotifications = 0
+fakeLocalStorage.removeItem(STORAGE_KEY)
+dispatchStorageEvent(STORAGE_KEY)
+assertEqual(idsOf(storage.getSnapshot().followedIds), [], 'a cross-tab key removal wipes this tab to empty')
+assert(handlerPathNotifications === 1, 'a cross-tab key removal notifies subscribers')
+
+// Payload past STORED_RAW_MAX_LENGTH arriving cross-tab: parseStoredIds rejects it by length
+// before ever parsing, same empty-set outcome. Same pre-existing data-loss shape; pinned, not
+// changed. Reuses oversizedValidPayload (defined above): valid JSON, rejected purely for its
+// length, so this exercises the length guard specifically rather than a JSON.parse failure.
+fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([3])))
+dispatchStorageEvent(STORAGE_KEY)
+handlerPathNotifications = 0
+fakeLocalStorage.setItem(STORAGE_KEY, oversizedValidPayload)
+dispatchStorageEvent(STORAGE_KEY)
+assertEqual(idsOf(storage.getSnapshot().followedIds), [], 'an over-limit cross-tab payload wipes this tab to empty')
+assert(handlerPathNotifications === 1, 'an over-limit cross-tab payload notifies subscribers')
+
+unsubscribeHandlerPath()
 
 // Resilience: a throwing localStorage must not crash the store
 fakeLocalStorage.setThrowing(true)
 dispatchStorageEvent(STORAGE_KEY)
-const getItemCallsAfterThrowingEvent = fakeLocalStorage.getItemCalls
-const afterThrowingEvent = storage.getSnapshot()
+let afterThrowingEvent!: FollowStoreSnapshot
+const itemCallsDuringThrowingEventRead = readItemCallsDuring(() => {
+  afterThrowingEvent = storage.getSnapshot()
+})
 assertEqual(
   idsOf(afterThrowingEvent.followedIds),
   [],
   'a storage event that hits a throwing localStorage.getItem falls back to an empty set instead of crashing',
 )
 assert(
-  fakeLocalStorage.getItemCalls === getItemCallsAfterThrowingEvent,
+  itemCallsDuringThrowingEventRead === 0,
   'a storage event that hits a throwing localStorage.getItem still leaves the store genuinely hydrated',
 )
 
@@ -381,22 +505,45 @@ fakeLocalStorage.setThrowing(false)
 // re-read as) whatever was last durably stored.
 const beforeGrowth = storage.getSnapshot().followedIds.size
 // Every commit that lands past the limit warns (see writeIds); expected here since crossing
-// it is the point of the test, so count instead of letting it flood this script's output. The
-// raw value captured at the first warning is what a correct guard must leave untouched for
-// every commit after it, since none of them are allowed to reach localStorage.setItem.
+// it is the point of the test, so count instead of letting it flood this script's output.
 let writeGuardWarnings = 0
-let rawAtFirstWarning: string | null = null
 const originalWarn = console.warn
 console.warn = () => {
   writeGuardWarnings++
-  if (rawAtFirstWarning === null) rawAtFirstWarning = fakeLocalStorage.raw(STORAGE_KEY)
 }
-Array.from({ length: 4_000 }, (_, index) => 10_000 + index).forEach((id) => storage.follow(id))
+
+// Sampling the persisted raw value only once — after the loop, or at the first warning — can't
+// tell a correct guard from one that clobbers storage on every over-limit commit: if every
+// clobber happens to write the same bytes (e.g. always '[]'), the "before" and "after" samples
+// agree even though every single commit destroyed real data. So each commit is bracketed
+// individually: capture setItemCalls and the raw value right before it, and if that commit
+// warned (i.e. it was over the limit), assert neither changed as a result of it — regardless
+// of whether a hostile write happens before or after the warn call within that commit.
+let overLimitCommits = 0
+let overLimitCommitWroteToStorage = false
+let rawWhenGuardFirstTriggered: string | null = null
+for (const id of Array.from({ length: 4_000 }, (_, index) => 10_000 + index)) {
+  const setItemCallsBefore = fakeLocalStorage.setItemCalls
+  const rawBefore = fakeLocalStorage.raw(STORAGE_KEY)
+  const warningsBefore = writeGuardWarnings
+  storage.follow(id)
+  const guardTriggeredForThisCommit = writeGuardWarnings > warningsBefore
+  if (!guardTriggeredForThisCommit) continue
+  overLimitCommits++
+  if (rawWhenGuardFirstTriggered === null) rawWhenGuardFirstTriggered = rawBefore
+  if (fakeLocalStorage.setItemCalls !== setItemCallsBefore || fakeLocalStorage.raw(STORAGE_KEY) !== rawBefore) {
+    overLimitCommitWroteToStorage = true
+  }
+}
 console.warn = originalWarn
 
 const afterGrowth = storage.getSnapshot().followedIds
 assert(afterGrowth.size === beforeGrowth + 4_000, 'the in-memory snapshot keeps every followed id for this tab')
-assert(writeGuardWarnings > 0, 'crossing the write guard warns instead of failing silently')
+assert(overLimitCommits > 0, 'crossing the write guard warns instead of failing silently')
+assert(
+  !overLimitCommitWroteToStorage,
+  'no over-limit commit calls localStorage.setItem or changes the persisted raw value, even one that writes bytes matching what a correct guard would have left behind',
+)
 
 const persistedRaw = fakeLocalStorage.raw(STORAGE_KEY)
 assert(
@@ -408,8 +555,46 @@ assert(
   'the oversized in-memory set is not fully persisted; some followed ids exist only for this tab session',
 )
 assert(
-  persistedRaw === rawAtFirstWarning,
+  persistedRaw === rawWhenGuardFirstTriggered,
   'crossing the write guard leaves the previously persisted raw value byte-for-byte untouched, not overwritten',
+)
+
+// Boundary: exactly at the limit, not past it, must still persist ('>' is the correct check
+// against STORED_RAW_MAX_LENGTH, not '>='). Re-sync to a fresh, known state via the cross-tab
+// path first (bypasses the write guard, since handleStorageEvent never calls writeIds), then
+// commit one more id that brings the serialized payload to exactly STORED_RAW_MAX_LENGTH
+// chars: 2857 six-digit ids serialize to exactly 2857 * 7 + 1 = 20000 chars ('[', ']', a comma
+// between each pair, and 6 digits per id).
+const boundaryBaseIds = new Set(Array.from({ length: 2_856 }, (_, index) => 100_000 + index))
+fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(boundaryBaseIds))
+dispatchStorageEvent(STORAGE_KEY)
+assert(
+  storage.getSnapshot().followedIds.size === boundaryBaseIds.size,
+  'write guard boundary: re-synced to the 2,856-id base state via the cross-tab path',
+)
+
+const setItemCallsBeforeBoundaryCommit = fakeLocalStorage.setItemCalls
+let boundaryCommitWarned = false
+console.warn = () => {
+  boundaryCommitWarned = true
+}
+storage.follow(102_856) // brings the set to exactly 2,857 ids, serializing to exactly the limit
+console.warn = originalWarn
+
+const boundaryPersistedRaw = fakeLocalStorage.raw(STORAGE_KEY)
+assert(
+  boundaryPersistedRaw !== null && boundaryPersistedRaw.length === STORED_RAW_MAX_LENGTH,
+  'write guard boundary: the exact-length payload really is exactly STORED_RAW_MAX_LENGTH chars',
+)
+assert(!boundaryCommitWarned, 'a commit that serializes to exactly STORED_RAW_MAX_LENGTH chars does not warn')
+assert(
+  fakeLocalStorage.setItemCalls === setItemCallsBeforeBoundaryCommit + 1,
+  'a commit that serializes to exactly STORED_RAW_MAX_LENGTH chars is still persisted, not rejected as if it were over the limit',
+)
+assertEqual(
+  idsOf(parseStoredIds(boundaryPersistedRaw)),
+  idsOf(new Set([...boundaryBaseIds, 102_856])),
+  'a commit that serializes to exactly STORED_RAW_MAX_LENGTH chars persists the full id set',
 )
 
 // Late re-check: getServerSnapshot must still return the same frozen, empty, non-hydrated
