@@ -1,27 +1,24 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
-
 // A gate for callers that arrive at unpredictable times over an unbounded lifetime — not a
 // batch runner over a known list (that's with-limit.ts, which stays a separate primitive
 // and is untouched by this file; see its own doc comment). A gate needs persistent shared
-// state across every call, a fairness policy for whoever is waiting right now, and
-// cancellation — none of which with-limit.ts's per-call cursor has any use for.
+// state across every call and a fairness policy for whoever is waiting right now, neither
+// of which with-limit.ts's per-call cursor has any use for.
 //
 // Bounds three things at once: how many tasks may run concurrently, how soon after the
 // PREVIOUS task started the next one may start, and how long any single task may run
 // before it is treated as hung. All three share one FIFO queue, so a caller that arrives
 // later can never be admitted ahead of one already waiting.
+//
+// Every caller consumes a slot of the shared pool — a task calling back into this same
+// gate deadlocks once the limit is exhausted, since the outer call would hold the only
+// slot while waiting on an inner call that can never be admitted. Nothing in this codebase
+// does that today (see flightlog/outbound-gate.ts's callers), so this stays unhandled
+// rather than adding a mechanism for a shape that doesn't exist.
 
 export class RequestGateTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`request-gate: task exceeded its ${timeoutMs}ms timeout`)
     this.name = 'RequestGateTimeoutError'
-  }
-}
-
-export class RequestGateCancelledError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'RequestGateCancelledError'
   }
 }
 
@@ -49,13 +46,13 @@ export type RequestGateOptions = {
 }
 
 export type RequestGate = {
-  // `task` receives an AbortSignal that fires when this call's timeout elapses (combined
-  // with the caller's own `signal`, if given), so a real fetch can actually tear its
-  // connection down rather than finish unobserved in the background.
-  run<T>(task: (signal: AbortSignal) => Promise<T>, options?: { signal?: AbortSignal }): Promise<T>
+  // `task` receives an AbortSignal that fires when this call's timeout elapses, so a real
+  // fetch can actually tear its connection down rather than finish unobserved in the
+  // background.
+  run<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>
 }
 
-export function createRequestGate(options: RequestGateOptions): RequestGate {
+function assertValidOptions(options: RequestGateOptions): void {
   const { limit, minSpacingMs, timeoutMs } = options
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new RangeError(`createRequestGate: limit must be a positive integer, got ${limit}`)
@@ -66,31 +63,18 @@ export function createRequestGate(options: RequestGateOptions): RequestGate {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError(`createRequestGate: timeoutMs must be a positive number, got ${timeoutMs}`)
   }
-  const clock = options.clock ?? systemClock
+}
 
-  // Marks the async context of a task that currently holds a slot. A gate.run() called
-  // from inside another gate.run()'s task sees this and skips queueing for a second slot —
-  // without it, that pattern deadlocks the moment the limit is exhausted: the outer call
-  // holds the only slot while waiting on the inner call, which then waits forever for a
-  // slot the outer call cannot release until the inner one finishes. This is sound as long
-  // as the holder stays sequential (awaits the nested call rather than racing several in
-  // parallel): the outer call isn't doing any IO of its own while the inner one runs, so
-  // one physical connection is in flight where the accounting also says one is. A holder
-  // that fans nested calls out in parallel (e.g. Promise.all of several gate.run() calls
-  // from the same held context) would let true concurrency exceed `limit` — nothing in the
-  // codebase does that today, but it is a real limit of this escape hatch, not a solved case.
-  const holdingSlot = new AsyncLocalStorage<boolean>()
+export function createRequestGate(options: RequestGateOptions): RequestGate {
+  assertValidOptions(options)
+  const { limit, minSpacingMs, timeoutMs } = options
+  const clock = options.clock ?? systemClock
 
   let activeCount = 0
   let lastStartTime: number | null = null
   let spacingTimerCancel: (() => void) | null = null
 
-  type Waiter = {
-    resolve: () => void
-    reject: (error: unknown) => void
-    cleanup: () => void
-  }
-  const queue: Waiter[] = []
+  const queue: Array<() => void> = []
 
   function scheduleSpacingWakeup(delayMs: number): void {
     spacingTimerCancel?.()
@@ -112,31 +96,16 @@ export function createRequestGate(options: RequestGateOptions): RequestGate {
         scheduleSpacingWakeup(earliestStart - now)
         return
       }
-      const waiter = queue.shift()!
-      waiter.cleanup()
+      const admit = queue.shift()!
       activeCount++
       lastStartTime = now
-      waiter.resolve()
+      admit()
     }
   }
 
-  function enqueue(signal: AbortSignal | undefined): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      const waiter: Waiter = { resolve, reject, cleanup: () => {} }
-      if (signal) {
-        const onAbort = (): void => {
-          const index = queue.indexOf(waiter)
-          // Not found means it was already admitted (popped off the queue by pump()) —
-          // cancelling a running task is that task's own concern via the signal it was
-          // handed, not this queue's, so there is nothing left here to do.
-          if (index === -1) return
-          queue.splice(index, 1)
-          reject(new RequestGateCancelledError('request-gate: cancelled while waiting in the queue'))
-        }
-        signal.addEventListener('abort', onAbort)
-        waiter.cleanup = () => signal.removeEventListener('abort', onAbort)
-      }
-      queue.push(waiter)
+  function enqueue(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      queue.push(resolve)
       pump()
     })
   }
@@ -149,29 +118,24 @@ export function createRequestGate(options: RequestGateOptions): RequestGate {
   // Races the task against the timeout rather than trusting the task to honour the abort
   // signal it was handed — a real fetch() does abort promptly, but this also has to be
   // correct for a task that ignores the signal entirely, which is what makes the timeout a
-  // hard ceiling rather than a polite request.
-  function runWithTimeout<T>(task: (signal: AbortSignal) => Promise<T>, callerSignal: AbortSignal | undefined): Promise<T> {
+  // hard ceiling rather than a polite request. No `settled` guard is needed: Promise
+  // resolution and AbortController.abort()/clearTimeout are already idempotent, so a
+  // same-tick race between the two branches (impossible under JS's run-to-completion
+  // semantics anyway) would still resolve safely.
+  function runWithTimeout<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const timeoutController = new AbortController()
-    const combinedSignal = callerSignal ? AbortSignal.any([callerSignal, timeoutController.signal]) : timeoutController.signal
 
     return new Promise<T>((resolve, reject) => {
-      let settled = false
       const cancelTimer = clock.setTimer(timeoutMs, () => {
-        if (settled) return
-        settled = true
         timeoutController.abort()
         reject(new RequestGateTimeoutError(timeoutMs))
       })
-      Promise.resolve(task(combinedSignal)).then(
+      Promise.resolve(task(timeoutController.signal)).then(
         (value) => {
-          if (settled) return
-          settled = true
           cancelTimer()
           resolve(value)
         },
         (error: unknown) => {
-          if (settled) return
-          settled = true
           cancelTimer()
           reject(error)
         },
@@ -179,20 +143,12 @@ export function createRequestGate(options: RequestGateOptions): RequestGate {
     })
   }
 
-  async function run<T>(task: (signal: AbortSignal) => Promise<T>, opts: { signal?: AbortSignal } = {}): Promise<T> {
-    const { signal } = opts
-    if (signal?.aborted) throw new RequestGateCancelledError('request-gate: cancelled before starting')
-
-    const consumesSlot = holdingSlot.getStore() !== true
-    if (consumesSlot) await enqueue(signal)
-
+  async function run<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    await enqueue()
     try {
-      return await holdingSlot.run(true, () => runWithTimeout(task, signal))
+      return await runWithTimeout(task)
     } finally {
-      // A slot is only ever taken in the branch that took it — releasing unconditionally
-      // here would let a reentrant call, which never incremented activeCount, decrement it
-      // anyway and desync the count from reality.
-      if (consumesSlot) release()
+      release()
     }
   }
 

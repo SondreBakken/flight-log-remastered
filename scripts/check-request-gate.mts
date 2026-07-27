@@ -1,7 +1,6 @@
 import { inspect } from 'node:util'
 import {
   createRequestGate,
-  RequestGateCancelledError,
   RequestGateTimeoutError,
   type GateClock,
 } from '../src/lib/concurrency/request-gate'
@@ -9,19 +8,19 @@ import {
   REQUEST_GATE_LIMIT,
   REQUEST_GATE_MIN_SPACING_MS,
   REQUEST_GATE_TIMEOUT_MS,
-} from '../src/lib/flightlog/request-gate'
+  flightlogRequestGate,
+} from '../src/lib/flightlog/outbound-gate'
 import { CONCURRENCY_LIMIT } from '../src/features/browse-flight-feed/use-flight-feed'
 import { MAX_YEARS_PER_PILOT } from '../src/features/browse-flight-feed/feed'
 
-// Real (not fake-clock) watchdog: a mutation that removes the timeout entirely makes the
-// hung-task assertion below await a promise that never settles — real code, not the fake
-// clock, is what would otherwise hang this process forever. This is independent of the
-// fake clock (it uses the real event loop), so it fires even while a `run()` call is
-// genuinely stuck, and stays inert on every normal run, which finishes in milliseconds.
-const watchdog = setTimeout(() => {
-  console.error('FAIL - watchdog: check-request-gate.mts did not finish within 5s (likely a deadlock introduced by a mutation)')
-  process.exit(1)
-}, 5000)
+// No real-time watchdog: every fake-clock assertion below settles within a handful of
+// microtask ticks by construction (virtual time, not real waiting), so a mutation that
+// truly deadlocks one (e.g. removing the timeout so a hung task's promise never settles)
+// surfaces as Node's own "Detected unsettled top-level await" diagnostic — which also
+// names the exact line — faster than any fixed-duration watchdog could, and without a
+// process.exit(1) racing ahead of that diagnostic and this file's own summary line. The
+// one block that uses real timers (production gate sizing, below) is built to always
+// settle on its own regardless of mutation, so it needs no watchdog either — see its comment.
 
 let failures = 0
 
@@ -49,10 +48,14 @@ function assertEqual<T>(actual: T, expected: T, label: string): void {
 // trusting real setTimeout delays, which would be both slow and flaky.
 // =====================================================================================
 
-type FakeClock = GateClock & { advance(ms: number): Promise<void> }
+type FakeClock = GateClock & { advance(ms: number): Promise<void>; pendingTimerCount(): number }
 
+// Flushes to quiescence rather than a fixed tick count: a macrotask boundary only runs
+// once every microtask queued ahead of it (including ones scheduled BY earlier ones, at
+// any depth) has drained, so this can't under-flush as the gate's own await depth grows —
+// a fixed tick budget silently could.
 async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 8; i++) await Promise.resolve()
+  await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
 function createFakeClock(): FakeClock {
@@ -85,6 +88,7 @@ function createFakeClock(): FakeClock {
       }
       time = target
     },
+    pendingTimerCount: () => timers.size,
   }
 }
 
@@ -151,26 +155,6 @@ function makeHarness(count: number) {
   }
 }
 
-const DEADLOCK_SENTINEL = Symbol('deadlock')
-
-// Guards a test against an actual hang: races the promise under test against a bounded
-// number of microtask ticks. A correct gate settles within a handful of ticks (no real
-// waiting is involved once time is fixed), so hitting the tick budget means the call never
-// settles — the exact shape a real deadlock takes — and the test fails loudly instead of
-// hanging the whole check run forever.
-function raceAgainstMicrotaskDeadline<T>(promise: Promise<T>, ticks = 500): Promise<T | typeof DEADLOCK_SENTINEL> {
-  const sentinel = new Promise<typeof DEADLOCK_SENTINEL>((resolve) => {
-    let i = 0
-    const tick = (): void => {
-      i++
-      if (i >= ticks) resolve(DEADLOCK_SENTINEL)
-      else void Promise.resolve().then(tick)
-    }
-    void Promise.resolve().then(tick)
-  })
-  return Promise.race([promise, sentinel])
-}
-
 // =====================================================================================
 // Production sizing: pinned to hardcoded expected values, and the worst-case latency math
 // worked out independently of the gate's own admission logic — not derived by running the
@@ -205,6 +189,80 @@ assertEqual(REQUEST_GATE_TIMEOUT_MS, 8_000, 'REQUEST_GATE_TIMEOUT_MS is pinned t
   // not the constant under test being echoed back at itself.
   const CLIENT_SIDE_TIMEOUT_CEILING_MS = 15_000
   assert(feedLoadWorstCaseMs < CLIENT_SIDE_TIMEOUT_CEILING_MS, 'sizing: the full feed load worst case (550ms) stays far under the browser-side 15s ceiling')
+
+  // This model counts only the common (no session-remint) case. A session gate on every
+  // fetch can drive one logical fetchFlightlog call to 4 gated calls (mint, first attempt,
+  // re-mint, retry) instead of 1, worst-casing nearer 48 gated fetches and ~2350ms of
+  // spacing — see outbound-gate.ts's REQUEST_GATE_MIN_SPACING_MS comment. The conclusion
+  // above (well under 15s) still holds; this note exists so the 550ms figure is never read
+  // as a hard ceiling.
+}
+
+// =====================================================================================
+// The production instance itself, not just its constants: everything above pins
+// REQUEST_GATE_LIMIT/MIN_SPACING_MS/TIMEOUT_MS and derives latency math from them, but
+// none of that touches flightlogRequestGate — a mutation to the createRequestGate({ ... })
+// call itself (wrong option mapped to wrong constant, a hardcoded value replacing a
+// constant) would sail through every assertion above. Drives the real, assembled instance
+// with real (not fake-clock) timing instead.
+// =====================================================================================
+
+{
+  // CALLERS is the pinned REQUEST_GATE_LIMIT (4, asserted above) + 1, hardcoded rather
+  // than derived from the live import: deriving both the caller count AND the wait below
+  // from REQUEST_GATE_LIMIT would make a LIMIT mutation (e.g. to 999) launch as many real
+  // callers and wait as long as the mutated value says, risking a real 8s-timeout crash
+  // instead of a clean assertion failure. A fixed, small count catches the same mutation —
+  // with limit=999 every one of these 5 gets admitted, so `started` (5) simply won't match
+  // the mutated REQUEST_GATE_LIMIT (999) it's compared against below.
+  const CALLERS = 5
+  const releases: Array<() => void> = []
+  let started = 0
+  const runs = Array.from({ length: CALLERS }, () =>
+    flightlogRequestGate
+      .run(async () => {
+        started++
+        await new Promise<void>((resolve) => releases.push(resolve))
+      })
+      // A too-small TIMEOUT_MS mutation (tested separately, below) can reject one of these
+      // for real while it's deliberately still held open — caught here so that surfaces as
+      // this block's own assertions going red, not as an unhandled rejection crash.
+      .catch(() => undefined),
+  )
+
+  // Spacing (real, ~50ms/start) and the concurrency limit both gate admission, so a short
+  // wait would under-count startedCount for a reason that has nothing to do with the
+  // limit. Waiting out spacing's own worst case for (CALLERS-1) admissions first isolates
+  // the limit as the only remaining reason the 5th caller is still queued. Capped so a
+  // MIN_SPACING_MS mutation (also tested separately) can't turn this into a long real wait.
+  const spacingWaitMs = Math.min((CALLERS - 1) * REQUEST_GATE_MIN_SPACING_MS, 2000) + 100
+  await new Promise((resolve) => setTimeout(resolve, spacingWaitMs))
+  assertEqual(started, REQUEST_GATE_LIMIT, `production gate: the real flightlogRequestGate admits exactly ${REQUEST_GATE_LIMIT} of ${CALLERS} real concurrent callers`)
+
+  // Releasing only the ones started so far would miss any caller that starts only once
+  // one of these releases frees its slot — so this keeps releasing whatever is newly
+  // pending until every one of them has both started and been released.
+  while (releases.length > 0 || started < CALLERS) {
+    releases.splice(0).forEach((release) => release())
+    if (started < CALLERS) await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  await Promise.all(runs)
+}
+
+{
+  const starts: number[] = []
+  const runs = Array.from({ length: 2 }, () =>
+    flightlogRequestGate.run(async () => {
+      starts.push(performance.now())
+    }),
+  )
+  await Promise.all(runs)
+  const gapMs = starts[1]! - starts[0]!
+  const TOLERANCE_MS = 5 // real-timer jitter, not a looseness in what's being asserted
+  assert(
+    gapMs >= REQUEST_GATE_MIN_SPACING_MS - TOLERANCE_MS,
+    `production gate: the real flightlogRequestGate enforces >= ~${REQUEST_GATE_MIN_SPACING_MS}ms between real starts (measured ${gapMs.toFixed(1)}ms)`,
+  )
 }
 
 // =====================================================================================
@@ -453,118 +511,40 @@ for (const badTimeout of [NaN, 0, -1]) {
 }
 
 // =====================================================================================
-// Cancellation of a caller still waiting in the queue must not consume a slot.
+// No leaked timers: a caller signal to cancel a queued wait, and reentrant nested calls,
+// were both removed from the gate (see concurrency/request-gate.ts's doc comment) — no
+// production caller ever used the signal option, and no production caller calls a gated
+// task from inside another gate.run(). Both were speculative surface with a real cost:
+// the reentrancy escape hatch skipped enqueue() entirely, silently exempting a caller from
+// the limit, the FIFO queue, and the spacing floor at once the moment a future refactor
+// happened to nest two gated calls — exactly the shape this gate exists to bound.
+//
+// What stays observable here instead: a spacing wakeup scheduled while one is already
+// pending must replace it, not accumulate a duplicate — and every timer (spacing or
+// per-call timeout) must be gone once every caller has completed.
 // =====================================================================================
 
 {
   const clock = createFakeClock()
-  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
+  const LIMIT = 2
+  const gate = createRequestGate({ limit: LIMIT, minSpacingMs: 20, timeoutMs: 1000, clock })
   const harness = makeHarness(3)
-  const controllerForSecond = new AbortController()
 
-  const first = gate.run(harness.runFns[0]!) // holds the only slot
+  const runs = harness.runFns.map((fn) => gate.run(fn))
   await flushMicrotasks()
-  const second = gate.run(harness.runFns[1]!, { signal: controllerForSecond.signal }) // queues
-  const third = gate.run(harness.runFns[2]!) // queues behind `second`
-  await flushMicrotasks()
-  assertEqual(harness.startedCount(), 1, 'cancellation: only the first caller has started; the second and third are queued')
 
-  controllerForSecond.abort()
-  let secondError: unknown
-  try {
-    await second
-  } catch (error) {
-    secondError = error
+  // 1 timeout timer for the admitted caller, + 1 spacing wakeup for the two still queued
+  // behind it — not 2 spacing wakeups, which is what an un-cancelled second scheduling
+  // call would leave behind alongside the first.
+  assertEqual(clock.pendingTimerCount(), 2, 'no leaked timers: a later spacing wakeup replaces the pending one instead of accumulating a duplicate')
+
+  while (harness.pendingCount() > 0 || harness.startedCount() < 3) {
+    harness.releaseOldest()
+    await clock.advance(20)
   }
-  assert(secondError instanceof RequestGateCancelledError, 'cancellation: the cancelled queued caller rejects with a distinguishable RequestGateCancelledError')
-  assert(!harness.startOrder.includes(1), 'cancellation: the cancelled caller\'s task never runs at all')
-
-  // Releasing the held slot now must hand it straight to the third caller — proof the
-  // cancelled second caller never occupied (or is still holding onto) a slot of its own.
-  harness.releaseOldest()
-  await flushMicrotasks()
-  assert(harness.startOrder.includes(2), 'cancellation: the slot freed by the first caller goes straight to the third — the cancelled one did not leak a phantom slot')
-
-  harness.releaseOldest()
-  await flushMicrotasks()
-  await Promise.all([first, third])
-  assertEqual(harness.startOrder, [0, 2], 'cancellation: exactly the two non-cancelled callers ever ran, in order')
+  await Promise.all(runs)
+  assertEqual(clock.pendingTimerCount(), 0, 'no leaked timers: nothing remains pending once every caller has completed normally')
 }
 
-{
-  // A signal already aborted before the call is even made must reject immediately, without
-  // ever touching the queue or the task.
-  const clock = createFakeClock()
-  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1000, clock })
-  const controller = new AbortController()
-  controller.abort()
-  const t = makeControlledTask()
-  let caught: unknown
-  try {
-    await gate.run(t.task, { signal: controller.signal })
-  } catch (error) {
-    caught = error
-  }
-  assert(caught instanceof RequestGateCancelledError, 'cancellation: a signal aborted before the call starts rejects immediately with RequestGateCancelledError')
-  assert(!t.started(), 'cancellation: the task is never invoked when the signal was already aborted')
-}
-
-// =====================================================================================
-// Reentrancy: a gated call made from inside another gated call must not deadlock, even
-// with a limit as tight as 1.
-// =====================================================================================
-
-{
-  const clock = createFakeClock()
-  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
-  let innerRan = false
-
-  const outerPromise = gate.run(async () => {
-    const innerResult = await gate.run(async () => {
-      innerRan = true
-      return 'inner'
-    })
-    return `outer-${innerResult}`
-  })
-
-  const raced = await raceAgainstMicrotaskDeadline(outerPromise)
-  assert(raced !== DEADLOCK_SENTINEL, 'reentrancy: a gate.run() nested inside another gate.run(), with limit=1, does not deadlock')
-  if (raced !== DEADLOCK_SENTINEL) {
-    assertEqual(raced, 'outer-inner', 'reentrancy: the nested call\'s result threads through to the outer call correctly')
-  }
-  assert(innerRan, 'reentrancy: the inner task actually ran, rather than the outer call short-circuiting around it')
-}
-
-{
-  // The nested call is admitted for free (it does not need a second slot of its own,
-  // since the outer call already holds the only one) — but it must not leak extra
-  // capacity to an UNRELATED caller that is not part of the nested chain.
-  const clock = createFakeClock()
-  const gate = createRequestGate({ limit: 1, minSpacingMs: 0, timeoutMs: 1_000_000, clock })
-  const inner = makeControlledTask()
-  const other = makeControlledTask()
-
-  const outerPromise = gate.run(async () => {
-    const innerResult = await gate.run(inner.task)
-    return `outer-${innerResult}`
-  })
-  const otherPromise = gate.run(other.task)
-
-  await flushMicrotasks()
-  assert(inner.started(), 'reentrancy: the nested call is admitted immediately even though the outer call already holds the only slot')
-  assert(!other.started(), 'reentrancy: a separate, non-nested caller still queues behind the held slot — the nested call does not free capacity for unrelated callers')
-
-  inner.resolve('done')
-  const racedOuter = await raceAgainstMicrotaskDeadline(outerPromise)
-  assert(racedOuter !== DEADLOCK_SENTINEL, 'reentrancy: the outer call completes once its nested call resolves')
-  assertEqual(racedOuter, 'outer-done', 'reentrancy: outer result reflects the resolved nested call')
-
-  await flushMicrotasks()
-  assert(other.started(), 'reentrancy: only once the outer call (and its nested call) fully releases the slot does the unrelated queued caller start')
-  other.resolve('other-done')
-  assertEqual(await otherPromise, 'other-done', 'reentrancy: the unrelated caller still completes normally afterwards')
-}
-
-clearTimeout(watchdog)
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)

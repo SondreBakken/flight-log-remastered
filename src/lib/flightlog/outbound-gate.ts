@@ -36,25 +36,28 @@ export const REQUEST_GATE_LIMIT = 4
 // run concurrently, so at 50ms that's at most 11 x 50ms = 550ms added to fully DISPATCH a
 // full feed load — well under fetch-pilot-feed.ts's existing 15s client-side ceiling, and
 // small next to the real network round-trips that dominate the rest of that load anyway.
+// This 12-fetch common case omits the session mint and the re-mint+retry path (http.ts):
+// a session gate on every one of a load's raw fetches would drive one logical
+// fetchFlightlog call to as many as 4 gated calls (mint, first attempt, re-mint, retry),
+// worst-casing nearer 48 gated fetches and ~2350ms of spacing — the conclusion (well under
+// 15s) still holds, since that worst case is already a total-outage scenario.
 export const REQUEST_GATE_MIN_SPACING_MS = 50
 
-// There is currently NO timeout anywhere between this app and flightlog.org: if the site
-// accepts a connection and never answers, the call hangs until the platform kills the
-// function. 8s is chosen to be well short of fetch-pilot-feed.ts's own FETCH_TIMEOUT_MS
-// (15_000ms, the browser's ceiling on one full route-handler round trip): a single hung
-// upstream connection fails HERE first, so the route handler's own try/catch
-// (api/pilots/[userId]/recent-flights/route.ts) gets the chance to return its normal, clean
-// 502 instead of the browser's timeout cutting the connection first with a generic
-// client-side message. This is purely a hang-prevention ceiling, not a traffic-pattern
-// defence — a pathological case where every stage of one call times out in sequence (mint,
-// then data, then a re-mint, then a re-data) can still exceed the browser's 15s ceiling; that
-// is an acceptable outcome for what is already a total-outage scenario, and strictly better
-// than today's unbounded hang.
+// Without this, a connection flightlog.org accepts and never answers hangs until the
+// platform kills the function. 8s bounds how long an ADMITTED task may run — the clock
+// starts at admission, not arrival, so queue wait ahead of it is unbounded. A feed load
+// pushes up to 12 gated fetches through 4 slots by construction (REQUEST_GATE_LIMIT,
+// use-flight-feed.ts's CONCURRENCY_LIMIT x [1 logbook + MAX_YEARS_PER_PILOT track
+// fetches]), so a request queued behind several hung ones can still blow past
+// fetch-pilot-feed.ts's 15s client-side ceiling before this timeout ever fires for it —
+// this is a per-admitted-task hang-prevention ceiling, not a bound on one caller's total
+// latency, and it is strictly better than today's fully unbounded hang either way.
 export const REQUEST_GATE_TIMEOUT_MS = 8_000
 
 // One shared gate for every raw fetch() to flightlog.org — both the session mint and the
-// data request in http.ts funnel through this single instance, so no caller, present or
-// future, can bypass it by adding a new raw fetch to that file.
+// data request in http.ts are wrapped through this single instance today. Nothing enforces
+// that; a future raw fetch added to that file could bypass it — this only guarantees that
+// today's two call sites don't.
 export const flightlogRequestGate: RequestGate = createRequestGate({
   limit: REQUEST_GATE_LIMIT,
   minSpacingMs: REQUEST_GATE_MIN_SPACING_MS,
