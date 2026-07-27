@@ -2,10 +2,13 @@ import type { TrackPoint } from '@/lib/flightlog/types'
 
 // The barogram renders a downsampled ~400-point set while the map renders the full
 // ~7000-point track (see barogram-math.ts's DEFAULT_MAX_POINTS comment), so the two views
-// never share an index space. `secondsFromStart` is the one property both a downsampled
-// and a full-resolution point carry with the same meaning, so it is what a hover in one
-// view resolves *to*, and what the other view resolves a point *from* — never an array
-// position from either side.
+// never share an index space directly. `secondsFromStart` looked like a shared identity but
+// is not one: parse-track.ts falls back to the raw array index for any point past the end
+// of the recorded seconds array, and that fallback tail can repeat values already used
+// earlier in the track. A shared hover position is instead an INDEX into the full, always
+// unique-by-construction track array (see track-hover-view.tsx, which owns that array and
+// the hovered index derived from it); `indexByPoint` below is how a point sampled from that
+// array — by either view — is translated back to it.
 
 /**
  * Sorts points by elapsed time. `secondsFromStart` is not guaranteed monotonic across a
@@ -49,41 +52,65 @@ export function nearestPointBySeconds(
   return distanceBefore <= distanceAfter ? before : after
 }
 
+/**
+ * Maps each point in `points` to its own array index, by object identity. A downsampled or
+ * sorted derivative of `points` (see downsampleByMinMax, sortBySeconds) holds references
+ * into the same array rather than copies, so looking a sampled point back up here recovers
+ * its position in the full track — the shared identity both hover views drive off.
+ */
+export function indexByPoint(points: TrackPoint[]): Map<TrackPoint, number> {
+  return new Map(points.map((point, index) => [point, index]))
+}
+
+function toRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180
+}
+
+// Weighting the longitude delta by cos(latitude) is what makes this a genuine (if small-area)
+// equirectangular approximation rather than treating degrees of longitude and latitude as
+// equal distances: at this track's ~62N latitude, a degree of longitude is only ~47% as wide
+// as a degree of latitude, so an unweighted comparison over-weights east-west separation by
+// roughly 2x. That matters most where the track crosses itself: an unweighted scan can pick
+// the wrong pass through the same point, since the two passes differ mostly in time, not
+// space, and the (wrongly) larger east-west term can outvote the real spatial separation.
 function squaredDegreeDistance(
   a: { lon: number; lat: number },
   b: { lon: number; lat: number },
+  cosLat: number,
 ): number {
-  const dLon = a.lon - b.lon
+  const dLon = (a.lon - b.lon) * cosLat
   const dLat = a.lat - b.lat
   return dLon * dLon + dLat * dLat
 }
 
 /**
- * Finds the point closest in space to a map cursor position, by plain squared-distance
- * scan over the full track.
+ * Finds the index of the point closest in space to a map cursor position, by plain
+ * squared-distance scan over the full track. Returns an index (not a point) because that
+ * index is the shared hover identity both views drive off — see the module doc comment.
  *
- * A single flight's track spans a small enough area that equirectangular squared-degree
+ * A single flight's track spans a small enough area that latitude-weighted squared-degree
  * distance preserves the *ordering* of distances the same way a true haversine distance
  * would, so it is used here instead: no sorted spatial key exists to binary-search the way
  * elapsed time does above, and this map-only listener is scoped to pointer events over the
  * rendered track layer (see track-map.tsx), not every pointer move over the whole map, so
  * a ~7000-point scan only runs while the cursor is actually on the line.
  */
-export function nearestPointByLocation(
+export function nearestIndexByLocation(
   points: TrackPoint[],
   lon: number,
   lat: number,
-): TrackPoint | null {
+): number | null {
   if (points.length === 0) return null
 
-  let nearest = points[0]
-  let nearestDistance = squaredDegreeDistance(nearest, { lon, lat })
+  const cosLat = Math.cos(toRadians(lat))
+  let nearestIndex = 0
+  let nearestDistance = squaredDegreeDistance(points[0], { lon, lat }, cosLat)
   for (let i = 1; i < points.length; i++) {
-    const distance = squaredDegreeDistance(points[i], { lon, lat })
+    const distance = squaredDegreeDistance(points[i], { lon, lat }, cosLat)
     if (distance < nearestDistance) {
-      nearest = points[i]
+      nearestIndex = i
       nearestDistance = distance
     }
   }
-  return nearest
+  return nearestIndex
 }

@@ -115,8 +115,11 @@ export function createAltitudeScale(
 // on the series instead of extrapolating off it.
 export function xToSecondsFromStart(scale: AltitudeScale, x: number): number {
   const plotWidth = scale.bounds.width - scale.bounds.paddingLeft - scale.bounds.paddingRight
-  const timeSpan = scale.maxSeconds || 1
-  const raw = ((x - scale.bounds.paddingLeft) / plotWidth) * timeSpan
+  // maxSeconds is a multiplicand here, never a divisor (plotWidth is the only
+  // denominator, and it is a fixed, always-nonzero layout constant), so a zero-duration
+  // series needs no fallback: the multiplication already collapses to 0, matching the
+  // clamp below.
+  const raw = ((x - scale.bounds.paddingLeft) / plotWidth) * scale.maxSeconds
   return Math.min(scale.maxSeconds, Math.max(0, raw))
 }
 
@@ -137,10 +140,6 @@ export function evenlySpacedValues(min: number, max: number, count: number): num
   if (count <= 1 || min === max) return [min]
   const step = (max - min) / (count - 1)
   return Array.from({ length: count }, (_, index) => min + step * index)
-}
-
-export function formatAltitude(metres: number | null): string {
-  return metres === null ? '—' : `${Math.round(metres)} m`
 }
 
 export function formatElapsed(seconds: number): string {

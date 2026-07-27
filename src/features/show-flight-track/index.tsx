@@ -1,5 +1,5 @@
 import type { Track } from '@/lib/flightlog/types'
-import { formatAltitude } from './barogram-math'
+import { formatAltitude } from './format-altitude'
 import { TrackHoverView } from './track-hover-view'
 
 type FlightTrackProps = {

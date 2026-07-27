@@ -1,7 +1,5 @@
-'use client'
-
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 import type { TrackPoint } from '@/lib/flightlog/types'
 import { TRACK_LINE_COLOR } from './colors'
 import {
@@ -14,23 +12,50 @@ import {
   describeAltitudeChart,
   downsampleByMinMax,
   evenlySpacedValues,
-  formatAltitude,
   formatElapsed,
   xToSecondsFromStart,
 } from './barogram-math'
-import { nearestPointBySeconds, sortBySeconds } from './track-hover'
+import { formatAltitude } from './format-altitude'
+import { indexByPoint, nearestPointBySeconds, sortBySeconds } from './track-hover'
 
 type BarogramProps = {
   points: TrackPoint[]
-  hoveredSeconds: number | null
-  onHoverPoint: (seconds: number | null) => void
+  hoveredIndex: number | null
+  onHoverIndex: (index: number | null) => void
 }
 
 const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
+// One key press covers ~5% of the plotted series either way, so PageUp/PageDown cross a
+// ~400-point chart in ~20 presses instead of ArrowLeft/Right's ~400.
+const COARSE_STEP = 20
 
-export function Barogram({ points, hoveredSeconds, onHoverPoint }: BarogramProps) {
+/** ARIA slider stepping: Home/End jump to the ends, PageUp/PageDown take a coarse step. */
+function stepIndex(key: string, currentIndex: number, length: number): number | null {
+  const clamp = (index: number) => Math.min(length - 1, Math.max(0, index))
+  switch (key) {
+    case 'ArrowRight':
+      return clamp(currentIndex + 1)
+    case 'ArrowLeft':
+      return clamp(currentIndex - 1)
+    case 'PageDown':
+      return clamp(currentIndex + COARSE_STEP)
+    case 'PageUp':
+      return clamp(currentIndex - COARSE_STEP)
+    case 'Home':
+      return 0
+    case 'End':
+      return length - 1
+    default:
+      return null
+  }
+}
+
+export function Barogram({ points, hoveredIndex, onHoverIndex }: BarogramProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  // Built once per `points` identity rather than per render: this is a scan over the full
+  // ~7000-point track, and both pointer moves and keystrokes need it every time they fire.
+  const fullIndexOf = useMemo(() => indexByPoint(points), [points])
 
   if (points.length === 0) {
     return (
@@ -51,33 +76,42 @@ export function Barogram({ points, hoveredSeconds, onHoverPoint }: BarogramProps
   const path = buildAltitudePath(sampled, scale)
   const altitudeTicks = evenlySpacedValues(scale.minAltitude, scale.maxAltitude, Y_TICK_COUNT)
   const timeTicks = evenlySpacedValues(0, scale.maxSeconds, X_TICK_COUNT)
-  const hoveredPoint = hoveredSeconds === null ? null : nearestPointBySeconds(sorted, hoveredSeconds)
+  // hoveredIndex is a position in the full track (see track-hover.ts); this chart can only
+  // ever draw one of its own `sampled` points, so the point actually drawn is the nearest
+  // survivor in time, not necessarily hoveredIndex's own point.
+  const hoveredSourcePoint = hoveredIndex === null ? null : (points[hoveredIndex] ?? null)
+  const hoveredPoint = hoveredSourcePoint ? nearestPointBySeconds(sorted, hoveredSourcePoint.secondsFromStart) : null
 
-  function pointAtClientX(clientX: number): TrackPoint | null {
+  function indexAtClientX(clientX: number): number | null {
     const svg = svgRef.current
     if (!svg) return null
     const rect = svg.getBoundingClientRect()
     const localX = ((clientX - rect.left) / rect.width) * scale.bounds.width
-    return nearestPointBySeconds(sorted, xToSecondsFromStart(scale, localX))
+    const point = nearestPointBySeconds(sorted, xToSecondsFromStart(scale, localX))
+    return point ? (fullIndexOf.get(point) ?? null) : null
   }
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
-    const point = pointAtClientX(event.clientX)
-    if (point) onHoverPoint(point.secondsFromStart)
+    const index = indexAtClientX(event.clientX)
+    if (index !== null) onHoverIndex(index)
   }
 
   function handlePointerLeave() {
-    onHoverPoint(null)
+    onHoverIndex(null)
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<SVGSVGElement>) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    const currentSortedIndex = hoveredPoint ? sorted.indexOf(hoveredPoint) : -1
+    const nextSortedIndex = stepIndex(event.key, currentSortedIndex, sorted.length)
+    if (nextSortedIndex === null) return
     event.preventDefault()
-    const currentIndex = hoveredPoint ? sorted.indexOf(hoveredPoint) : -1
-    const delta = event.key === 'ArrowRight' ? 1 : -1
-    const nextIndex = Math.min(sorted.length - 1, Math.max(0, currentIndex + delta))
-    onHoverPoint(sorted[nextIndex].secondsFromStart)
+    const fullIndex = fullIndexOf.get(sorted[nextSortedIndex])
+    if (fullIndex !== undefined) onHoverIndex(fullIndex)
   }
+
+  const valueText = hoveredPoint
+    ? `${formatElapsed(hoveredPoint.secondsFromStart)} elapsed, ${formatAltitude(hoveredPoint.altitude)}`
+    : 'No point selected'
 
   return (
     <BarogramFrame>
@@ -90,8 +124,12 @@ export function Barogram({ points, hoveredSeconds, onHoverPoint }: BarogramProps
           ref={svgRef}
           viewBox={`0 0 ${scale.bounds.width} ${scale.bounds.height}`}
           className="absolute inset-0 h-full w-full touch-none text-black/70 dark:text-white/70"
-          role="img"
+          role="slider"
           aria-label={describeAltitudeChart(scale)}
+          aria-valuemin={0}
+          aria-valuemax={scale.maxSeconds}
+          aria-valuenow={hoveredPoint ? hoveredPoint.secondsFromStart : 0}
+          aria-valuetext={valueText}
           tabIndex={0}
           onPointerMove={handlePointerMove}
           onPointerDown={handlePointerMove}
@@ -107,7 +145,9 @@ export function Barogram({ points, hoveredSeconds, onHoverPoint }: BarogramProps
             strokeLinejoin="round"
             vectorEffect="non-scaling-stroke"
           />
-          {hoveredPoint && <HoverIndicator point={hoveredPoint} scale={scale} />}
+          {hoveredPoint && (
+            <HoverIndicator point={hoveredPoint} scale={scale} fullIndex={fullIndexOf.get(hoveredPoint) ?? null} />
+          )}
         </svg>
         {/* The SVG's aria-label already carries the range and duration, so these
             overlay labels would only repeat that content for assistive tech. */}
@@ -116,25 +156,31 @@ export function Barogram({ points, hoveredSeconds, onHoverPoint }: BarogramProps
           <TimeLabels ticks={timeTicks} scale={scale} />
         </div>
       </div>
-      {/* Keyboard users reach every point via the arrow keys handled above; this announces
-          the resulting selection since there is no visible on-screen tooltip text to read. */}
-      <span className="sr-only" aria-live="polite" data-testid="barogram-hover-announcement">
-        {hoveredPoint
-          ? `${formatElapsed(hoveredPoint.secondsFromStart)} elapsed, ${formatAltitude(hoveredPoint.altitude)}`
-          : ''}
-      </span>
     </BarogramFrame>
   )
 }
 
-function HoverIndicator({ point, scale }: { point: TrackPoint; scale: AltitudeScale }) {
+function HoverIndicator({
+  point,
+  scale,
+  fullIndex,
+}: {
+  point: TrackPoint
+  scale: AltitudeScale
+  fullIndex: number | null
+}) {
   const x = scale.x(point.secondsFromStart)
   const y = scale.y(point.altitude)
   const plotTop = scale.bounds.paddingTop
   const plotBottom = scale.bounds.height - scale.bounds.paddingBottom
 
   return (
-    <g data-testid="barogram-hover-indicator" data-seconds={point.secondsFromStart}>
+    <g
+      data-testid="barogram-hover-indicator"
+      data-seconds={point.secondsFromStart}
+      data-altitude={point.altitude}
+      data-index={fullIndex ?? ''}
+    >
       <line
         x1={x}
         x2={x}

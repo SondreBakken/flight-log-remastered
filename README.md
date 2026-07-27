@@ -13,11 +13,21 @@ Protection is off so the site is publicly viewable.
 pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
 pnpm exec tsx scripts/check-parsers.mts   # parsers against saved fixtures
-pnpm exec tsx scripts/check-barogram.mts  # barogram downsampling and scaling math
-pnpm exec tsx scripts/shot.mts <url> <out.png>
+pnpm run check                            # every check: below, in one pass
+pnpm run check:barogram                   # barogram downsampling and scaling math
+pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
+pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
+pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
+
+`pnpm run check` is pure, source-only logic — no server needed. `scripts/verify-*.mts`
+(`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`) are a different kind of
+check: they drive a real headless browser against a running app (`pnpm dev` first, then e.g.
+`pnpm exec tsx scripts/verify-track-hover.mts`), so they are deliberately **not** part of `pnpm run
+check` or any other automated gate — there is nothing in this repo that starts a server, waits for
+it, and tears it down again. Run them by hand after touching the map or the barogram.
 
 ### Fixtures
 

@@ -7,7 +7,8 @@ import {
   xToSecondsFromStart,
 } from '../src/features/show-flight-track/barogram-math'
 import {
-  nearestPointByLocation,
+  indexByPoint,
+  nearestIndexByLocation,
   nearestPointBySeconds,
   sortBySeconds,
 } from '../src/features/show-flight-track/track-hover'
@@ -37,13 +38,22 @@ function point(secondsFromStart: number, altitude: number, lon = 0, lat = 0): Tr
 // actually runs, and matches the real fixture's point count.
 const REAL_FIXTURE_POINT_COUNT = 6972
 
+// A spiral, not a straight line: a slow net drift with several tight circling loops on top
+// of it, the way a real thermalling flight looks (see check-track-gradient.mts's
+// syntheticFlight for the full rationale). Kept near latitude 0 so cos(latitude) is ~1 and
+// the plain-Euclidean brute-force oracle below stays a valid ground truth for it; the
+// dedicated high-latitude fixture further down is what exercises cos(latitude) weighting.
 function syntheticFlight(count: number): TrackPoint[] {
+  const loops = 12
+  const thermalRadiusDegrees = 0.02
+  const netDriftDegrees = 0.15
   return Array.from({ length: count }, (_, i) => {
     const t = i / (count - 1)
     const altitude = 500 + Math.sin(t * Math.PI) * 1500 + Math.sin(i * 1.7) * 20
-    // Moves in space too, at a rate matching check-track-gradient.mts's fixture, so
-    // geographic nearest-point tests have real coordinates to work with.
-    return point(i, Math.round(altitude), t * 0.5, t * 0.3)
+    const angle = t * loops * 2 * Math.PI
+    const lon = t * netDriftDegrees + Math.cos(angle) * thermalRadiusDegrees
+    const lat = (t * netDriftDegrees) / 3 + Math.sin(angle) * thermalRadiusDegrees
+    return point(i, Math.round(altitude), lon, lat)
   })
 }
 
@@ -76,20 +86,36 @@ function bruteForceNearestBySeconds(points: TrackPoint[], targetSeconds: number)
   return nearest
 }
 
-// Independent oracle for nearestPointByLocation, same rationale as above, using a
-// straightforward Euclidean scan rather than the implementation's squared-distance loop.
-function bruteForceNearestByLocation(points: TrackPoint[], lon: number, lat: number): TrackPoint | null {
+// Independent oracle for nearestIndexByLocation, same rationale as above, using a
+// straightforward Euclidean scan over raw degrees rather than the implementation's
+// latitude-weighted squared-distance loop. Valid as a ground truth only where cos(latitude)
+// is close to 1 (this file's low-latitude syntheticFlight); the dedicated high-latitude
+// fixture below uses true haversine distance instead, since at real flight latitudes the
+// two metrics disagree by design.
+function bruteForceNearestIndexByLocation(points: TrackPoint[], lon: number, lat: number): number | null {
   if (points.length === 0) return null
-  let nearest = points[0]
+  let nearestIndex = 0
   let nearestDistance = Math.hypot(points[0].lon - lon, points[0].lat - lat)
-  for (const p of points) {
-    const distance = Math.hypot(p.lon - lon, p.lat - lat)
+  for (let i = 1; i < points.length; i++) {
+    const distance = Math.hypot(points[i].lon - lon, points[i].lat - lat)
     if (distance < nearestDistance) {
-      nearest = p
+      nearestIndex = i
       nearestDistance = distance
     }
   }
-  return nearest
+  return nearestIndex
+}
+
+// True haversine, written independently of altitude-color.ts's copy: the ground truth for
+// the high-latitude self-crossing test below, where a plain (unweighted) degree distance is
+// known to disagree with real-world proximity.
+function haversineMetres(a: { lon: number; lat: number }, b: { lon: number; lat: number }): number {
+  const earthRadiusMetres = 6_371_000
+  const rad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = rad(b.lat - a.lat)
+  const dLon = rad(b.lon - a.lon)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2
+  return 2 * earthRadiusMetres * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
 // --- xToSecondsFromStart: pinned at the plot edges and midpoint ---
@@ -194,103 +220,137 @@ function bruteForceNearestByLocation(points: TrackPoint[], lon: number, lat: num
   }
 }
 
-// --- nearestPointByLocation: matches a brute-force oracle across a real-shaped track ---
+// --- nearestIndexByLocation: matches a brute-force oracle across a real-shaped track ---
 {
   const flight = syntheticFlight(REAL_FIXTURE_POINT_COUNT)
   for (const [lon, lat] of [
     [0, 0],
-    [0.5, 0.3],
-    [0.25, 0.15],
-    [0.1, 0.28],
+    [0.15, 0.05],
+    [0.1, 0.02],
+    [0.05, 0.03],
     [-1, -1],
     [2, 2],
   ]) {
-    const actual = nearestPointByLocation(flight, lon, lat)
-    const expected = bruteForceNearestByLocation(flight, lon, lat)
+    const actual = nearestIndexByLocation(flight, lon, lat)
+    const expected = bruteForceNearestIndexByLocation(flight, lon, lat)
     assertEqual(
-      [actual?.lon, actual?.lat],
-      [expected?.lon, expected?.lat],
+      actual !== null ? [flight[actual].lon, flight[actual].lat] : null,
+      expected !== null ? [flight[expected].lon, flight[expected].lat] : null,
       `nearest point to (${lon}, ${lat}) matches the brute-force oracle`,
     )
   }
 }
 
-// --- nearestPointByLocation: a single point always wins, regardless of query position ---
+// --- nearestIndexByLocation: a single point always wins, regardless of query position ---
 {
   const single = [point(0, 900, 10, 20)]
-  const found = nearestPointByLocation(single, -50, 50)
-  assertEqual([found?.lon, found?.lat], [10, 20], 'a single-point track resolves to that point from anywhere')
+  const found = nearestIndexByLocation(single, -50, 50)
+  assertEqual(found !== null ? [single[found].lon, single[found].lat] : null, [10, 20], 'a single-point track resolves to that point from anywhere')
 }
 
-// --- nearestPointByLocation: an empty track resolves to null, not a throw ---
+// --- nearestIndexByLocation: an empty track resolves to null, not a throw ---
 {
-  assertEqual(nearestPointByLocation([], 0, 0), null, 'an empty track resolves to null')
+  assertEqual(nearestIndexByLocation([], 0, 0), null, 'an empty track resolves to null')
 }
 
-// --- nearestPointByLocation: duplicate coordinates (a stalled GPS fix) do not throw or return null ---
+// --- nearestIndexByLocation: duplicate coordinates (a stalled GPS fix) do not throw or return null ---
 {
   const stalled = Array.from({ length: 20 }, (_, i) => point(i, 400 + i, 5, 5))
-  const found = nearestPointByLocation(stalled, 5, 5)
-  assert(!!found, 'a track with duplicate coordinates still resolves to a point')
+  const found = nearestIndexByLocation(stalled, 5, 5)
+  assert(found !== null, 'a track with duplicate coordinates still resolves to a point')
 }
 
-// --- downsampled barogram set <-> full map track: resolving the same elapsed time in
-// both sets independently agrees with the oracle, proving the two views can be driven by
-// one shared `secondsFromStart` even though they never share an index space. ---
+// --- nearestIndexByLocation: latitude weighting picks the point that is actually nearer in
+// the real world, not the one nearer in raw (unweighted) degrees. At the real fixture's
+// ~62N latitude, a degree of longitude is worth only ~0.47 degrees of latitude in real
+// distance; these two candidates are built so that ignoring that (an unweighted scan) picks
+// the temporally distant point, and only the latitude-weighted comparison used in
+// nearestIndexByLocation picks the truly nearer one. Confirmed against true haversine
+// distance, an independent ground truth, not against the implementation's own metric. ---
+{
+  const highLatitude = 61.9
+  const queryLon = 8.0
+  const queryLat = highLatitude
+  // Offset purely in longitude: 0.0015 degrees. Unweighted, this reads as farther than the
+  // latitude-offset candidate below (0.0015 > 0.001); weighted by cos(61.9deg) ~= 0.4708, its
+  // effective distance (0.000706 degrees-equivalent) reads as nearer.
+  const lonOffsetCandidate = point(100, 500, queryLon + 0.0015, queryLat)
+  // Offset purely in latitude: 0.001 degrees. Unweighted this is the nearer candidate;
+  // latitude offsets are never weighted (weighting only ever discounts longitude), so this
+  // candidate's real-world distance is exactly its raw degree offset either way.
+  const latOffsetCandidate = point(5000, 500, queryLon, queryLat + 0.001)
+  const flight = [lonOffsetCandidate, latOffsetCandidate]
+
+  const trueNearestIndex =
+    haversineMetres(lonOffsetCandidate, { lon: queryLon, lat: queryLat }) <
+    haversineMetres(latOffsetCandidate, { lon: queryLon, lat: queryLat })
+      ? 0
+      : 1
+  assertEqual(trueNearestIndex, 0, 'sanity: the longitude-offset candidate really is nearer in true (haversine) distance')
+
+  const actualIndex = nearestIndexByLocation(flight, queryLon, queryLat)
+  assertEqual(
+    actualIndex,
+    trueNearestIndex,
+    'at high latitude, nearestIndexByLocation agrees with true distance, not raw (unweighted) degree distance',
+  )
+}
+
+// --- indexByPoint: every point maps back to its own array position, by identity ---
+{
+  const flight = syntheticFlight(500)
+  const indices = indexByPoint(flight)
+  for (const i of [0, 1, 250, 499]) {
+    assertEqual(indices.get(flight[i]), i, `indexByPoint maps flight[${i}] back to index ${i}`)
+  }
+}
+
+// --- indexByPoint: distinguishes points that share a secondsFromStart value (the KML
+// fallback-tail case), since it keys on object identity, not on secondsFromStart or any
+// other field. This is the property the shared hover state (an index) depends on that
+// secondsFromStart itself does not have (see track-hover.ts's module doc comment). ---
+{
+  const flight = flightWithFallbackSeconds(REAL_FIXTURE_POINT_COUNT, 3000)
+  const duplicateSecondsValue = flight[10].secondsFromStart
+  const duplicateIndices = flight.reduce<number[]>((acc, p, i) => (p.secondsFromStart === duplicateSecondsValue ? [...acc, i] : acc), [])
+  assert(duplicateIndices.length > 1, 'sanity: the fallback-tail fixture really does repeat a secondsFromStart value')
+
+  const indices = indexByPoint(flight)
+  for (const i of duplicateIndices) {
+    assertEqual(indices.get(flight[i]), i, `indexByPoint still maps index ${i} to itself despite a shared secondsFromStart value`)
+  }
+}
+
+// --- the barogram's own translation pipeline (downsampled point -> nearest in time -> back
+// to a full-track index, exactly as barogram.tsx composes these) round-trips exactly when a
+// hovered point survives decimation, and stays close in elapsed time when it does not. This
+// is the seam B2 was about: proving a full-track index survives the pipeline both views
+// actually run, not just that each piece works in isolation. ---
 {
   const full = syntheticFlight(REAL_FIXTURE_POINT_COUNT)
   const sampled = downsampleByMinMax(full, DEFAULT_MAX_POINTS)
-  assert(sampled.length < full.length, 'sanity: the barogram set is smaller than the full track')
-
-  const sortedFull = sortBySeconds(full)
   const sortedSampled = sortBySeconds(sampled)
+  const fullIndexOf = indexByPoint(full)
 
-  // Every point that survives downsampling is a real point from the full track (this
-  // synthetic flight has secondsFromStart === index, so it is an exact-match round trip).
-  for (const sampledPoint of [sampled[0], sampled[Math.floor(sampled.length / 2)], sampled[sampled.length - 1]]) {
-    const resolvedInFull = nearestPointBySeconds(sortedFull, sampledPoint.secondsFromStart)
-    const expected = bruteForceNearestBySeconds(full, sampledPoint.secondsFromStart)
-    assertEqual(
-      resolvedInFull?.secondsFromStart,
-      expected?.secondsFromStart,
-      `a downsampled-set point at ${sampledPoint.secondsFromStart}s resolves to the matching full-track point`,
-    )
-    assertEqual(
-      resolvedInFull?.secondsFromStart,
-      sampledPoint.secondsFromStart,
-      `for this exact-seconds synthetic flight, the full-track match is an exact round trip`,
-    )
-  }
+  for (const hoveredIndex of [0, 1234, Math.floor(full.length / 2), full.length - 1]) {
+    const sourcePoint = full[hoveredIndex]
+    const drawnPoint = nearestPointBySeconds(sortedSampled, sourcePoint.secondsFromStart)
+    assert(drawnPoint !== null, `a hovered index at ${hoveredIndex} resolves to a drawable barogram point`)
+    if (!drawnPoint) continue
 
-  // And the reverse: resolving a full-track point's time back against the downsampled set
-  // lands on the nearest surviving sample, not necessarily an exact match.
-  for (const fullPoint of [full[0], full[1234], full[full.length - 1]]) {
-    const resolvedInSampled = nearestPointBySeconds(sortedSampled, fullPoint.secondsFromStart)
-    const expected = bruteForceNearestBySeconds(sampled, fullPoint.secondsFromStart)
-    assertEqual(
-      resolvedInSampled?.secondsFromStart,
-      expected?.secondsFromStart,
-      `a full-track point at ${fullPoint.secondsFromStart}s resolves to the matching downsampled-set point`,
-    )
-  }
-}
+    const resolvedFullIndex = fullIndexOf.get(drawnPoint)
+    assert(resolvedFullIndex !== undefined, 'the drawn point translates back to a real full-track index')
+    if (resolvedFullIndex === undefined) continue
 
-// --- downsampled <-> full mapping stays finite and non-null on the non-monotonic
-// fallback tail too, matching an independent oracle rather than merely not throwing ---
-{
-  const full = flightWithFallbackSeconds(REAL_FIXTURE_POINT_COUNT, 3000)
-  const sampled = downsampleByMinMax(full, DEFAULT_MAX_POINTS)
-  const sortedFull = sortBySeconds(full)
-
-  for (const sampledPoint of [sampled[0], sampled[Math.floor(sampled.length / 2)], sampled[sampled.length - 1]]) {
-    const resolved = nearestPointBySeconds(sortedFull, sampledPoint.secondsFromStart)
-    const expected = bruteForceNearestBySeconds(full, sampledPoint.secondsFromStart)
-    assert(resolved !== null && Number.isFinite(resolved.secondsFromStart), 'fallback-tail mapping resolves to a finite point, not null/NaN')
-    assertEqual(
-      resolved?.secondsFromStart,
-      expected?.secondsFromStart,
-      `fallback-tail: downsampled-set point at ${sampledPoint.secondsFromStart}s matches the brute-force oracle in the full set`,
+    const elapsedGapSeconds = Math.abs(full[resolvedFullIndex].secondsFromStart - sourcePoint.secondsFromStart)
+    assert(
+      elapsedGapSeconds < 30,
+      `hovering index ${hoveredIndex} draws a barogram point within 30s of elapsed time (actual gap ${elapsedGapSeconds}s)`,
     )
+
+    if (sampled.includes(sourcePoint)) {
+      assertEqual(resolvedFullIndex, hoveredIndex, `hovering a point that survived decimation (index ${hoveredIndex}) round-trips exactly`)
+    }
   }
 }
 

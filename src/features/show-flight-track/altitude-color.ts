@@ -45,6 +45,11 @@ const LOW_ALTITUDE_COLOR: Rgb = hexToRgb(TRACK_LINE_COLOR)
 const MID_ALTITUDE_COLOR: Rgb = [234, 179, 8] // amber-500
 const HIGH_ALTITUDE_COLOR: Rgb = [220, 38, 38] // red-600
 
+// Every internal caller passes an altitude already within [minAltitude, maxAltitude] (it
+// comes from the same extent), so this never fires from inside this module. It stays as a
+// contract guard on the exported function: any caller passing a slightly out-of-range value
+// (e.g. floating-point drift) still gets a colour at the nearer end instead of an
+// out-of-gamut mix. Covered directly in check-track-gradient.mts.
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
@@ -80,10 +85,15 @@ function haversineDistanceMetres(a: TrackPoint, b: TrackPoint): number {
 }
 
 // Cumulative distance fractions approximate MapLibre's own `line-progress`, which is
-// normalised cumulative distance along the rendered geometry. Points repeated at the same
-// coordinate (a stalled GPS fix) contribute zero distance, which is why the fractions
-// coming out of this need the strictly-increasing filter below before they can be used as
-// interpolate stops.
+// normalised cumulative distance along the RENDERED geometry: the full, undecimated point
+// set (see track-map.tsx, which sources the line from `points` at full resolution). This
+// must therefore run over that same full set, not the decimated stop sample: measured on a
+// real ~7000-point thermalling track, running it over a 256-point decimation instead chords
+// straight across every thermal circle and shortens the estimated path by 40%, displacing
+// gradient stops by up to 9% of the track's length. Points repeated at the same coordinate
+// (a stalled GPS fix) contribute zero distance, which is why the fractions coming out of
+// this need the strictly-increasing filter below before they can be used as interpolate
+// stops.
 function progressFractions(points: TrackPoint[]): number[] {
   const distances = [0]
   for (let i = 1; i < points.length; i++) {
@@ -116,14 +126,23 @@ function solidGradient(color: string): GradientStop[] {
  *
  * The geometry itself stays at full point resolution (see track-map.tsx); only the STOP
  * SET is decimated here, via the same min/max-per-bucket downsampler the barogram uses, so
- * the highest and lowest points on the track always survive to get their colour even
- * though most points in between are dropped.
+ * the highest and lowest points on the track usually survive to get their colour even
+ * though most points in between are dropped (`keepStrictlyIncreasing` below can still drop
+ * one of them if a stalled GPS fix collapses two stops onto the same fraction).
+ *
+ * Each stop's FRACTION, though, is looked up from progress computed over the full point
+ * set (see progressFractions), not the decimated one, since that full set is what
+ * `line-progress` is normalised against on the map. `downsampleByMinMax` returns references
+ * into `points` rather than copies, so a point's position in the full array is recovered by
+ * object identity via `indexByPoint`.
  *
  * `line-gradient`'s `interpolate` expression requires strictly increasing stop positions,
  * so duplicate or zero-distance fixes are filtered out after decimation. If that filtering
  * (or too few input points) leaves fewer than two stops, an expression can't be built from
  * real data at all, so this falls back to a two-stop solid ramp instead of throwing or
- * producing an invalid expression.
+ * producing an invalid expression. Zero and one-point tracks take the same fallback path:
+ * every stage above already degrades to it (an empty/singleton sample produces at most one
+ * stop), so no separate early return is needed for them.
  */
 export function buildAltitudeGradient(
   points: TrackPoint[],
@@ -131,16 +150,12 @@ export function buildAltitudeGradient(
 ): AltitudeGradient {
   const { min: minAltitude, max: maxAltitude } = altitudeExtent(points)
 
-  if (points.length < 2) {
-    const color = points.length === 0 ? toCssColor(LOW_ALTITUDE_COLOR) : altitudeToColor(points[0].altitude, minAltitude, maxAltitude)
-    return { stops: solidGradient(color), minAltitude, maxAltitude }
-  }
-
   const sampled = downsampleByMinMax(points, maxStops)
-  const fractions = progressFractions(sampled)
+  const fullFractions = progressFractions(points)
+  const indexByPoint = new Map(points.map((point, index) => [point, index]))
   const stops = keepStrictlyIncreasing(
-    sampled.map((point, index) => ({
-      fraction: fractions[index],
+    sampled.map((point) => ({
+      fraction: fullFractions[indexByPoint.get(point)!],
       color: altitudeToColor(point.altitude, minAltitude, maxAltitude),
     })),
   )

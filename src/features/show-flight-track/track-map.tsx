@@ -1,5 +1,3 @@
-'use client'
-
 import { useEffect, useRef } from 'react'
 import {
   LngLatBounds,
@@ -13,9 +11,9 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
-import { formatAltitude } from './barogram-math'
+import { formatAltitude } from './format-altitude'
 import { TRACK_LINE_COLOR } from './colors'
-import { nearestPointByLocation, nearestPointBySeconds, sortBySeconds } from './track-hover'
+import { nearestIndexByLocation } from './track-hover'
 
 declare global {
   interface Window {
@@ -26,8 +24,8 @@ declare global {
 
 type TrackMapProps = {
   points: TrackPoint[]
-  hoveredSeconds: number | null
-  onHoverPoint: (seconds: number | null) => void
+  hoveredIndex: number | null
+  onHoverIndex: (index: number | null) => void
   className?: string
 }
 
@@ -90,9 +88,11 @@ function trackBounds(points: TrackPoint[]): LngLatBounds {
 }
 
 // `line-gradient` is keyed to `line-progress`, MapLibre's own normalised cumulative
-// distance along the line, so the stop positions built in altitude-color.ts (an
-// independent distance estimate) only need to be close, not exact, for the colours to
-// land at the right points along the rendered geometry.
+// distance along the line. The stop positions built in altitude-color.ts are an
+// independent haversine estimate of that same distance, not MapLibre's own projected
+// geometry, so they cannot be bit-for-bit identical to it; measured against the real
+// fixture the gap is small (worst case ~41 m over a track more than 100 km long) and has
+// no visible effect on where a colour lands.
 function toLineGradientExpression(stops: GradientStop[]): ExpressionSpecification {
   return [
     'interpolate',
@@ -106,12 +106,11 @@ function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
-export function TrackMap({ points, hoveredSeconds, onHoverPoint, className }: TrackMapProps) {
+export function TrackMap({ points, hoveredIndex, onHoverIndex, className }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const hoverMarkerRef = useRef<Marker | null>(null)
   const gradient = buildAltitudeGradient(points)
-  const sortedPoints = sortBySeconds(points)
 
   useEffect(() => {
     const container = containerRef.current
@@ -124,10 +123,15 @@ export function TrackMap({ points, hoveredSeconds, onHoverPoint, className }: Tr
       fitBoundsOptions: { padding: 48, maxZoom: 14 },
     })
     mapRef.current = map
-    // No test runner in this repo (see README); browser verification scripts drive a real
-    // page instead and need a handle on the live map to assert source/layer state
-    // programmatically rather than trust a screenshot (see scripts/verify-map.mts).
-    window.__flightTrackMap = map
+    // No test runner in this repo; browser verification scripts (scripts/verify-track-gradient.mts,
+    // scripts/verify-track-hover.mts) drive a real page instead and need a handle on the live map to
+    // assert source/layer state programmatically rather than trust a screenshot alone. Gated to
+    // non-production so the branch is dead-code-eliminated from the shipped bundle, and cleared on
+    // unmount below so a removed map (its GL context, tile cache, and the point array it closes
+    // over) does not stay reachable from `window` after teardown.
+    if (process.env.NODE_ENV !== 'production') {
+      window.__flightTrackMap = map
+    }
 
     map.addControl(new NavigationControl())
     map.addControl(new ScaleControl())
@@ -159,15 +163,15 @@ export function TrackMap({ points, hoveredSeconds, onHoverPoint, className }: Tr
       // ~7000-point track only ever runs while hovering the line, not on every mouse move
       // across the whole viewport.
       map.on('mousemove', TRACK_LAYER_ID, (event) => {
-        const point = nearestPointByLocation(points, event.lngLat.lng, event.lngLat.lat)
-        if (point) onHoverPoint(point.secondsFromStart)
+        const index = nearestIndexByLocation(points, event.lngLat.lng, event.lngLat.lat)
+        if (index !== null) onHoverIndex(index)
       })
       map.on('mouseenter', TRACK_LAYER_ID, () => {
         map.getCanvas().style.cursor = 'crosshair'
       })
       map.on('mouseleave', TRACK_LAYER_ID, () => {
         map.getCanvas().style.cursor = ''
-        onHoverPoint(null)
+        onHoverIndex(null)
       })
     }
 
@@ -191,17 +195,27 @@ export function TrackMap({ points, hoveredSeconds, onHoverPoint, className }: Tr
       map.remove()
       mapRef.current = null
       hoverMarkerRef.current = null
+      if (process.env.NODE_ENV !== 'production' && window.__flightTrackMap === map) {
+        window.__flightTrackMap = undefined
+      }
     }
-  }, [points, gradient.stops, onHoverPoint])
+  }, [points, gradient.stops, onHoverIndex])
 
   useEffect(() => {
     const hoverMarker = hoverMarkerRef.current
     if (!hoverMarker) return
 
-    const point = hoveredSeconds === null ? null : nearestPointBySeconds(sortedPoints, hoveredSeconds)
+    // hoveredIndex is a position in this same `points` array (see track-hover.ts's module
+    // doc comment), so it resolves directly — no nearest-point search needed on this side.
+    const point = hoveredIndex === null ? null : (points[hoveredIndex] ?? null)
     hoverMarker.getElement().style.display = point ? '' : 'none'
+    // data-index/data-seconds mirror the barogram's hover indicator (see HoverIndicator in
+    // barogram.tsx): both are test hooks that let a browser script confirm the two views
+    // agree on the same point, not just that each one changed.
+    hoverMarker.getElement().setAttribute('data-index', hoveredIndex === null ? '' : String(hoveredIndex))
+    hoverMarker.getElement().setAttribute('data-seconds', point ? String(point.secondsFromStart) : '')
     if (point) hoverMarker.setLngLat(toLngLat(point))
-  }, [hoveredSeconds, sortedPoints])
+  }, [hoveredIndex, points])
 
   if (points.length === 0) {
     return (
