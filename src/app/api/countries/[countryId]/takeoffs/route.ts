@@ -23,6 +23,11 @@ export async function generateStaticParams(): Promise<{ countryId: string }[]> {
 
 type RouteParams = { params: Promise<{ countryId: string }> }
 
+// :countryId is unauthenticated user input straight off the URL, same as recent-flights
+// route's :userId — without a cap, a long garbage segment is reflected back in the 404 body
+// at whatever length the caller sent it.
+const MAX_ECHOED_COUNTRY_ID_LENGTH = 32
+
 // `dynamicParams = false` (the usual way to 404 params generateStaticParams didn't
 // enumerate) is rejected outright by Cache Components — see dynamicParams.md: "not
 // available when Cache Components is enabled." Without it, an uncurated id falls through to
@@ -36,10 +41,23 @@ export async function GET(_request: Request, { params }: RouteParams): Promise<R
   const { countryId } = await params
   const id = parseCuratedCountryId(countryId)
   if (id === null) {
-    return Response.json({ error: `country ${countryId} is not in the curated takeoffs set` }, { status: 404 })
+    const echoedCountryId = countryId.slice(0, MAX_ECHOED_COUNTRY_ID_LENGTH)
+    return Response.json({ error: `country ${echoedCountryId} is not in the curated takeoffs set` }, { status: 404 })
   }
 
-  const takeoffs = await getTakeoffs(id)
-  const rows: TakeoffRow[] = takeoffs.map(encodeTakeoffRow)
-  return Response.json(rows)
+  try {
+    const takeoffs = await getTakeoffs(id)
+    const rows: TakeoffRow[] = takeoffs.map(encodeTakeoffRow)
+    return Response.json(rows)
+  } catch (error) {
+    // Same reasoning as recent-flights/route.ts (the first route handler in the repo, and
+    // the pattern every route since has copied): error.message embeds the scraped-from
+    // upstream path (see http.ts: "flightlog.org returned 500 for /fl.html?..."), which must
+    // never reach the client. Lower exposure than recent-flights — a build-time failure here
+    // fails the deploy outright, which is already accepted — but this still runs at request
+    // time whenever `use cache`'s entry has expired and needs revalidating, so it is
+    // reachable, not merely theoretical.
+    console.error(`takeoffs: country ${id} failed`, error)
+    return Response.json({ error: `could not load takeoffs for country ${id}` }, { status: 502, headers: { 'Cache-Control': 'no-store' } })
+  }
 }

@@ -91,7 +91,7 @@ const manifest = JSON.parse(readFileSync(PRERENDER_MANIFEST_PATH, 'utf8')) as Pr
 const takeoffRouteKeys = Object.keys(manifest.routes).filter((key) => manifest.routes[key].srcRoute === SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${takeoffRouteKeys.join(', ') || '(none)'}`)
 
-for (const { countryId, expectedRowCount } of CURATED_TAKEOFF_COUNTRIES) {
+for (const { countryId, expectedRowCount, expectedPayloadBytes } of CURATED_TAKEOFF_COUNTRIES) {
   const routeKey = `/api/countries/${countryId}/takeoffs`
   const entry = manifest.routes[routeKey]
 
@@ -112,6 +112,17 @@ for (const { countryId, expectedRowCount } of CURATED_TAKEOFF_COUNTRIES) {
   const bytes = statSync(bodyPath).size
   const parsed: unknown = JSON.parse(readFileSync(bodyPath, 'utf8'))
   console.log(`${bodyPath}: ${bytes} bytes on disk, ${Array.isArray(parsed) ? parsed.length : 'NOT AN ARRAY'} rows`)
+
+  // Runs against the real build artifact, unlike check:parsers' identical band, which only
+  // runs when fixtures/ (gitignored) is present locally and is therefore invisible to CI on a
+  // clean checkout. This is a coarse sanity band on total serialised size, not a field-shape
+  // guard — see curated-countries.ts's own doc comment on expectedPayloadBytes for what it
+  // does and does not catch, and why.
+  const [minBytes, maxBytes] = expectedPayloadBytes
+  assert(
+    bytes >= minBytes && bytes <= maxBytes,
+    `${bodyPath}: artifact size (${bytes} bytes) falls within the expected ${minBytes}-${maxBytes} byte band for country ${countryId}`,
+  )
 
   // Content-aware, not just "parses as an array": `[1,2,3]` (7 bytes) parses as a non-empty
   // array and previously passed this check outright. isTakeoffRows applies the same

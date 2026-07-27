@@ -49,6 +49,32 @@ describe('fetchTakeoffCount', () => {
     expect(result.status).toBe('error')
   })
 
+  it('reports the real status for a non-ok JSON response', async () => {
+    stubFetch({ ok: false, status: 500, body: { error: 'boom' } })
+
+    const result = await fetchTakeoffCount(160)
+
+    expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: server returned 500' })
+  })
+
+  // A non-ok response whose body isn't JSON at all (an HTML error page, a plain-text
+  // upstream failure) must still be reported by its real status, not swallowed by a `.json()`
+  // parse failure that never even looked at `response.ok`.
+  it('reports the real status for a non-ok response with a non-JSON body, not a parse-failure message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+      }),
+    )
+
+    const result = await fetchTakeoffCount(160)
+
+    expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: server returned 500' })
+  })
+
   it('resolves to an error result for a 200 response with a malformed body, not trusted blindly', async () => {
     stubFetch({ ok: true, status: 200, body: { rows: [] } })
 

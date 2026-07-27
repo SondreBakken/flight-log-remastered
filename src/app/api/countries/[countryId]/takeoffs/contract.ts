@@ -1,15 +1,18 @@
 import type { Takeoff } from '@/lib/flightlog/types'
 
-// Positional tuple, not a keyed object — see the takeoffs API route's doc comment for the
-// full measurement and reasoning (gzip gap is a real but modest 1.20x; the bigger point is
-// that GeoJSON's per-row `properties`/`geometry.coordinates` indirection is exactly what a
-// per-keystroke search wants to avoid, and a flat tuple avoids it without paying keyed
-// objects' redundant key-name bytes either).
+// Positional tuple, not a keyed object — measured against this exact payload, the gzip gap
+// against a GeoJSON encoding is a modest 1.20x; what Vercel actually serves modern browsers
+// is Brotli, which narrows that to 1.09x. The reasoning doesn't hinge on either number: the
+// bigger point is that GeoJSON's per-row `properties`/`geometry.coordinates` indirection is
+// exactly what a per-keystroke search wants to avoid, and a flat tuple avoids it without
+// paying keyed objects' redundant key-name bytes either.
 //
 // Field order is fixed to parse-takeoffs.ts's TAKEOFF_HEADER order (id, name, lat, lon,
 // wind, country_id, region_id, subregion_id, altitude, altitudediff) — for a tuple, unlike a
 // keyed object, that order IS the contract: nothing on the wire names which position is
-// which, so encode and decode must agree on it by construction, not by chance.
+// which, so TAKEOFF_HEADER, this type, and encodeTakeoffRow must all agree on it by
+// construction, not by chance. There is no positional decoder on the other end — consumers
+// only validate shape (isTakeoffRows) and read fields by their fixed index directly.
 export const TAKEOFF_ROW_LENGTH = 10
 
 export type TakeoffRow = readonly [

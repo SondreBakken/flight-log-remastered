@@ -27,31 +27,33 @@ describe('encodeTakeoffRow', () => {
     expect(row).toHaveLength(TAKEOFF_ROW_LENGTH)
   })
 
+  // Values quoted verbatim from fixtures/takeoffs-160.html's row 1: `6246 | Jorde på Løten,
+  // Klæpa airport | 60.79527778 | 11.34555556 | 56 | 160 | 6 | 0 | 180 | 0`.
   it('round-trips a real fixture row (Jorde på Løten, takeoff id 6246) field for field', () => {
     const takeoff: Takeoff = {
       takeoffId: 6246,
       name: 'Jorde på Løten, Klæpa airport',
-      lat: 60.8,
-      lon: 11.3,
-      wind: 166,
+      lat: 60.79527778,
+      lon: 11.34555556,
+      wind: 56,
       countryId: 160,
       regionId: 6,
-      subregionId: 2,
+      subregionId: 0,
       altitude: 180,
-      altitudeDiff: -12,
+      altitudeDiff: 0,
     }
 
     expect(encodeTakeoffRow(takeoff)).toEqual([
       6246,
       'Jorde på Løten, Klæpa airport',
-      60.8,
-      11.3,
-      166,
+      60.79527778,
+      11.34555556,
+      56,
       160,
       6,
-      2,
+      0,
       180,
-      -12,
+      0,
     ])
   })
 })

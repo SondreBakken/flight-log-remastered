@@ -25,11 +25,11 @@ export async function fetchTakeoffCount(countryId: number): Promise<TakeoffCount
     const response = await fetch(`/api/countries/${countryId}/takeoffs`, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
-    const body: unknown = await response.json()
 
     if (!response.ok) {
       return { status: 'error', message: `takeoffs for country ${countryId}: server returned ${response.status}` }
     }
+    const body: unknown = await response.json()
     if (!isTakeoffRows(body)) {
       return { status: 'error', message: `takeoffs for country ${countryId}: malformed response` }
     }

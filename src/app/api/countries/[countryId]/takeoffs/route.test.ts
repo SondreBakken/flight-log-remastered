@@ -99,6 +99,21 @@ describe('GET', () => {
     expect(mockedGetTakeoffs).not.toHaveBeenCalled()
   })
 
+  // :countryId is unauthenticated user input straight off the URL — same reasoning as
+  // recent-flights/route.ts's MAX_ECHOED_USER_ID_LENGTH: without a cap, a long garbage
+  // segment is reflected back at whatever length the caller sent it.
+  it('caps the echoed countryId in the 404 body, even for a very long garbage segment', async () => {
+    const garbage = '9'.repeat(4000)
+
+    const response = await GET(new Request('http://localhost/api/countries/x/takeoffs'), {
+      params: Promise.resolve({ countryId: garbage }),
+    })
+    const body = (await response.json()) as { error: string }
+
+    expect(response.status).toBe(404)
+    expect(body.error.length).toBeLessThan(100)
+  })
+
   // Every alias here normalises to 160 under plain `Number()` — each is a distinct URL and
   // therefore a distinct CDN cache key, so accepting any of them turns this route back into
   // an anonymous trigger for the live upstream fetch prerendering exists to eliminate. Only
@@ -114,4 +129,19 @@ describe('GET', () => {
       expect(mockedGetTakeoffs).not.toHaveBeenCalled()
     },
   )
+
+  // getTakeoffs' failure mode (http.ts) embeds the scraped-from upstream path in
+  // error.message — same reasoning as recent-flights/route.ts, the first route handler in
+  // the repo and the pattern this one follows: that string must never reach the client.
+  it('responds 502 with a generic body, never the raw error message, when getTakeoffs throws', async () => {
+    mockedGetTakeoffs.mockRejectedValue(new Error('flightlog.org returned 500 for /fl.html?rqtid=11&country_id=160'))
+
+    const response = await GET(new Request('http://localhost/api/countries/160/takeoffs'), {
+      params: Promise.resolve({ countryId: '160' }),
+    })
+    const body: unknown = await response.json()
+
+    expect(response.status).toBe(502)
+    expect(JSON.stringify(body)).not.toContain('flightlog.org')
+  })
 })
