@@ -13,18 +13,24 @@ function isValidPilotId(value: unknown): value is PilotId {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
-export function parseStoredIds(raw: string | null): Set<PilotId> {
-  if (raw === null || raw.length > STORED_RAW_MAX_LENGTH) return new Set()
+// A raw stored value can fail to represent a followed-ids list at all (corrupted JSON, wrong
+// shape, over length) as opposed to correctly representing an empty one ("[]"). Callers need
+// to tell these apart, so a failed read carries no ids rather than collapsing into one — each
+// caller decides for itself what "failed to read" should mean for it.
+export type StoredIdsRead = { readonly ok: true; readonly ids: Set<PilotId> } | { readonly ok: false }
+
+export function parseStoredIds(raw: string | null): StoredIdsRead {
+  if (raw === null || raw.length > STORED_RAW_MAX_LENGTH) return { ok: false }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return new Set()
+    return { ok: false }
   }
 
-  if (!Array.isArray(parsed)) return new Set()
-  return new Set(parsed.filter(isValidPilotId))
+  if (!Array.isArray(parsed)) return { ok: false }
+  return { ok: true, ids: new Set(parsed.filter(isValidPilotId)) }
 }
 
 export function serializeIds(ids: ReadonlySet<PilotId>): string {

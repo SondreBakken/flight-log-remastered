@@ -5,7 +5,15 @@
 // a client boundary, which surfaces most misuse without silently no-opping.
 'use client'
 
-import { addId, parseStoredIds, removeId, serializeIds, STORED_RAW_MAX_LENGTH, type PilotId } from './follow-ids'
+import {
+  addId,
+  parseStoredIds,
+  removeId,
+  serializeIds,
+  STORED_RAW_MAX_LENGTH,
+  type PilotId,
+  type StoredIdsRead,
+} from './follow-ids'
 
 const STORAGE_KEY = 'flight-log:followed-pilots'
 
@@ -33,13 +41,13 @@ const SERVER_SNAPSHOT: FollowStoreSnapshot = { followedIds: EMPTY_IDS, hasHydrat
 let snapshot: FollowStoreSnapshot = SERVER_SNAPSHOT
 const subscribers = new Set<() => void>()
 
-function readIds(): Set<PilotId> {
-  if (typeof window === 'undefined') return new Set()
+function readIds(): StoredIdsRead {
+  if (typeof window === 'undefined') return { ok: true, ids: new Set() }
   try {
     return parseStoredIds(window.localStorage.getItem(STORAGE_KEY))
   } catch {
-    // Safari private mode and disabled storage throw on access; treat as "nobody followed".
-    return new Set()
+    // Safari private mode and disabled storage throw on access.
+    return { ok: false }
   }
 }
 
@@ -69,7 +77,10 @@ function setSnapshot(followedIds: ReadonlySet<PilotId>): void {
 
 function ensureHydrated(): ReadonlySet<PilotId> {
   if (!snapshot.hasHydrated) {
-    setSnapshot(readIds())
+    // No in-memory list exists yet to fall back on, so a failed read becomes "follows nobody" —
+    // the only sensible reading before the store has ever successfully hydrated.
+    const result = readIds()
+    setSnapshot(result.ok ? result.ids : EMPTY_IDS)
   }
   return snapshot.followedIds
 }
@@ -94,9 +105,14 @@ function idsEqual(a: ReadonlySet<PilotId>, b: ReadonlySet<PilotId>): boolean {
 // other keys (or the same tab, which never fires `storage`) are none of our concern.
 function handleStorageEvent(event: StorageEvent): void {
   if (event.key !== null && event.key !== STORAGE_KEY) return
-  const nextIds = readIds()
-  if (idsEqual(nextIds, snapshot.followedIds)) return
-  setSnapshot(nextIds)
+  const result = readIds()
+  // Unlike ensureHydrated, there is a good in-memory list here worth keeping: a failed read
+  // (corrupted payload, missing key, over-length payload) must not be mistaken for "the user
+  // now follows nobody" and wipe it out. A genuinely empty list ("[]") is not a failed read,
+  // so it still reaches the equality check below and propagates like any other change.
+  if (!result.ok) return
+  if (idsEqual(result.ids, snapshot.followedIds)) return
+  setSnapshot(result.ids)
   notifySubscribers()
 }
 
