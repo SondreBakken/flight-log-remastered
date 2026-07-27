@@ -4,6 +4,8 @@ import { parseTrack } from '../src/lib/flightlog/parse-track'
 import { parseCountries } from '../src/lib/flightlog/parse-countries'
 import { parseClubs } from '../src/lib/flightlog/parse-clubs'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
+import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
+import { parseRegions } from '../src/lib/flightlog/parse-regions'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -22,6 +24,10 @@ const requiredFixtures = [
   'fixtures/pilot-search-form.html',
   'fixtures/pilot-search-grouped.html',
   'fixtures/pilot-search-zero.html',
+  'fixtures/takeoffs-160.html',
+  'fixtures/takeoffs-29.html',
+  'fixtures/regions-160.html',
+  'fixtures/regions-29.html',
 ]
 const missing = requiredFixtures.filter((f) => !existsSync(f))
 if (missing.length > 0) {
@@ -97,6 +103,32 @@ assert(norwayHits.length > 0, `pilot-search-grouped.html: at least one Norway hi
 const zeroMatchSearch = parsePilotSearch(readFileSync('fixtures/pilot-search-zero.html', 'utf8'))
 console.log(`pilot-search-zero.html: results=${zeroMatchSearch.length}`)
 assert(zeroMatchSearch.length === 0, `pilot-search-zero.html: genuinely zero matches (got ${zeroMatchSearch.length})`)
+
+const takeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-160.html', 'utf8'), 160)
+const jordeTakeoff = takeoffs.find((t) => t.takeoffId === 6246)
+console.log(`takeoffs-160.html: takeoffs=${takeoffs.length} sample=${jordeTakeoff?.name}`)
+assert(takeoffs.length === 6012, `takeoffs-160.html (Norway): parses all 6012 takeoffs (got ${takeoffs.length})`)
+assert(
+  jordeTakeoff?.name === 'Jorde på Løten, Klæpa airport',
+  `takeoffs-160.html: takeoff id 6246 resolves to the expected name (got ${jordeTakeoff?.name ?? 'MISSING'})`,
+)
+
+const emptyTakeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-29.html', 'utf8'), 29)
+console.log(`takeoffs-29.html (Bouvet Island): takeoffs=${emptyTakeoffs.length}`)
+assert(emptyTakeoffs.length === 0, `takeoffs-29.html (Bouvet Island): genuinely zero takeoffs (got ${emptyTakeoffs.length})`)
+
+const regions = parseRegions(readFileSync('fixtures/regions-160.html', 'utf8'), 160)
+const akershusRegion = regions.find((r) => r.regionId === 2)
+console.log(`regions-160.html: regions=${regions.length} sample=${akershusRegion?.name}`)
+assert(regions.length === 29, `regions-160.html (Norway): parses all 29 regions (got ${regions.length})`)
+assert(
+  akershusRegion?.name === 'Akershus',
+  `regions-160.html: region id 2 resolves to Akershus (got ${akershusRegion?.name ?? 'MISSING'})`,
+)
+
+const emptyRegions = parseRegions(readFileSync('fixtures/regions-29.html', 'utf8'), 29)
+console.log(`regions-29.html (Bouvet Island): regions=${emptyRegions.length}`)
+assert(emptyRegions.length === 0, `regions-29.html (Bouvet Island): genuinely zero regions (got ${emptyRegions.length})`)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)
