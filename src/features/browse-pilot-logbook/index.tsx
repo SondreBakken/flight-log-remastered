@@ -86,7 +86,7 @@ function EmptyLogbook() {
     <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
       No flights found for this pilot.{' '}
       <Link className="underline" href="/">
-        Back to the default pilot
+        Back to your feed
       </Link>
     </p>
   )

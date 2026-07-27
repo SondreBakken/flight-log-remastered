@@ -2,11 +2,20 @@ import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
 import { fetchFlightlogText, FLIGHTLOG_ORIGIN } from './http'
 import { parseTrack } from './parse-track'
+import { runWithConcurrencyLimit } from '@/lib/concurrency/with-limit'
 import type { Track, TrackIndexEntry } from './types'
 
 const TRACK_INDEX_BY_PILOT = 21
 const TRACK_INDEX_BY_TRIP = 22
 const TRACK_KML = 19
+
+// getTrackedTripIds fans out to one request per year, and its caller-supplied `years` is
+// not itself bounded everywhere it's called from — the recent-flights feed caps it at
+// MAX_YEARS_PER_PILOT, but a pilot's own logbook page (pilots/[userId]/page.tsx) still
+// passes every year that pilot has ever flown. Bounding the fan-out here, not just at the
+// feed's caller, is what keeps a many-year pilot's own logbook page from bursting
+// flightlog.org regardless of which caller reaches this function.
+const YEAR_FETCH_CONCURRENCY = 4
 
 type TrackIndexResponse = {
   data_item_count: number
@@ -43,8 +52,29 @@ export async function getTracksForPilot(
 // Asking per trip would mean one request per row; the per-year index answers the same
 // question for a whole logbook in one request, which matters on a volunteer-run server.
 export async function getTrackedTripIds(userId: number, years: number[]): Promise<Set<number>> {
-  const indexes = await Promise.all(years.map((year) => getTracksForPilot(userId, year)))
-  return new Set(indexes.flat().map((entry) => entry.tripId))
+  const tripIds = new Set<number>()
+  let firstError: unknown
+
+  await runWithConcurrencyLimit(
+    years,
+    YEAR_FETCH_CONCURRENCY,
+    (year) => getTracksForPilot(userId, year),
+    (_year, outcome) => {
+      if (outcome.ok) {
+        for (const entry of outcome.value) tripIds.add(entry.tripId)
+      } else {
+        // Preserve the original Promise.all-style contract (any one year failing fails
+        // the whole call) rather than silently returning a partial result — callers
+        // (the recent-flights route, the pilot logbook page) already treat this function
+        // failing as "this pilot's page/entry failed", which a partial track set would
+        // undermine by understating which flights actually have a GPS track.
+        firstError ??= outcome.error
+      }
+    },
+  )
+
+  if (firstError !== undefined) throw firstError
+  return tripIds
 }
 
 export async function hasTrack(tripId: number): Promise<boolean> {

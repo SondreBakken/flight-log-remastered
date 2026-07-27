@@ -1,16 +1,30 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { runWithConcurrencyLimit } from '@/lib/concurrency/with-limit'
+import { runWithConcurrencyLimit, type Settled } from '@/lib/concurrency/with-limit'
 import { fetchPilotFeed } from './fetch-pilot-feed'
 import { buildFeedEntries, failedPilotResults, FEED_SIZE, type FeedEntry, type PilotFeedFailure, type PilotFeedResult } from './feed'
 
 // Low single digits: enough that a fast pilot doesn't sit queued behind a slow one, far
 // below the ~200-requests-in-a-few-minutes threshold that silently kills a flightlog.org
-// session (docs/flightlog-api.md). Each in-flight request is also already cheap — one or
-// two years of track index per pilot, see sliceRecentFlights — so the cap exists to
-// smooth out request timing, not to protect against per-request cost.
-const CONCURRENCY_LIMIT = 4
+// session (docs/flightlog-api.md). Each in-flight request now also costs at most
+// MAX_YEARS_PER_PILOT track-index requests, by construction (see sliceRecentFlights), so
+// the cap exists to smooth out request timing, not to protect against per-request cost.
+// Exported so check-feed.mts can pin the production value rather than a test-local guess.
+export const CONCURRENCY_LIMIT = 4
+
+// fetchPilotFeed never rejects on its own (it has its own try/catch), but the limiter is a
+// generic utility that does not assume that — this turns whatever it hands back into the
+// PilotFeedResult this hook actually needs, converting an unexpected rejection into a
+// failure entry instead of losing it.
+function toPilotFeedResult(pilotId: number, outcome: Settled<PilotFeedResult>): PilotFeedResult {
+  if (outcome.ok) return outcome.value
+  return {
+    status: 'error',
+    pilotId,
+    message: outcome.error instanceof Error ? outcome.error.message : `failed to load pilot ${pilotId}`,
+  }
+}
 
 export type FlightFeedResults = {
   isLoading: boolean
@@ -31,16 +45,36 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
 
   useEffect(() => {
     let cancelled = false
+    // Aborts every pilot still in flight when this effect is cleaned up (follow list
+    // changed, component unmounted) — without this, an abandoned fetch keeps running to
+    // completion, wasting a request and a worker slot the pool could hand to a pilot that
+    // actually matters. `cancelled` alone only suppressed the resulting setState, it never
+    // stopped the request itself.
+    const controller = new AbortController()
 
-    runWithConcurrencyLimit(pilotIds, CONCURRENCY_LIMIT, fetchPilotFeed, (_pilotId, result) => {
-      if (cancelled) return
-      setResults((previous) => [...previous, result])
-    }).finally(() => {
-      if (!cancelled) setIsLoading(false)
-    })
+    runWithConcurrencyLimit(
+      pilotIds,
+      CONCURRENCY_LIMIT,
+      (pilotId) => fetchPilotFeed(pilotId, controller.signal),
+      (pilotId, outcome) => {
+        if (cancelled) return
+        setResults((previous) => [...previous, toPilotFeedResult(pilotId, outcome)])
+      },
+    )
+      .catch((error: unknown) => {
+        // runWithConcurrencyLimit only rejects synchronously, before any pilot fetch
+        // starts (an invalid CONCURRENCY_LIMIT) — reachable only by a future regression,
+        // but a rejected promise with no .catch() is a real unhandled rejection in the
+        // browser, so this stays even though CONCURRENCY_LIMIT is a hardcoded constant.
+        if (!cancelled) console.error('flight feed: concurrency pool failed', error)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
 
     return () => {
       cancelled = true
+      controller.abort()
     }
     // pilotIds is frozen for this mount by construction (see doc comment above), so this
     // intentionally runs once per mount rather than re-running if the caller ever passed a

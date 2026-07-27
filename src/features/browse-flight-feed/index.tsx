@@ -1,20 +1,44 @@
 'use client'
 
 import Link from 'next/link'
-import { DEFAULT_PILOT_ID } from '@/lib/flightlog/config'
 import { useFollowedPilotIds } from '@/lib/follow-store/use-follow-store'
-import { usePilotFeedResults } from './use-flight-feed'
+import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
-import type { FeedEntry, PilotFeedFailure } from './feed'
+import { selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
+
+type FlightFeedProps = {
+  // Server-only (see lib/flightlog/config.ts), so it arrives as a plain prop from the
+  // Server Component page rather than this 'use client' module importing config.ts
+  // directly — that import used to compile fine but silently read the browser's env shim,
+  // which never carries FLIGHTLOG_PILOT_ID (no NEXT_PUBLIC_ prefix), always falling back to
+  // the hardcoded default regardless of what the server actually resolved.
+  defaultPilotId: number
+}
 
 // The follow list only exists in this browser's localStorage (see follow-store), so the
 // feed cannot be rendered on the server: it has nothing to fetch until it hydrates.
-export default function FlightFeed() {
+export default function FlightFeed({ defaultPilotId }: FlightFeedProps) {
   const { followedIds, hasHydrated } = useFollowedPilotIds()
+  return <FlightFeedView hasHydrated={hasHydrated} followedIds={followedIds} defaultPilotId={defaultPilotId} />
+}
 
+// Pure aside from the components it composes — no hooks of its own — so it can be rendered
+// with react-dom/server against literal props (see check-feed.mts) without a browser. That
+// is what actually exercises the hydration guard below: a hook-driven component can't be
+// proven to skip rendering real content before hydration without either a browser or
+// separating the "what to render" decision (here) from the "read the store" hook (above).
+export function FlightFeedView({
+  hasHydrated,
+  followedIds,
+  defaultPilotId,
+}: {
+  hasHydrated: boolean
+  followedIds: ReadonlySet<number>
+  defaultPilotId: number
+}) {
   if (!hasHydrated) return <FeedSkeleton />
 
-  const pilotIds = [...followedIds].sort((a, b) => a - b)
+  const { pilotIds, followedCount } = selectFeedPilotIds(followedIds)
 
   return (
     <section className="flex flex-col gap-6">
@@ -22,25 +46,52 @@ export default function FlightFeed() {
       {pilotIds.length === 0 ? (
         <>
           <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
-          <EmptyState />
+          <EmptyState defaultPilotId={defaultPilotId} />
         </>
       ) : (
         // Keying by the id set itself gives every genuinely new set of followed pilots a
         // fresh FeedForPilots instance (fresh loading state, fresh results), instead of
         // an effect resetting old state to match the new props — see usePilotFeedResults.
-        <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} />
+        <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
       )}
     </section>
   )
 }
 
-function FeedForPilots({ pilotIds }: { pilotIds: number[] }) {
-  const { isLoading, entries, failedPilots } = usePilotFeedResults(pilotIds)
+function FeedForPilots({
+  pilotIds,
+  followedCount,
+}: {
+  pilotIds: number[]
+  followedCount: number | null
+}) {
+  const results = usePilotFeedResults(pilotIds)
+  return <FeedView shownCount={pilotIds.length} followedCount={followedCount} {...results} />
+}
 
+// Pure presentation of a resolved (or still-resolving) feed: no hooks, so — like
+// FlightFeedView above — it's exercised directly with react-dom/server in check-feed.mts
+// against literal FlightFeedResults. That's what gives the failed-pilots notice real
+// coverage for "wired to the actual failures, not an empty array": a mistake in feed.ts's
+// pure merge/sort/slice logic cannot produce, only a mistake in this wiring can.
+export function FeedView({
+  shownCount,
+  followedCount,
+  isLoading,
+  entries,
+  failedPilots,
+}: {
+  shownCount: number
+  // The real followed total when the list was truncated to fit MAX_PILOTS_PER_FEED, null
+  // otherwise — see selectFeedPilotIds. Drives which summary line renders below.
+  followedCount: number | null
+} & FlightFeedResults) {
   return (
     <>
       <p className="text-sm opacity-70">
-        {pilotIds.length} pilot{pilotIds.length === 1 ? '' : 's'} followed
+        {followedCount === null
+          ? `${shownCount} pilot${shownCount === 1 ? '' : 's'} followed`
+          : `following ${followedCount} pilots — showing recent flights from the first ${shownCount} to keep this page fast`}
         {isLoading ? ' · loading…' : ''}
       </p>
       <FailedPilotsNotice failures={failedPilots} />
@@ -73,7 +124,7 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
   )
 }
 
-function EmptyState() {
+function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-dashed border-black/15 p-6 text-sm opacity-80 dark:border-white/20">
       <p>You are not following any pilots yet.</p>
@@ -81,7 +132,7 @@ function EmptyState() {
         Open a pilot&apos;s logbook and use the Follow button there to add their flights to this
         feed.
       </p>
-      <Link className="underline" href={`/pilots/${DEFAULT_PILOT_ID}`}>
+      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
         Browse a pilot&apos;s logbook
       </Link>
     </div>
