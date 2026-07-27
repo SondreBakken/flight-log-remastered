@@ -9,7 +9,8 @@
     "lint": "eslint",
     "check:barogram": "tsx scripts/check-barogram.mts",
     "check:follow-store": "tsx scripts/check-follow-store.mts",
-    "check:follow-button": "tsx scripts/check-follow-button.mts"
+    "check:follow-button": "tsx scripts/check-follow-button.mts",
+    "check": "pnpm check:barogram && pnpm check:follow-store && pnpm check:follow-button"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

@@ -1,28 +1,11 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
-import {
-  getHasHydrated,
-  getServerHasHydrated,
-  getServerSnapshot,
-  getSnapshot,
-  subscribe,
-  toggleFollow,
-} from './storage'
+import { getServerSnapshot, getSnapshot, subscribe, toggleFollow, type FollowStoreSnapshot } from './storage'
 import type { PilotId } from './follow-ids'
 
-// hasHydrated is false for the render that must match the server (no localStorage there),
-// then flips true once the real, browser-read value is available. Consumers use it to render
-// a neutral/skeleton state instead of a value indistinguishable from "genuinely not followed".
-export interface FollowedPilotIds {
-  followedIds: ReadonlySet<PilotId>
-  hasHydrated: boolean
-}
-
-export function useFollowedPilotIds(): FollowedPilotIds {
-  const followedIds = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
-  const hasHydrated = useSyncExternalStore(subscribe, getHasHydrated, getServerHasHydrated)
-  return { followedIds, hasHydrated }
+export function useFollowedPilotIds(): FollowStoreSnapshot {
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }
 
 export function useFollowPilot(pilotId: PilotId): {
