@@ -58,3 +58,12 @@ export type Club = {
   name: string
   flightCount: number
 }
+
+// Deliberately not the `Pilot` type: a search result carries no club (the a=114 response
+// never renders one), and reusing `Pilot` with `club` hardcoded to `null` would claim
+// knowledge ("this pilot has no club") the response never actually gives.
+export type PilotSearchResult = {
+  userId: number
+  name: string
+  country: string
+}
