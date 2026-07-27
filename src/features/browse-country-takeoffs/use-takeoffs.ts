@@ -1,20 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { fetchTakeoffCount, type TakeoffCountResult } from './fetch-takeoff-count'
+import { fetchTakeoffs, type FetchTakeoffsResult } from './fetch-takeoffs'
 
-export type TakeoffCountState = { status: 'loading' } | TakeoffCountResult
+export type TakeoffsState = { status: 'loading' } | FetchTakeoffsResult
 
 // countryId is fixed for the lifetime of this component in practice (the page that renders
 // it is itself keyed off the same route param), so the initial 'loading' state above is the
 // only "reset to loading" this needs — no setState-in-effect to synchronize a changed prop.
-export function useTakeoffCount(countryId: number): TakeoffCountState {
-  const [state, setState] = useState<TakeoffCountState>({ status: 'loading' })
+export function useTakeoffs(countryId: number): TakeoffsState {
+  const [state, setState] = useState<TakeoffsState>({ status: 'loading' })
 
   useEffect(() => {
     let cancelled = false
 
-    fetchTakeoffCount(countryId).then((result) => {
+    fetchTakeoffs(countryId).then((result) => {
       if (!cancelled) setState(result)
     })
 
