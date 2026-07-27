@@ -19,6 +19,12 @@ Verified live 2026-07-26. Nothing here is documented by the operator.
   cookie fixed it immediately. Elapsed time was 2-3 min at 0.4s/request, so this is pattern
   detection, not a rate limit. A real client must rotate the cookie periodically and send the
   actual previous-page URL as `Referer`.
+- **Confirmed safe volume.** A pass of 34 requests (interleaved `a=`/`rqtid=` codes, sequential on
+  one session, real chained `Referer`, 2-3.8s spacing) completed without tripping the gate above —
+  known-good URLs kept returning 200 throughout. A later pass added 6 more requests on a fresh
+  anonymous session with the same spacing/referer discipline, also with no gate trip. Neither
+  approached the ~200-request threshold that did trip it; treat 34-40 sequential requests as a
+  confirmed-safe reference point, not an upper bound.
 - **302-to-root is ambiguous.** On `fl.html` it means either "no such action code" or "valid code,
   missing required param". Status and body size cannot tell them apart; only cross-referencing
   links found in other pages can.
@@ -53,6 +59,11 @@ All confirmed working with an **anonymous** session.
 | 22 | `trip_id` | application/json | Tracklog timestamp for one trip — self-documenting |
 
 `rqtid=3` → `Could not find image`. `rqtid=14,15,16,23-30` → empty 200. `rqtid=4,6,7,13,17` → empty body.
+`rqtid=1` ignores name-fragment params — `name`, `pilot_name`, `search`, `q` each returned a
+response byte-identical to the unfiltered `club_id`/`country_id` call (verified by exact string
+comparison, not just length). No filter found. `a=114` (below) supersedes this for resolving a name
+to a `user_id`; it does not supersede it for a name-filtered stats table — `rqtid=1` returns
+Name/Flights/Distance/Time with no `user_id`, `a=114` returns `user_id` links with no stats.
 
 ### rqtid=21 (the sync endpoint)
 
@@ -88,7 +99,8 @@ No raw IGC download endpoint found. KML is the richest available form and is los
 
 ## `a` — HTML pages
 
-Full sweep of `a=1..200` done with an authenticated cookie. Real pages:
+Full sweep of `a=1..200` done with an authenticated cookie; `101, 111, 114, 139` were separately
+resolved with an **anonymous** session (below) — pilot search needs no auth. Real pages:
 
 | a | Page | Required | Optional |
 |---|---|---|---|
@@ -115,16 +127,61 @@ Full sweep of `a=1..200` done with an authenticated cookie. Real pages:
 | 43 | Club detail, alt | `country_id`, `club_id` | — |
 | 45 | Register landing | — | — |
 | 47, 48 | **Country flight list** | `country_id` | `year`, `tripdate`, `xc`, `offset` |
-| 49 | Flights section | — | `last_x_days` |
+| 49 | Flights section, default `last_x_days`-filtered view | — | `last_x_days` |
 | 55 | Competitions index | — | — |
 | 56 | **Competition results** | `comp_id` | — |
+| 101 | Pilot test flights, empty shell (breadcrumb: Pilots/Clubs > user > Flights > Test flights) | `user_id` *(inferred)* | — |
 | 102 | Pilot options | `user_id` | — |
 | 107 | Takeoff search (POST `start`) | — | — |
+| 111 | Flights section landing, empty shell — distinct from `a=49`: no `last_x_days` filter, reached via the Competition breadcrumb | `comp_id` *(inferred)* | — |
+| 114 | **Pilot search** (POST `form=find_user`, fields `user_fullname`, `go=Go`) | — | — |
+| 139 | Airspace/coordinate lookup, unrelated to pilots | — | `airspace_lat`, `airspace_lon` |
 | 142 | GpsDump info page | — | — |
 | 214 | **XLSX export of a pilot's flights** | `user_id` | auth, own account only |
 
-Seen only as link targets, unverified: 101, 111, 114, 139. Everything else in 1..200 returned the
-ambiguous 302 with no corroborating link anywhere in the crawl.
+`101, 111, 114, 139` were seen only as link targets before being resolved live. `101` and `111`
+render real, homepage-distinct pages with no `<form>` and empty content shells — neither is
+pilot-related. `139` renders a real `<form>` (`airspace_lat`, `airspace_lon`) but is an
+airspace/coordinate lookup; not probed further. Everything else in 1..200 returned the ambiguous
+302 with no corroborating link anywhere in the crawl.
+
+### Pilot search (`a=114`)
+
+All confirmed working with an **anonymous** session. `GET` renders a form advertising wildcards
+`%` and `_`:
+
+```
+GET /fl.html?l=1&a=114
+```
+
+`POST`ing the same fields performs the search and returns matches as `a=28&user_id=<id>` links
+grouped by country under country-name headers:
+
+```
+POST /fl.html?l=1&a=114
+form=find_user & user_fullname=<query> & go=Go
+```
+
+**Matching semantics**, resolved with two queries against the known-good `Henden` set (Børge 2831,
+Nils Aage 754, Patrick 11072, all Norway):
+
+- `user_fullname=nde` — an interior substring of "Henden" (not a token, not a prefix or suffix, not
+  the surname itself) returned 300+ pilots, including the 3 known Hendens and many whose *first*
+  name alone contains "nde" (e.g. "Anders...", "Aleksander..."). This confirms **case-insensitive
+  substring match against the full display name** (first + last, not a surname-only column) — it
+  rules out token match, surname-prefix match, and exact-surname-column match in the one query.
+- `user_fullname=H_nden` (literal underscore) returned exactly the same 3 Hendens. This confirms
+  the advertised `_` wildcard is a real SQL `LIKE` single-char wildcard layered on top of the
+  implicit substring wrap, not a literal character requiring escaping — the wildcard claim is
+  accurate, and it is not made redundant by the implicit substring behavior since it lets a caller
+  narrow a match that plain substring would over-select.
+
+No result cap or pagination was observed: the `nde` query returned 300+ rows in a single 48.6 KB
+response with no truncation notice or "N of M" count.
+
+**Zero-match response** (`user_fullname=zzznomatchxyz123`): `200 OK`, same page shell, the search
+box re-populated with the query, no results list and no "no results" message — just an empty
+content div.
 
 `comp_id` values observed: 1, 37, 161-168.
 
