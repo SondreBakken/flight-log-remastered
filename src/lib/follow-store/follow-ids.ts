@@ -6,7 +6,11 @@ export type PilotId = number
 // exercises it precisely.
 export const STORED_RAW_MAX_LENGTH = 20_000
 
-function isValidPilotId(value: unknown): value is PilotId {
+// Exported so the recent-flights route can validate its own :userId path param with the
+// same rule, rather than a second, looser copy (Number.isInteger, which — unlike
+// isSafeInteger — accepts a precision-lost value like 9007199254740993, silently
+// rounded to the fabricated 9007199254740992).
+export function isValidPilotId(value: unknown): value is PilotId {
   // isSafeInteger, not isInteger: values past 2^53 (e.g. from `1e308` or an
   // over-precision literal in the stored JSON) still pass isInteger after float
   // coercion but are not real ids.
