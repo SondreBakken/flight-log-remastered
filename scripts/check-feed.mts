@@ -224,7 +224,23 @@ assertEqual(
 
 {
   nextTripId = 1
-  const manyYearHistory = Array.from({ length: 40 }, (_, index) => makeFlight({ date: `${1986 + index}-06-15` }))
+  // A shape where slice-derived and history-derived years actually diverge: 35 flights
+  // packed into 2025 (more than the 30-flight RECENT_FLIGHTS_PER_PILOT slice can hold) plus
+  // a few sparse older years. The slice never reaches past 2025, so its own years are just
+  // [2025] — but the full history also touches 2020, so the top-2-of-full-history years
+  // would be [2025, 2020]. A fixture where both derivations land on the same [2025, 2024]
+  // (e.g. one flight per year) can't tell these apart, which is exactly how the "derive
+  // years from full history" wiring bug shipped undetected.
+  const denseRecentYear = Array.from({ length: 35 }, (_, index) => {
+    const date = new Date(Date.UTC(2025, 0, 1) + index * 24 * 60 * 60 * 1000)
+    return makeFlight({ date: date.toISOString().slice(0, 10) })
+  })
+  const sparseOlderYears = [
+    makeFlight({ date: '2020-06-15' }),
+    makeFlight({ date: '2015-06-15' }),
+    makeFlight({ date: '2010-06-15' }),
+  ]
+  const divergentHistory = [...denseRecentYear, ...sparseOlderYears]
   const pilot = makePilot({ userId: 77 })
   let calledWithPilotId: number | undefined
   let calledWithYears: number[] = []
@@ -234,13 +250,13 @@ assertEqual(
     return new Set()
   }
 
-  const body = await loadRecentFlightsForPilot(77, { pilot, flights: manyYearHistory }, stubResolveTrackedTripIds)
+  const body = await loadRecentFlightsForPilot(77, { pilot, flights: divergentHistory }, stubResolveTrackedTripIds)
 
   assertEqual(calledWithPilotId, 77, 'loadRecentFlightsForPilot: resolves tracks for the pilot it was asked about')
   assertEqual(
     calledWithYears,
-    [2025, 2024],
-    'loadRecentFlightsForPilot: resolves tracks using years derived from the RECENT SLICE, never the full 40-year history — this is the exact wiring bug (deriving years from full history) that made the pre-fix route only sometimes traffic-safe',
+    [2025],
+    'loadRecentFlightsForPilot: resolves tracks using years derived from the RECENT SLICE, never the full history — this fixture is built so the two derivations actually diverge ([2025] from the slice vs [2025, 2020] from the full history), so the wiring bug (deriving years from full history) cannot pass by accident',
   )
   assertEqual(body.flights.length, RECENT_FLIGHTS_PER_PILOT, 'loadRecentFlightsForPilot: the returned flights are the sliced recent flights')
 }
@@ -669,6 +685,11 @@ async function withStubbedFetch(stub: (input: RequestInfo | URL, init?: RequestI
   globalThis.fetch = stub as typeof fetch
   try {
     await run()
+  } catch (error) {
+    // A mutation that deletes fetchPilotFeed's own try/catch makes `run` reject instead of
+    // resolving to an error result — record that as a failed assertion and move on, rather
+    // than letting an uncaught exception crash the runner and skip every assertion after it.
+    assert(false, `withStubbedFetch: run() threw instead of resolving to a result: ${inspect(error)}`)
   } finally {
     globalThis.fetch = original
   }
