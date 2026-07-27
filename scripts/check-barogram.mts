@@ -10,6 +10,7 @@ import {
   evenlySpacedValues,
   formatElapsed,
 } from '../src/features/show-flight-track/barogram-math'
+import { formatAltitude } from '../src/features/show-flight-track/format-altitude'
 
 function point(secondsFromStart: number, altitude: number): TrackPoint {
   return { lon: 0, lat: 0, altitude, secondsFromStart }
@@ -263,6 +264,17 @@ function altitudesOf(points: TrackPoint[]): number[] {
   assert.match(label, /360/, 'accessible name must include the min altitude')
   assert.match(label, /2657/, 'accessible name must include the max altitude')
   assert.match(label, /1h01/, 'accessible name must include the flight duration')
+}
+
+// --- formatAltitude rounds to whole metres, matching AltitudeLabels' axis ticks (both
+// display altitude as a glance-able label, not a precise reading; see format-altitude.ts) ---
+{
+  assert.equal(formatAltitude(null), '—', 'a null altitude (no stat available) renders as an em dash')
+  assert.equal(formatAltitude(0), '0 m')
+  assert.equal(formatAltitude(1234), '1234 m')
+  assert.equal(formatAltitude(1234.4), '1234 m', 'a sub-metre fraction rounds down')
+  assert.equal(formatAltitude(1234.5), '1235 m', 'a sub-metre fraction at the midpoint rounds up')
+  assert.equal(formatAltitude(-15.6), '-16 m', 'a negative altitude rounds the same way as a positive one')
 }
 
 console.log('check:barogram: all assertions passed')

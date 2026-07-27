@@ -1,16 +1,12 @@
 import type { Track } from '@/lib/flightlog/types'
-import { Barogram } from './barogram'
-import { TrackMap } from './track-map'
+import { formatAltitude } from './format-altitude'
+import { TrackHoverView } from './track-hover-view'
 
 type FlightTrackProps = {
   track: Track
 }
 
 type Stat = { label: string; value: string }
-
-function formatAltitude(metres: number | null): string {
-  return metres === null ? '—' : `${metres} m`
-}
 
 function toStats(track: Track): Stat[] {
   const { stats, points } = track
@@ -30,8 +26,7 @@ function toStats(track: Track): Stat[] {
 export default function FlightTrack({ track }: FlightTrackProps) {
   return (
     <div className="flex flex-col gap-6">
-      <TrackMap points={track.points} />
-      <Barogram points={track.points} />
+      <TrackHoverView points={track.points} />
       <StatGrid stats={toStats(track)} />
     </div>
   )

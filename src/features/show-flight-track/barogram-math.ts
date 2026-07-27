@@ -70,7 +70,7 @@ export function downsampleByMinMax(points: TrackPoint[], maxPoints: number): Tra
   return bucketRanges(points.length, bucketCount).flatMap((range) => minMaxInRange(points, range))
 }
 
-function altitudeExtent(points: TrackPoint[]): { min: number; max: number } {
+export function altitudeExtent(points: TrackPoint[]): { min: number; max: number } {
   if (points.length === 0) return { min: 0, max: 0 }
   const altitudes = points.map((point) => point.altitude)
   return { min: Math.min(...altitudes), max: Math.max(...altitudes) }
@@ -107,6 +107,20 @@ export function createAltitudeScale(
     y: (altitude) =>
       bounds.paddingTop + plotHeight - ((altitude - altitudeFloor) / altitudeSpan) * plotHeight,
   }
+}
+
+// Inverse of AltitudeScale.x: maps a chart-local pixel x back to the seconds value it
+// represents. Clamped to the plotted range so a pointer that has strayed past the plot's
+// left/right edge (or the container's own edge) still resolves to the nearest real point
+// on the series instead of extrapolating off it.
+export function xToSecondsFromStart(scale: AltitudeScale, x: number): number {
+  const plotWidth = scale.bounds.width - scale.bounds.paddingLeft - scale.bounds.paddingRight
+  // maxSeconds is a multiplicand here, never a divisor (plotWidth is the only
+  // denominator, and it is a fixed, always-nonzero layout constant), so a zero-duration
+  // series needs no fallback: the multiplication already collapses to 0, matching the
+  // clamp below.
+  const raw = ((x - scale.bounds.paddingLeft) / plotWidth) * scale.maxSeconds
+  return Math.min(scale.maxSeconds, Math.max(0, raw))
 }
 
 export function buildAltitudePath(points: TrackPoint[], scale: AltitudeScale): string {
