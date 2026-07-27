@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:barogram": "tsx scripts/check-barogram.mts",
-    "check:follow-store": "tsx scripts/check-follow-store.mts"
+    "check:follow-store": "tsx scripts/check-follow-store.mts",
+    "check:follow-button": "tsx scripts/check-follow-button.mts"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
