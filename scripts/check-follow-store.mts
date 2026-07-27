@@ -147,17 +147,45 @@ const STORAGE_KEY = 'flight-log:followed-pilots'
 
 const storage = await import('../src/lib/follow-store/storage')
 
+// --- issue #20: one snapshot object carries ids and hydration together, so they can never
+// be read out of step with each other, and it must be referentially stable so
+// useSyncExternalStore doesn't loop. ---
+
+// Server snapshot: stable module constant, never claims hydration happened.
+const serverSnapshotFirstRead = storage.getServerSnapshot()
+assert(serverSnapshotFirstRead.hasHydrated === false, 'the server snapshot reports hasHydrated: false')
+assertEqual(idsOf(serverSnapshotFirstRead.followedIds), [], 'the server snapshot reports no followed ids')
+assert(
+  storage.getServerSnapshot() === serverSnapshotFirstRead,
+  'getServerSnapshot returns the same object reference on every call',
+)
+
 // Hydration: lazy on first read, then cached
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([12677])))
-assert(storage.getHasHydrated() === false, 'getHasHydrated is false before anything has read the store')
-assertEqual(idsOf(storage.getSnapshot()), [12677], 'first getSnapshot reads the stored ids')
-assert(storage.getHasHydrated() === true, 'getHasHydrated flips true once the store has been read')
+const preHydrationSnapshot = storage.getServerSnapshot()
+assert(preHydrationSnapshot.hasHydrated === false, 'hasHydrated is false before anything has read the store')
+
+const firstSnapshot = storage.getSnapshot()
+assertEqual(idsOf(firstSnapshot.followedIds), [12677], 'first getSnapshot reads the stored ids')
+assert(firstSnapshot.hasHydrated === true, 'hasHydrated flips true once the store has been read')
+
+// The invariant this whole fix exists for: ids and hasHydrated always agree, because they
+// come from one read of one object, never populated ids paired with hasHydrated: false.
+assert(
+  !(firstSnapshot.followedIds.size > 0 && firstSnapshot.hasHydrated === false),
+  'a snapshot never carries populated ids alongside hasHydrated: false',
+)
 
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([1, 2, 3])))
+const cachedSnapshot = storage.getSnapshot()
 assertEqual(
-  idsOf(storage.getSnapshot()),
+  idsOf(cachedSnapshot.followedIds),
   [12677],
   'getSnapshot after hydration returns the cached value, not a fresh localStorage read',
+)
+assert(
+  cachedSnapshot === firstSnapshot,
+  'repeated getSnapshot() calls with no intervening change return the same object reference',
 )
 
 // Notify-on-commit
@@ -165,8 +193,11 @@ let notifications = 0
 const unsubscribe = storage.subscribe(() => {
   notifications++
 })
+const beforeFollowSnapshot = storage.getSnapshot()
 storage.follow(4549)
-assertEqual(idsOf(storage.getSnapshot()), [4549, 12677], 'follow adds the id to the in-memory snapshot')
+const afterFollowSnapshot = storage.getSnapshot()
+assertEqual(idsOf(afterFollowSnapshot.followedIds), [4549, 12677], 'follow adds the id to the in-memory snapshot')
+assert(afterFollowSnapshot !== beforeFollowSnapshot, 'follow rebuilds the snapshot object so the new ids are observable')
 assert(notifications === 1, 'follow notifies subscribers exactly once')
 assertEqual(
   idsOf(parseStoredIds(fakeLocalStorage.raw(STORAGE_KEY))),
@@ -175,9 +206,14 @@ assertEqual(
 )
 
 // No-op guard: an invalid id to follow, or an absent id to unfollow, must not write or notify
+const beforeNoopSnapshot = storage.getSnapshot()
 storage.follow(-1)
 storage.unfollow(999_999)
 assert(notifications === 1, 'follow with an invalid id and unfollow of an absent id do not notify')
+assert(
+  storage.getSnapshot() === beforeNoopSnapshot,
+  'follow with an invalid id and unfollow of an absent id do not rebuild the snapshot',
+)
 assertEqual(
   idsOf(parseStoredIds(fakeLocalStorage.raw(STORAGE_KEY))),
   [4549, 12677],
@@ -198,23 +234,27 @@ storage.subscribe(() => {
 
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([1])))
 dispatchStorageEvent(STORAGE_KEY)
-assertEqual(idsOf(storage.getSnapshot()), [1], 'a storage event for our key re-reads localStorage')
+assertEqual(idsOf(storage.getSnapshot().followedIds), [1], 'a storage event for our key re-reads localStorage')
 assert(crossTabNotifications === 1, 'a storage event for our key notifies subscribers')
 
 fakeLocalStorage.setItem(STORAGE_KEY, serializeIds(new Set([9])))
 dispatchStorageEvent('some-unrelated-app-key')
-assertEqual(idsOf(storage.getSnapshot()), [1], 'a storage event for an unrelated key is ignored')
+assertEqual(idsOf(storage.getSnapshot().followedIds), [1], 'a storage event for an unrelated key is ignored')
 assert(crossTabNotifications === 1, 'a storage event for an unrelated key does not notify')
 
 dispatchStorageEvent(null) // another tab calling localStorage.clear() reports key: null
-assertEqual(idsOf(storage.getSnapshot()), [9], 'a storage event with key === null (another tab cleared storage) re-reads')
+assertEqual(
+  idsOf(storage.getSnapshot().followedIds),
+  [9],
+  'a storage event with key === null (another tab cleared storage) re-reads',
+)
 assert(crossTabNotifications === 2, 'a storage event with key === null notifies subscribers')
 
 // Resilience: a throwing localStorage must not crash the store
 fakeLocalStorage.setThrowing(true)
 dispatchStorageEvent(STORAGE_KEY)
 assertEqual(
-  idsOf(storage.getSnapshot()),
+  idsOf(storage.getSnapshot().followedIds),
   [],
   'a storage event that hits a throwing localStorage.getItem falls back to an empty set instead of crashing',
 )
@@ -225,7 +265,7 @@ const unsubscribeThrow = storage.subscribe(() => {
 })
 storage.follow(55)
 assert(
-  storage.getSnapshot().has(55),
+  storage.getSnapshot().followedIds.has(55),
   'a throwing localStorage.setItem still updates the in-memory snapshot for this tab',
 )
 assert(notifiedDespiteThrow === 1, 'a throwing localStorage.setItem still notifies subscribers')
@@ -235,7 +275,7 @@ fakeLocalStorage.setThrowing(false)
 // Write guard, symmetric with the read-side length guard: a followed set that serializes past
 // STORED_RAW_MAX_LENGTH must stop being persisted rather than silently write (and later
 // re-read as) an empty set.
-const beforeGrowth = storage.getSnapshot().size
+const beforeGrowth = storage.getSnapshot().followedIds.size
 // Every commit that lands past the limit warns (see writeIds); expected here since crossing
 // it is the point of the test, so count instead of letting it flood this script's output.
 let writeGuardWarnings = 0
@@ -246,7 +286,7 @@ console.warn = () => {
 Array.from({ length: 4_000 }, (_, index) => 10_000 + index).forEach((id) => storage.follow(id))
 console.warn = originalWarn
 
-const afterGrowth = storage.getSnapshot()
+const afterGrowth = storage.getSnapshot().followedIds
 assert(afterGrowth.size === beforeGrowth + 4_000, 'the in-memory snapshot keeps every followed id for this tab')
 assert(writeGuardWarnings > 0, 'crossing the write guard warns instead of failing silently')
 
