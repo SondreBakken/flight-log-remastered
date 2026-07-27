@@ -26,13 +26,21 @@ pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
 
-`pnpm run check` is pure, source-only logic — no server needed — plus, as its last step, `pnpm
-test`. `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`,
-`verify-track-hover.mts`, `verify-feed.mts`) are a different kind of check: they drive a real
-headless browser against a running app (`pnpm dev` first, then e.g. `pnpm exec tsx
-scripts/verify-track-hover.mts`), so they are deliberately **not** part of `pnpm run check` or any
-other automated gate — there is nothing in this repo that starts a server, waits for it, and tears
-it down again. Run them by hand after touching the map, the barogram, or the feed.
+`pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with one
+exception**: `check:takeoffs-prerender` reads `.next/prerender-manifest.json` and needs a local `pnpm
+run build` to exist and be currently up to date with the working tree first (it compares mtimes and
+FAILs, rather than silently skipping or passing, if the build is missing or stale — see its own doc
+comment). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
+your last build.
+
+`scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
+`verify-feed.mts`, `verify-takeoffs.mts`) are a different kind of check: they drive a real headless
+browser against a running app, so they are deliberately **not** part of `pnpm run check` or any other
+automated gate — there is nothing in this repo that starts a server, waits for it, and tears it down
+again. Run them by hand after touching the relevant feature. Most run against `pnpm dev` (e.g. `pnpm
+exec tsx scripts/verify-track-hover.mts`); `verify-takeoffs.mts` is the one exception — it exercises
+the prerendered static artifact `check:takeoffs-prerender` proves exists, which only exists after
+`pnpm run build && pnpm run start`, so it must run against that, never against `pnpm dev`.
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches

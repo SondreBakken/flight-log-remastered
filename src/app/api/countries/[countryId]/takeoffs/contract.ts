@@ -26,9 +26,7 @@ export type TakeoffRow = readonly [
 ]
 
 // Server-side only in practice (the route handler is its one caller), but kept here
-// alongside the type and the validator rather than in the route file itself, so the
-// three things that must agree on field order — encode, decode-by-position, and the
-// boundary check below — cannot drift apart by living in different files.
+// alongside the type and the validator below.
 export function encodeTakeoffRow(takeoff: Takeoff): TakeoffRow {
   return [
     takeoff.takeoffId,
@@ -44,6 +42,14 @@ export function encodeTakeoffRow(takeoff: Takeoff): TakeoffRow {
   ]
 }
 
+// `typeof x === 'number'` alone cannot tell two numeric fields apart from each other — every
+// field here is a number, so a positional swap between any two of them (e.g. lat and
+// altitude) passes a type-only check identically to the correct order. lat/lon/wind have
+// known, narrow real-world ranges (see types.ts's own doc comment on wind: confirmed 0-255
+// across all 6012 sampled Norway rows; lat/lon are geographic coordinates, never outside
+// ±90/±180), so bounding them turns a same-typed positional swap into something this check
+// can actually catch: real altitude values (frequently >90, unbounded above) fail the lat
+// bound the moment they land in lat's position, and vice versa.
 function isTakeoffRow(value: unknown): value is TakeoffRow {
   if (!Array.isArray(value) || value.length !== TAKEOFF_ROW_LENGTH) return false
   const [takeoffId, name, lat, lon, wind, countryId, regionId, subregionId, altitude, altitudeDiff] = value as unknown[]
@@ -51,8 +57,14 @@ function isTakeoffRow(value: unknown): value is TakeoffRow {
     typeof takeoffId === 'number' &&
     typeof name === 'string' &&
     typeof lat === 'number' &&
+    lat >= -90 &&
+    lat <= 90 &&
     typeof lon === 'number' &&
+    lon >= -180 &&
+    lon <= 180 &&
     typeof wind === 'number' &&
+    wind >= 0 &&
+    wind <= 255 &&
     typeof countryId === 'number' &&
     typeof regionId === 'number' &&
     typeof subregionId === 'number' &&

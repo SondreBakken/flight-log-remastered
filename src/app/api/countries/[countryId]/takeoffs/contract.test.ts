@@ -90,4 +90,23 @@ describe('isTakeoffRows', () => {
     const malformedSecondRow = [1, 'b', 2, 3, 4, 5, 6, 7, 8] // one field short
     expect(isTakeoffRows([validRow, malformedSecondRow])).toBe(false)
   })
+
+  it('rejects a row with lat and altitude swapped, at real Norway-fixture scale', () => {
+    // lat=60.8, altitude=180 (Jorde på Løten, fixtures/takeoffs-160.html) — a `typeof ===
+    // 'number'` check alone cannot tell these two fields apart in either position, since both
+    // are numbers; only the ±90 latitude bound catches 180 landing in lat's slot.
+    const correct: TakeoffRow = [6246, 'Jorde på Løten', 60.8, 11.3, 166, 160, 6, 2, 180, -12]
+    const swapped = [6246, 'Jorde på Løten', 180, 11.3, 166, 160, 6, 2, 60.8, -12]
+    expect(isTakeoffRows([correct])).toBe(true)
+    expect(isTakeoffRows([swapped])).toBe(false)
+  })
+
+  it('rejects lat/lon outside geographic range and wind outside the confirmed 0-255 bitmask range', () => {
+    expect(isTakeoffRows([[1, 'a', 91, 3, 4, 5, 6, 7, 8, 9]])).toBe(false) // lat > 90
+    expect(isTakeoffRows([[1, 'a', -91, 3, 4, 5, 6, 7, 8, 9]])).toBe(false) // lat < -90
+    expect(isTakeoffRows([[1, 'a', 2, 181, 4, 5, 6, 7, 8, 9]])).toBe(false) // lon > 180
+    expect(isTakeoffRows([[1, 'a', 2, -181, 4, 5, 6, 7, 8, 9]])).toBe(false) // lon < -180
+    expect(isTakeoffRows([[1, 'a', 2, 3, 256, 5, 6, 7, 8, 9]])).toBe(false) // wind > 255
+    expect(isTakeoffRows([[1, 'a', 2, 3, -1, 5, 6, 7, 8, 9]])).toBe(false) // wind < 0
+  })
 })

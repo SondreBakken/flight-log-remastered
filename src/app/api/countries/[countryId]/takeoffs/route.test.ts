@@ -9,7 +9,23 @@ vi.mock('@/lib/flightlog/takeoffs', () => ({ getTakeoffs: vi.fn() }))
 // production list (currently just Norway) — the "not hardcoded" test below needs two
 // DIFFERENT valid ids to prove the id flows through per-request, and that must hold
 // regardless of how many countries production has actually curated.
-vi.mock('@/lib/flightlog/curated-countries', () => ({ CURATED_TAKEOFF_COUNTRY_IDS: [160, 203] }))
+//
+// parseCuratedCountryId is reimplemented here against the mocked id list, not imported from
+// the real module (a real import would silently keep reading the REAL CURATED_TAKEOFF_COUNTRY_IDS
+// via its own closed-over reference, defeating the two-id mock above) — same canonicalisation
+// logic the real one uses, so the alias-rejection tests below still exercise the real rule.
+vi.mock('@/lib/flightlog/curated-countries', () => {
+  const CURATED_TAKEOFF_COUNTRY_IDS = [160, 203]
+  const CANONICAL_DECIMAL_ID = /^(0|[1-9]\d*)$/
+  return {
+    CURATED_TAKEOFF_COUNTRY_IDS,
+    parseCuratedCountryId: (raw: string) => {
+      if (!CANONICAL_DECIMAL_ID.test(raw)) return null
+      const id = Number(raw)
+      return CURATED_TAKEOFF_COUNTRY_IDS.includes(id) ? id : null
+    },
+  }
+})
 
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
 import type { Takeoff } from '@/lib/flightlog/types'
@@ -82,4 +98,20 @@ describe('GET', () => {
     expect(response.status).toBe(404)
     expect(mockedGetTakeoffs).not.toHaveBeenCalled()
   })
+
+  // Every alias here normalises to 160 under plain `Number()` — each is a distinct URL and
+  // therefore a distinct CDN cache key, so accepting any of them turns this route back into
+  // an anonymous trigger for the live upstream fetch prerendering exists to eliminate. Only
+  // the exact spelling generateStaticParams enumerates ('160') may reach getTakeoffs.
+  it.each(['0xA0', '0Xa0', '160.0', '1.6e2', '+160', ' 160 ', '160.', '\n160\t'])(
+    'responds 404 for the alias %j, without ever calling getTakeoffs',
+    async (alias) => {
+      const response = await GET(new Request('http://localhost/api/countries/x/takeoffs'), {
+        params: Promise.resolve({ countryId: alias }),
+      })
+
+      expect(response.status).toBe(404)
+      expect(mockedGetTakeoffs).not.toHaveBeenCalled()
+    },
+  )
 })

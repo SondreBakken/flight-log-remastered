@@ -1,4 +1,4 @@
-import { CURATED_TAKEOFF_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
+import { CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
 import { encodeTakeoffRow, type TakeoffRow } from './contract'
 
@@ -34,8 +34,8 @@ type RouteParams = { params: Promise<{ countryId: string }> }
 // uncached fetch it would need if this route trusted the framework to gate it.
 export async function GET(_request: Request, { params }: RouteParams): Promise<Response> {
   const { countryId } = await params
-  const id = Number(countryId)
-  if (!CURATED_TAKEOFF_COUNTRY_IDS.includes(id)) {
+  const id = parseCuratedCountryId(countryId)
+  if (id === null) {
     return Response.json({ error: `country ${countryId} is not in the curated takeoffs set` }, { status: 404 })
   }
 

@@ -6,7 +6,7 @@ import { parseClubs } from '../src/lib/flightlog/parse-clubs'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
 import { parseRegions } from '../src/lib/flightlog/parse-regions'
-import { encodeTakeoffRow, isTakeoffRows, TAKEOFF_ROW_LENGTH } from '../src/app/api/countries/[countryId]/takeoffs/contract'
+import { encodeTakeoffRow, isTakeoffRows } from '../src/app/api/countries/[countryId]/takeoffs/contract'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -120,25 +120,36 @@ assert(
 const takeoffRows = takeoffs.map(encodeTakeoffRow)
 console.log(`takeoffs-160.html: encoded rows=${takeoffRows.length}`)
 assert(takeoffRows.length === 6012, `takeoffs-160.html: encodes all 6012 rows (got ${takeoffRows.length})`)
+// 10, not TAKEOFF_ROW_LENGTH: this is meant to catch encodeTakeoffRow and the constant that
+// defines its shape drifting apart — say, TAKEOFF_ROW_LENGTH bumped to 11 alongside a new
+// field added to the encoder. Importing TAKEOFF_ROW_LENGTH here instead would make that
+// exact mutation invisible, since both sides of the comparison would have moved together.
 assert(
-  takeoffRows.every((row) => row.length === TAKEOFF_ROW_LENGTH),
-  `takeoffs-160.html: every encoded row has exactly ${TAKEOFF_ROW_LENGTH} fields (no dropped or duplicated field)`,
+  takeoffRows.every((row) => row.length === 10),
+  'takeoffs-160.html: every encoded row has exactly 10 fields, independent of TAKEOFF_ROW_LENGTH (no dropped or duplicated field, and no field count bumped alongside it)',
 )
 assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes the wire-boundary shape check')
 
-// Literal bounds, not derived from encodeTakeoffRow's own output or from TAKEOFF_ROW_LENGTH —
-// anchored to the measured value for this exact fixture (413,728 bytes uncompressed, #38's
-// decision comment on the issue) with headroom for incidental JSON.stringify formatting
-// differences, tight enough that "a silent shape change that doubles the payload" (an extra
-// field re-added, a field re-keyed instead of positional, a row duplicated) still fails it.
-const TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES = 370_000
-const TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES = 460_000
+// Anchored to the measured value for this exact fixture (413,728 bytes uncompressed, #38's
+// decision comment on the issue). This band's job is narrower than its width once suggested:
+// it catches a field silently added to or dropped from the row shape — measured on this
+// fixture at 449,800 bytes (+1 field) and 393,911 bytes (-1 field), both now outside the
+// band below. It is NOT what catches a duplicated or dropped ROW: duplicating a single
+// 6012th-of-413,728-byte row moves the total by well under 1%, invisible to any band with
+// real headroom — `takeoffRows.length === 6012` above is what catches that, exactly, with
+// zero tolerance. The remaining ~2% headroom here is JSON.stringify being deterministic for
+// a fixed input, so it is not "formatting variance" within one run — it exists only to
+// tolerate this fixture being regenerated against a since-changed upstream dataset, same as
+// every other hardcoded count in this file.
+const TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES = 405_000
+const TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES = 425_000
 const takeoffRowsBytes = Buffer.byteLength(JSON.stringify(takeoffRows), 'utf8')
 console.log(`takeoffs-160.html: encoded rows serialise to ${takeoffRowsBytes} bytes`)
 assert(
   takeoffRowsBytes >= TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES && takeoffRowsBytes <= TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES,
   `takeoffs-160.html: encoded payload size (${takeoffRowsBytes} bytes) falls within the expected ` +
-    `${TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES}-${TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES} byte band`,
+    `${TAKEOFF_ROWS_SIZE_LOWER_BOUND_BYTES}-${TAKEOFF_ROWS_SIZE_UPPER_BOUND_BYTES} byte band (catches a field ` +
+    'silently added to or dropped from the row shape; row count above catches added/dropped/duplicated rows)',
 )
 
 const emptyTakeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-29.html', 'utf8'), 29)

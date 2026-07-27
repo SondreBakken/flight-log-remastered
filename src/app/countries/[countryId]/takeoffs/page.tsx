@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import TakeoffsPreview from '@/features/preview-country-takeoffs'
-import { CURATED_TAKEOFF_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
+import { CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 
 type TakeoffsParams = Promise<{ countryId: string }>
 
@@ -18,8 +18,8 @@ export async function generateStaticParams(): Promise<{ countryId: string }[]> {
 // the notFound() guard can be exercised directly in page.test.tsx without a request context.
 export default async function TakeoffsPage({ params }: { params: TakeoffsParams }) {
   const { countryId } = await params
-  const id = Number(countryId)
-  if (!Number.isInteger(id) || !CURATED_TAKEOFF_COUNTRY_IDS.includes(id)) notFound()
+  const id = parseCuratedCountryId(countryId)
+  if (id === null) notFound()
 
   return <TakeoffsPreview countryId={id} />
 }

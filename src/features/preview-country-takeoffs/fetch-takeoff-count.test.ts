@@ -64,4 +64,24 @@ describe('fetchTakeoffCount', () => {
 
     expect(result.status).toBe('error')
   })
+
+  // Distinct from the generic network-failure message above: a hung request must not hold
+  // this consumer in "loading…" forever, and whoever reads the message should be able to
+  // tell "the server never answered in time" apart from "the request failed outright."
+  it('resolves to a distinct timed-out message when the abort signal fires as a TimeoutError, not the generic failure message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError')))
+
+    const result = await fetchTakeoffCount(160)
+
+    expect(result).toEqual({ status: 'error', message: 'takeoffs for country 160: timed out waiting for a response' })
+  })
+
+  it('passes exactly 15 real seconds (15000ms) to the abort timeout, not a mis-scaled value', async () => {
+    stubFetch({ ok: true, status: 200, body: [] })
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+
+    await fetchTakeoffCount(160)
+
+    expect(timeoutSpy).toHaveBeenCalledWith(15_000)
+  })
 })
