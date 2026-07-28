@@ -1,5 +1,5 @@
 import type { ScoringGeometryKind, Track } from '@/lib/flightlog/types'
-import { SCORING_KINDS, formatScoringSummary, scoringLabel } from './scoring-overlay'
+import { SCORING_KINDS, formatScoringSummary, scoringLabel, scoringUnavailableReason } from './scoring-overlay'
 
 type ScoringOverlaySelectProps = {
   scoring: Track['scoring']
@@ -16,22 +16,24 @@ export function ScoringOverlaySelect({ scoring, selectedKind, onSelectKind }: Sc
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
         <ScoringOption
           label="None"
+          reason={null}
           selected={selectedKind === null}
-          disabled={false}
           onSelect={() => onSelectKind(null)}
         />
         {SCORING_KINDS.map((kind) => (
           <ScoringOption
             key={kind}
             label={scoringLabel(kind, scoring)}
+            reason={scoringUnavailableReason(scoring[kind])}
             selected={selectedKind === kind}
-            disabled={scoring[kind] === null}
             onSelect={() => onSelectKind(kind)}
           />
         ))}
       </div>
       {selectedKind && (
-        <p className="text-xs tabular-nums opacity-70">{formatScoringSummary(selectedKind, scoring)}</p>
+        <p className="text-xs tabular-nums opacity-70" aria-live="polite" data-testid="scoring-overlay-summary">
+          {formatScoringSummary(selectedKind, scoring)}
+        </p>
       )}
     </fieldset>
   )
@@ -39,19 +41,24 @@ export function ScoringOverlaySelect({ scoring, selectedKind, onSelectKind }: Sc
 
 function ScoringOption({
   label,
+  reason,
   selected,
-  disabled,
   onSelect,
 }: {
   label: string
+  // null when this option is selectable; the reason it isn't otherwise (see
+  // scoringUnavailableReason). Rendered as visible text, not just a `title` tooltip: a
+  // `disabled` radio is never keyboard-focusable, so a hover-only tooltip would leave
+  // keyboard and screen-reader users with nothing but a dimmed label and no explanation.
+  reason: string | null
   selected: boolean
-  disabled: boolean
   onSelect: () => void
 }) {
+  const disabled = reason !== null
   return (
     <label
       className={`flex items-center gap-1.5 ${disabled ? 'opacity-40' : 'cursor-pointer'}`}
-      title={disabled ? `${label} — not available for this flight` : undefined}
+      data-testid="scoring-overlay-option"
     >
       <input
         type="radio"
@@ -62,6 +69,7 @@ function ScoringOption({
         className="accent-amber-500"
       />
       {label}
+      {reason && <span className="ml-1 text-[10px]">({reason})</span>}
     </label>
   )
 }

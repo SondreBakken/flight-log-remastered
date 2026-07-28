@@ -1,5 +1,7 @@
 import { XMLParser } from 'fast-xml-parser'
-import type { ScoringGeometry, ScoringGeometryKind, Track, TrackPoint, TrackStats } from './types'
+import { buildRecord } from '@/lib/records/build-record'
+import { SCORING_KIND_LABELS } from './types'
+import type { ScoringGeometry, ScoringGeometryKind, ScoringGeometryResult, Track, TrackPoint, TrackStats } from './types'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
@@ -84,28 +86,27 @@ function findPlacemarkByType(placemarks: unknown[], type: string): Record<string
   return isRecord(placemark) ? placemark : null
 }
 
-// The five in-scope single-LineString scoring geometries (#15). `distance_flat_triangle`/
-// `distance_fai_triangle` are deliberately absent: they're MultiGeometry with a different
-// turnpoint correspondence and out of scope (#58) — this list is also what a stub or
-// degenerate triangle placemark (both real shapes on the live site) never gets near, since
-// nothing here ever looks it up by that type.
-const SCORING_KINDS: ScoringGeometryKind[] = [
-  'distance_5_point',
-  'distance_4_point',
-  'distance_3_point',
-  'distance_open',
-  'distance_out_and_return',
-]
-
-function readTrackIdx(placemark: Record<string, unknown>): number[] | null {
+// Shared by readTrackIdx and readSeconds below: both live at the same Metadata → FsInfo
+// depth, and neither cares about anything else on the placemark.
+function readFsInfo(placemark: Record<string, unknown>): Record<string, unknown> | null {
   const metadata = placemark.Metadata
   if (!isRecord(metadata)) return null
   const fsInfo = metadata.FsInfo
-  if (!isRecord(fsInfo)) return null
+  return isRecord(fsInfo) ? fsInfo : null
+}
+
+function readTrackIdx(placemark: Record<string, unknown>): number[] | null {
+  const fsInfo = readFsInfo(placemark)
+  if (!fsInfo) return null
   const raw = fsInfo['@_track_idx']
   if (typeof raw !== 'string') return null
   const indices = raw.trim().split(/\s+/).map(Number)
-  return indices.every(Number.isFinite) ? indices : null
+  // Number.isFinite alone accepts "0 1.5 4": a fractional index that distinctPointCount
+  // (and every point[index] lookup after it) would otherwise pass straight to, reading it as
+  // an array position and getting `undefined`, then throwing an unrelated raw TypeError
+  // several calls later instead of the caller-facing "no turnpoint indices" this function
+  // already promises for markup it can't read.
+  return indices.every(Number.isInteger) ? indices : null
 }
 
 // The scoring table's total is on a line like `                    Sum  12.56`, used by every
@@ -154,19 +155,74 @@ function distinctPointCount(indices: number[], points: TrackPoint[]): number {
   return seen.size
 }
 
+// A description with no LineString, or vice versa, is never the known metadata-only stub
+// shape (both absent together — see parseScoringGeometry) and never a real geometry either,
+// so each throws rather than silently returning null. Two narrow assertions rather than one
+// combined check: each narrows exactly the value it guards, so the caller reads both as plain
+// non-null strings afterwards with no unions left to juggle.
+function assertDescriptionPresent(
+  description: string | null,
+  kind: ScoringGeometryKind,
+  tripId: number,
+): asserts description is string {
+  if (description === null) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a LineString without a description — neither a ` +
+        'real geometry nor the known metadata-only stub shape',
+    )
+  }
+}
+
+function assertLineStringPresent(
+  coordinatesRaw: string | null,
+  kind: ScoringGeometryKind,
+  tripId: number,
+): asserts coordinatesRaw is string {
+  if (coordinatesRaw === null) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a description without a LineString — neither a ` +
+        'real geometry nor the known metadata-only stub shape',
+    )
+  }
+}
+
+// A track_idx whose length disagrees with its own LineString's coordinate count, or an index
+// outside the track entirely, means this placemark's own turnpoint wiring doesn't add up —
+// not a shape this parser has ever seen as legitimate, so it throws.
+function assertIndicesConsistent(
+  indices: number[],
+  coordinates: Array<[number, number, number]>,
+  points: TrackPoint[],
+  kind: ScoringGeometryKind,
+  tripId: number,
+): void {
+  if (coordinates.length !== indices.length) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has ${indices.length} turnpoint indices but ` +
+        `${coordinates.length} coordinates`,
+    )
+  }
+  if (indices.some((index) => index < 0 || index >= points.length)) {
+    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a turnpoint index outside the track`)
+  }
+}
+
 // Resolves one scoring geometry, collapsing its three real absence shapes into one `null`
 // ("not available"):
 //   1. placemark missing entirely (`!placemark`)
 //   2. placemark present as a metadata-only stub, no description and no LineString (both
-//      absent together — the shape real triangle stubs actually have)
+//      absent together — the shape real triangle stubs actually have; unconfirmed for any
+//      in-scope kind specifically, since SCORING_KIND_LABELS' five kinds never surface it in
+//      a sampled fixture — borrowed from the triangle placemarks that do)
 //   3. placemark present with a genuine geometry, but every turnpoint resolves to the same
 //      point (a degenerate, effectively zero-length line)
-// Anything that looks like case 2 but isn't — a description with no LineString, or vice
-// versa, or a track_idx whose length disagrees with its own LineString's coordinate count, or
-// an index outside the track, or a distance the description's own table doesn't actually
-// contain — throws instead of silently returning null. Silently returning `[]`/null for
-// markup this parser doesn't recognise is the exact failure this repo has hit four times
-// (#25, #6, #32, #8): a confident wrong "not available" that then caches.
+// Anything that looks like case 2 but isn't, or a distance the description's own table
+// doesn't actually contain, throws instead of silently returning null — see
+// assertDescriptionPresent/assertLineStringPresent/assertIndicesConsistent above. Silently
+// returning `[]`/null for markup this parser doesn't recognise is the exact failure this
+// repo has hit four times (#25, #6, #32, #8): a confident wrong "not available" that then
+// caches. The caller (resolveScoringGeometry below) is what keeps that throw from taking the
+// rest of the page down with it.
 function parseScoringGeometry(
   kind: ScoringGeometryKind,
   placemarks: unknown[],
@@ -181,13 +237,8 @@ function parseScoringGeometry(
   const coordinatesRaw = isRecord(lineString) ? text(lineString.coordinates) : null
 
   if (description === null && coordinatesRaw === null) return null
-  if (description === null || coordinatesRaw === null) {
-    throw new Error(
-      `Scoring placemark ${kind} for trip ${tripId} has a description without a LineString, or vice ` +
-        `versa (description=${description !== null}, LineString=${coordinatesRaw !== null}) — neither a ` +
-        'real geometry nor the known metadata-only stub shape',
-    )
-  }
+  assertDescriptionPresent(description, kind, tripId)
+  assertLineStringPresent(coordinatesRaw, kind, tripId)
 
   const name = text(placemark.name)
   if (!name) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no name`)
@@ -196,16 +247,7 @@ function parseScoringGeometry(
   if (!indices) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no turnpoint indices`)
 
   const coordinates = parseCoordinates(coordinatesRaw)
-  if (coordinates.length !== indices.length) {
-    throw new Error(
-      `Scoring placemark ${kind} for trip ${tripId} has ${indices.length} turnpoint indices but ` +
-        `${coordinates.length} coordinates`,
-    )
-  }
-
-  if (indices.some((index) => index < 0 || index >= points.length)) {
-    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a turnpoint index outside the track`)
-  }
+  assertIndicesConsistent(indices, coordinates, points, kind, tripId)
 
   if (distinctPointCount(indices, points) < 2) return null
 
@@ -217,14 +259,34 @@ function parseScoringGeometry(
   return { kind, name, distanceKm, turnpointIndices: indices }
 }
 
+// Contains parseScoringGeometry's throw to this one geometry (#15's original blast-radius
+// bug: six new throw sites inside parseTrack, which the flight page awaits directly with no
+// error boundary below it, so one malformed OPTIONAL overlay used to blank the whole page —
+// map, altitude gradient, barogram and stats included — behind a message that blames a fetch
+// that actually succeeded). `console.error` is what keeps the failure loud (a server log
+// entry, not a silent swallow) while `'unparseable'` is what keeps it from looking like the
+// ordinary, confirmed-absent `null` case — see ScoringGeometryResult's own doc comment for
+// why that distinction has to survive all the way to the UI.
+function resolveScoringGeometry(
+  kind: ScoringGeometryKind,
+  placemarks: unknown[],
+  points: TrackPoint[],
+  tripId: number,
+): ScoringGeometryResult {
+  try {
+    return parseScoringGeometry(kind, placemarks, points, tripId)
+  } catch (error) {
+    console.error(`[parseTrack] scoring geometry ${kind} for trip ${tripId} is unparseable`, error)
+    return 'unparseable'
+  }
+}
+
 function parseScoringGeometries(
   placemarks: unknown[],
   points: TrackPoint[],
   tripId: number,
-): Record<ScoringGeometryKind, ScoringGeometry | null> {
-  return Object.fromEntries(
-    SCORING_KINDS.map((kind) => [kind, parseScoringGeometry(kind, placemarks, points, tripId)]),
-  ) as Record<ScoringGeometryKind, ScoringGeometry | null>
+): Record<ScoringGeometryKind, ScoringGeometryResult> {
+  return buildRecord(SCORING_KIND_LABELS, (kind) => resolveScoringGeometry(kind, placemarks, points, tripId))
 }
 
 export function parseTrack(kml: string, tripId: number): Track {
@@ -257,9 +319,6 @@ export function parseTrack(kml: string, tripId: number): Track {
 }
 
 function readSeconds(placemark: Record<string, unknown>): string | null {
-  const metadata = placemark.Metadata
-  if (!isRecord(metadata)) return null
-  const fsInfo = metadata.FsInfo
-  if (!isRecord(fsInfo)) return null
-  return text(fsInfo.SecondsFromTimeOfFirstPoint)
+  const fsInfo = readFsInfo(placemark)
+  return fsInfo ? text(fsInfo.SecondsFromTimeOfFirstPoint) : null
 }

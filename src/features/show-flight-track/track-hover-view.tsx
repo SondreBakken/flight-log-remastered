@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { ScoringGeometryKind, Track, TrackPoint } from '@/lib/flightlog/types'
 import { Barogram } from './barogram'
-import { resolveDefaultScoringKind } from './scoring-overlay'
+import { resolveDefaultScoringKind, selectedScoringGeometry } from './scoring-overlay'
 import { ScoringOverlaySelect } from './scoring-overlay-select'
 import { TrackMap } from './track-map'
 
@@ -36,7 +36,7 @@ export function TrackHoverView({ points, scoring }: TrackHoverViewProps) {
         points={points}
         hoveredIndex={hoveredIndex}
         onHoverIndex={setHoveredIndex}
-        scoringGeometry={selectedKind ? scoring[selectedKind] : null}
+        scoringGeometry={selectedScoringGeometry(scoring, selectedKind)}
       />
       <Barogram points={points} hoveredIndex={hoveredIndex} onHoverIndex={setHoveredIndex} />
     </>

@@ -278,6 +278,11 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
     else map.once('style.load', syncScoringOverlay)
 
     return () => {
+      // `once` self-removes after firing, but never fires at all if this effect's cleanup
+      // runs first (unmounting, or scoringGeometry/points changing again, while the style is
+      // still loading) — `off` is what stops that listener outliving the run that added it,
+      // mirroring the addTrackLayer effect above's own `style.load` subscription.
+      map.off('style.load', syncScoringOverlay)
       turnpointMarkersRef.current.forEach((marker) => marker.remove())
       turnpointMarkersRef.current = []
     }

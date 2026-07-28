@@ -48,6 +48,27 @@ export type ScoringGeometryKind =
   | 'distance_open'
   | 'distance_out_and_return'
 
+// The KML's own English `<name>` value for each kind, verbatim (measured against every
+// sampled fixture) — used as a fallback label for a geometry a flight doesn't have (see
+// scoring-overlay.ts's scoringLabel). Also the single exhaustive source everything else
+// keyed by `ScoringGeometryKind` derives from: `Record<ScoringGeometryKind, string>` forces
+// TypeScript to reject this object if a kind is ever added to the union without an entry
+// here, so `SCORING_KINDS` below (and parse-track.ts's own key enumeration) can never drift
+// out of sync with the type — there is exactly one place left to update, not several.
+export const SCORING_KIND_LABELS: Record<ScoringGeometryKind, string> = {
+  distance_5_point: 'Distance over 5 points',
+  distance_4_point: 'Distance over 4 points',
+  distance_3_point: 'Distance over 3 points',
+  distance_open: 'Open distance',
+  distance_out_and_return: 'Out-and-return distance',
+}
+
+// Display/parse order: the order flightlog.org's own KML lists the geometries in (see every
+// fixtures/track-*.kml), not alphabetical or by distance — preserved here because object key
+// order is insertion order for string keys, and SCORING_KIND_LABELS above is already written
+// in that same order.
+export const SCORING_KINDS: ScoringGeometryKind[] = Object.keys(SCORING_KIND_LABELS) as ScoringGeometryKind[]
+
 // `name` is the KML's own English `<name>` value, used verbatim rather than a name invented
 // here. `turnpointIndices` are 0-based indices into this same track's `points` array (see
 // `<FsInfo track_idx>` in parse-track.ts) — not a separate coordinate list — which is what
@@ -60,14 +81,24 @@ export type ScoringGeometry = {
   turnpointIndices: number[]
 }
 
+// A geometry's parse outcome, one of three states — never just two:
+//   - `ScoringGeometry`: parsed successfully.
+//   - `null`: confirmed absent (placemark missing, a metadata-only stub, or degenerate/
+//     zero-length) — a flight that genuinely has no out-and-return, say.
+//   - `'unparseable'`: scoring markup this parser doesn't recognise. Distinguishable from
+//     `null` on purpose — collapsing this into `null` would make a parser bug that mangles
+//     unfamiliar markup look identical to a flight that legitimately lacks the geometry, the
+//     exact confident-wrong-"not available" failure this repo has shipped five times (#25,
+//     #6, #32, #8, and — before this type existed — an earlier version of this branch, which
+//     threw `parseTrack` itself over exactly this instead of containing it). See
+//     parse-track.ts's parseScoringGeometries.
+export type ScoringGeometryResult = ScoringGeometry | null | 'unparseable'
+
 export type Track = {
   tripId: number
   points: TrackPoint[]
   stats: TrackStats
-  // null collapses all three of a geometry's real absence shapes (placemark missing
-  // entirely, present as a metadata-only stub, or present but degenerate/zero-length) into
-  // one "not available" state — see parse-track.ts's parseScoringGeometry.
-  scoring: Record<ScoringGeometryKind, ScoringGeometry | null>
+  scoring: Record<ScoringGeometryKind, ScoringGeometryResult>
 }
 
 export type TrackIndexEntry = {

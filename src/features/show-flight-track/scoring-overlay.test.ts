@@ -4,6 +4,7 @@ import {
   formatScoringSummary,
   resolveDefaultScoringKind,
   scoringLabel,
+  scoringUnavailableReason,
   turnpointLetter,
 } from './scoring-overlay'
 
@@ -39,6 +40,10 @@ describe('resolveDefaultScoringKind', () => {
     expect(resolveDefaultScoringKind(scoring({ distance_5_point: geometry() }))).toBeNull()
     expect(resolveDefaultScoringKind(scoring())).toBeNull()
   })
+
+  it('falls back to no selection when open distance is unparseable, not truthy-string-as-available', () => {
+    expect(resolveDefaultScoringKind(scoring({ distance_open: 'unparseable' }))).toBeNull()
+  })
 })
 
 describe('scoringLabel', () => {
@@ -67,6 +72,23 @@ describe('formatScoringSummary', () => {
   })
 
   it('reads as unavailable, not a fabricated zero, when this flight has no such geometry', () => {
-    expect(formatScoringSummary('distance_out_and_return', scoring())).toBe('Out-and-return distance — not available')
+    expect(formatScoringSummary('distance_out_and_return', scoring())).toBe('Out-and-return distance: not available')
+  })
+
+  it('reads as "could not be read", not "not available", for unparseable scoring markup — the two must stay distinguishable', () => {
+    expect(formatScoringSummary('distance_out_and_return', scoring({ distance_out_and_return: 'unparseable' }))).toBe(
+      'Out-and-return distance: could not be read',
+    )
+  })
+})
+
+describe('scoringUnavailableReason', () => {
+  it('is null for a real geometry — the option is selectable, nothing to explain', () => {
+    expect(scoringUnavailableReason(geometry())).toBeNull()
+  })
+
+  it('distinguishes confirmed absence from unparseable markup', () => {
+    expect(scoringUnavailableReason(null)).toBe('not available')
+    expect(scoringUnavailableReason('unparseable')).toBe('could not be read')
   })
 })
