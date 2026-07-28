@@ -43,9 +43,15 @@ drive a real headless browser against a running app, so they are deliberately **
 waits for it, and tears it down again. Run them by hand after touching the relevant feature.
 `verify-map.mts` and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g.
 `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and `verify-sites-map.mts` must run
-against `pnpm run build && pnpm run start`, never `pnpm dev` — dev cannot serve them at all: both
-exercise the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which
-only exists after a real build. `verify-track-gradient.mts` and `verify-track-hover.mts` (#47) are
+against `pnpm run build && pnpm run start`, never `pnpm dev`. Dev can still serve the page, just
+differently: it would re-run `getTakeoffs`/`getRegions` against flightlog.org live instead of
+exercising the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which
+only exists after a real build. That difference is not just about data freshness: a vacuous settle
+condition in `verify-takeoffs.mts` once read FAIL against a build and PASS against dev, purely from
+timing slack. Dev's extra framework overhead happened to leave enough time for the real fetch and
+filter to finish before the assertions ran, so the same underlying bug passed there and failed
+against a build. Running against a build is what makes a PASS trustworthy, not a guarantee that dev
+cannot serve the route at all. `verify-track-gradient.mts` and `verify-track-hover.mts` (#47) are
 different: the `window.__flightTrackMap` handle they depend on is gated behind the `?__verifyMap`
 query param rather than `NODE_ENV` *precisely so it works against either mode* — a `NODE_ENV` gate
 would have been dead-code-eliminated out of exactly the production build these scripts exist to

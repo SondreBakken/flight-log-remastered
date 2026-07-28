@@ -1,4 +1,4 @@
-import { chromium } from 'playwright'
+import { chromium, type Page } from 'playwright'
 
 // #9's end-to-end proof, superseding #38's row-count-only version: a real browser, navigating
 // to the prerendered takeoffs directory, actually issues a network request for the takeoffs
@@ -14,12 +14,29 @@ import { chromium } from 'playwright'
 // against `pnpm dev`, which would re-run `getTakeoffs`/`getRegions` against flightlog.org live.
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs'
 const EXPECTED_ROW_COUNT = 6012 // fixtures/takeoffs-160.html, pinned by check:parsers too
+// Rows in fixtures/takeoffs-160.html where wind bit N (128, see lib/flightlog/wind.ts) is set —
+// computed directly against the fixture, independent of anything this script or the app
+// computes at runtime. An absolute pin, not a comparison between two live-computed numbers:
+// a filter that's broken THE SAME WAY on every code path (e.g. always returning some other
+// direction's matches) would still "agree with itself" under a two-paths comparison and pass;
+// only a number fixed outside the app can catch that.
+const EXPECTED_WIND_N_TOTAL = 1849
 const MAX_RENDERED_RESULTS = 200 // select-visible-takeoffs.ts's own cap
 
 let overallOk = true
 function report(ok: boolean, label: string): void {
   console.log(`${ok ? 'ok' : 'FAIL'} - ${label}`)
   if (!ok) overallOk = false
+}
+
+// The `/of (\d+) matches/` truncation-notice total, read from the page — the one place this
+// script learns the app's actual filtered count, used everywhere a Node-side value (not a
+// browser-side wait predicate) is needed.
+async function readTotalMatchCount(page: Page): Promise<number | null> {
+  return page.evaluate(() => {
+    const match = document.body.textContent?.match(/of (\d+) matches/)
+    return match ? Number(match[1]) : null
+  })
 }
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
@@ -121,10 +138,7 @@ if (settled) {
   // Cleared query first so this measures the wind filter alone, not query+wind together.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill('')
   await page.waitForFunction(() => document.body.textContent?.includes('Showing 200 of 6012 matches'), { timeout: 10000 })
-  const beforeWindTotal = await page.evaluate(() => {
-    const match = document.body.textContent?.match(/of (\d+) matches/)
-    return match ? Number(match[1]) : null
-  })
+  const beforeWindTotal = await readTotalMatchCount(page)
   await page.getByRole('combobox', { name: /wind direction/i }).selectOption('N')
   const windSettled = await page
     .waitForFunction((prev) => {
@@ -136,10 +150,7 @@ if (settled) {
     .catch(() => false)
   report(windSettled, 'selecting "Works in N" changes the total match count within the timeout')
   if (windSettled) {
-    const afterWindTotal = await page.evaluate(() => {
-      const match = document.body.textContent?.match(/of (\d+) matches/)
-      return match ? Number(match[1]) : null
-    })
+    const afterWindTotal = await readTotalMatchCount(page)
     report(
       typeof afterWindTotal === 'number' && afterWindTotal < (beforeWindTotal ?? Infinity),
       `narrows the total match count, not widens it (before: ${beforeWindTotal}, after: ${afterWindTotal})`,
@@ -149,53 +160,49 @@ if (settled) {
       `updates the address bar to a shareable ?wind=N (url: ${page.url()})`,
     )
 
-    // Shareable link, proven end to end: navigating fresh to that exact URL reproduces the
-    // same filtered total an interactive selection just produced, not a different or
-    // unfiltered one — this is the thing a user actually cares about, since it's the real
-    // data the shared link delivers, not any one control's cosmetic state.
+    // Shareable link, proven end to end: navigating fresh to that exact URL renders N's own
+    // pinned total (EXPECTED_WIND_N_TOTAL) — not "whatever total the interactive selection
+    // above happened to produce", which only proves the two paths agree with EACH OTHER, not
+    // that either is correct (see EXPECTED_WIND_N_TOTAL's own doc comment).
     //
     // Settling on ANY `<li>` in the page (the original condition here) is vacuous: the site
     // nav (see src/components/site-nav) renders its own `<li>` items from the very first
-    // paint, long before the takeoffs fetch even starts, let alone before the wind filter has
-    // applied — so that wait resolved almost instantly regardless of whether this feature
-    // works at all, then read the DOM before the real content existed. Confirmed empirically:
-    // against a real build, the old condition settled instantly and the checks below it then
-    // raced the takeoffs fetch, reading "no total yet" as a hard FAIL; against dev the same
-    // race existed but extra framework overhead (on-demand compilation, HMR bootstrap) made
-    // the real fetch+filter usually — not reliably — win the race by the time the checks ran,
-    // so the exact same bug read as a false PASS there. Nothing about the underlying feature
-    // differed between the two modes; only how much slack the vacuous wait happened to leave
-    // before the real work finished. Waiting for the total match count to actually reach
-    // `afterWindTotal` (the number an interactive selection just produced) instead settles on
-    // the real signal — it cannot resolve until the fresh navigation has actually fetched,
-    // filtered, and rendered the shared link's data, so it can't produce a false pass either.
+    // paint, long before the takeoffs fetch even starts or the wind filter applies — so that
+    // wait resolved instantly regardless of whether this feature works, and the checks below
+    // it then read the DOM before the real content existed. The exact same bug read as a hard
+    // FAIL against a build and a false PASS against dev, purely from how much slack each
+    // mode's own overhead left before the vacuous wait resolved (see README.md).
     const sharedUrl = new URL(url)
     sharedUrl.searchParams.set('wind', 'N')
     await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
-    const sharedSettled = await page
-      .waitForFunction(
-        (expectedTotal) => {
-          const match = document.body.textContent?.match(/of (\d+) matches/)
-          return match !== null && match !== undefined && Number(match[1]) === expectedTotal
-        },
-        afterWindTotal,
-        { timeout: 20000 },
-      )
+
+    // Waits only for A total to render, never for it to equal EXPECTED_WIND_N_TOTAL — folding
+    // the equality check into the wait would turn a wrong total into an indistinguishable
+    // 20-second timeout that reports only the number it expected, never what actually
+    // rendered. "The shared link never loaded" and "the shared link loaded the wrong total"
+    // are different failures; the assertion below reports the second one by name.
+    const sharedContentRendered = await page
+      .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), { timeout: 20000 })
       .then(() => true)
       .catch(() => false)
     report(
-      sharedSettled,
-      `opening the shared ${sharedUrl} link directly reaches the same filtered total (${afterWindTotal}) an interactive selection just produced, within the timeout`,
+      sharedContentRendered,
+      `opening the shared ${sharedUrl} link renders a filtered match count within the timeout, instead of hanging on "Loading takeoffs…"`,
     )
-    if (sharedSettled) {
+    if (sharedContentRendered) {
+      const sharedTotal = await readTotalMatchCount(page)
+      report(
+        sharedTotal === EXPECTED_WIND_N_TOTAL,
+        `opening the shared ${sharedUrl} link directly reaches N's pinned total of ${EXPECTED_WIND_N_TOTAL} (rendered: ${sharedTotal})`,
+      )
+
       // Distinct from the total-match assertion above, and allowed to diverge from it in
       // principle (a user only ever sees the rendered rows, not this control's own value) —
       // but pinned here too because it IS user-visible, and because it's now backed by a real
-      // mechanism (see index.tsx's WIND_SELECT_SYNC_SCRIPT) rather than an assumption that
-      // React's hydration would sort it out on its own, which it does not: a controlled
-      // <select> whose client-computed value differs from what the server rendered is never
-      // resynced by hydration alone (no warning, no correction — confirmed empirically against
-      // both dev and a real build, independent of the settle-condition bug above).
+      // mechanism (see index.tsx's mount effect) rather than an assumption that React's
+      // hydration would sort it out on its own, which it does not: a controlled <select>
+      // whose client-computed value differs from what the server rendered is never resynced
+      // by hydration alone (no warning, no correction).
       const sharedSelectValue = await page.evaluate(
         () => (document.querySelector('select[aria-label="Wind direction"]') as HTMLSelectElement | null)?.value,
       )
@@ -209,15 +216,13 @@ if (settled) {
   // would. The directory must stay visibly usable, not fall into an error state.
   const beforeNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)
   // The checkbox's real accessible name is "Sort by distance from me" (see index.tsx) — it has
-  // never contained the word "nearby", so this locator has never actually matched anything;
-  // every run of this script has crashed here with an uncaught locator timeout, pre-existing
-  // and unrelated to the wind-filter fix above. Matching on the text the label actually renders.
+  // never contained "nearby", so a /nearby/i locator never actually matched it.
   await page.getByRole('checkbox', { name: /distance/i }).check()
   const deniedSettled = await page
     .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), { timeout: 10000 })
     .then(() => true)
     .catch(() => false)
-  report(deniedSettled, 'checking "Nearby" without a granted permission shows the denial hint within the timeout, not a hang')
+  report(deniedSettled, 'checking "Sort by distance from me" without a granted permission shows the denial hint within the timeout, not a hang')
   if (deniedSettled) {
     const afterNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)
     report(

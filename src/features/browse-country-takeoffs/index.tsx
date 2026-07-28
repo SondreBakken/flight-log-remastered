@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
@@ -75,35 +75,6 @@ function readWindFilterFromUrl(): WindFilter {
   return parseWindFilterParam(new URL(window.location.href).searchParams.get('wind') ?? undefined)
 }
 
-// readWindFilterFromUrl above gets REACT's own state right on a fresh, shared-link load, and
-// that's what the actual filtering (selectVisibleTakeoffs) reads — but React's hydration does
-// NOT resync a controlled <select>'s DOM value to that client-computed state just because it
-// differs from what the server rendered (server always renders "all", since `window` doesn't
-// exist there): no hydration warning, no correction, the select just silently keeps showing
-// "Any wind" while the list underneath is already correctly filtered. This is a documented
-// Next.js pattern, not a one-off bug — see node_modules/next/dist/docs/01-app/02-guides/
-// preventing-flash-before-hydration.md, "Syncing with React state": an inline script, reading
-// the SAME source as the lazy useState initialiser, corrects the DOM synchronously during HTML
-// parsing, before React ever touches it — so by the time hydration runs, the two already agree
-// and there's nothing left to fix.
-const WIND_SELECT_ID = 'wind-filter-select'
-const VALID_OCTANTS_JSON = JSON.stringify(OCTANTS_CLOCKWISE)
-const WIND_SELECT_SYNC_SCRIPT = `{var m=/[?&]wind=([^&]*)/.exec(location.search);var v=m&&decodeURIComponent(m[1]);var opts=${VALID_OCTANTS_JSON};var el=document.getElementById(${JSON.stringify(WIND_SELECT_ID)});if(el&&v&&opts.indexOf(v)!==-1)el.value=v}`
-
-// Same shape as the docs' own InlineScript helper: `text/javascript` server-side so the browser
-// actually runs it while parsing, `text/plain` client-side so it's inert on a soft navigation
-// (where TakeoffDirectory's own client-side render already has the right value) — the type
-// mismatch between the two is exactly what suppressHydrationWarning is for here.
-function InlineScript({ html }: { html: string }) {
-  return (
-    <script
-      type={typeof window === 'undefined' ? 'text/javascript' : 'text/plain'}
-      suppressHydrationWarning
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
-}
-
 // #9's directory, replacing #38's proof-of-mechanism preview — that component's own comment
 // said as much: "the moment this grows an input with live filtering it is #9". #12 adds wind
 // direction and nearby-me on top of the same pipeline. Filtering runs entirely against
@@ -120,6 +91,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
   const [windFilter, setWindFilter] = useState<WindFilter>(readWindFilterFromUrl)
+  const windSelectRef = useRef<HTMLSelectElement | null>(null)
   const nearby = useNearby()
   // Separate from `nearby.status` on purpose: the user's INTENT to sort by distance survives
   // a denial or an unavailable browser (so the explanatory copy below stays visible instead of
@@ -131,6 +103,19 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   const handleWindFilterChange = useCallback((next: WindFilter) => {
     setWindFilter(next)
     syncWindFilterToUrl(next)
+  }, [])
+
+  // windFilter's own useState initialiser (readWindFilterFromUrl) already gets REACT's state
+  // right on a fresh, shared-link load — but hydration does not resync a controlled <select>'s
+  // DOM value to that state: hydration never reads a select's value in the first place, and its
+  // update path only runs when the `value` prop actually differs between renders, which it
+  // never does here (the mount render already carries the final windFilter). Assigning the DOM
+  // value directly, once, after mount is what a controlled select's own render pass can't do.
+  useEffect(() => {
+    if (windSelectRef.current) windSelectRef.current.value = windFilter
+    // Mount-only: windFilter already holds what readWindFilterFromUrl seeded it with; every
+    // later change already flows through the select's own value prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Corrects the address bar once on mount for a link that arrived with an invalid `?wind=`
@@ -195,6 +180,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
             onRegionFilterChange={setRegionFilter}
             windFilter={windFilter}
             onWindFilterChange={handleWindFilterChange}
+            windSelectRef={windSelectRef}
             nearbyEnabled={nearbyEnabled}
             onNearbyToggle={handleNearbyToggle}
             nearbyStatus={nearby.status}
@@ -276,6 +262,7 @@ function SearchControls({
   onRegionFilterChange,
   windFilter,
   onWindFilterChange,
+  windSelectRef,
   nearbyEnabled,
   onNearbyToggle,
   nearbyStatus,
@@ -287,6 +274,7 @@ function SearchControls({
   onRegionFilterChange: (value: RegionFilter) => void
   windFilter: WindFilter
   onWindFilterChange: (value: WindFilter) => void
+  windSelectRef: RefObject<HTMLSelectElement | null>
   nearbyEnabled: boolean
   onNearbyToggle: (checked: boolean) => void
   nearbyStatus: NearbyStatus
@@ -318,7 +306,7 @@ function SearchControls({
           ))}
         </select>
         <select
-          id={WIND_SELECT_ID}
+          ref={windSelectRef}
           value={windFilter}
           onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
@@ -331,7 +319,6 @@ function SearchControls({
             </option>
           ))}
         </select>
-        <InlineScript html={WIND_SELECT_SYNC_SCRIPT} />
       </div>
       <div className="flex items-center gap-2 text-sm">
         <label className="flex items-center gap-2">
