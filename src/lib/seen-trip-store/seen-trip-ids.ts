@@ -1,10 +1,12 @@
 import { isValidPilotId, type PilotId } from '@/lib/flightlog/types'
 
 // A flight with no uploaded GPS track has no row on flightlog.org's rqtid=21 tracklog index,
-// and therefore no `ts` anywhere to compare against (see feed.ts's classifyNewness for the
-// tracked half of this same problem). The only signal available for "have I shown this
-// UNTRACKED flight before" is the flight's own trip id, remembered per pilot — hence a set of
-// ids rather than a single timestamp. `Flight.tripId` itself (see flightlog/types.ts).
+// and therefore no `ts` anywhere to compare against (see feed.ts's classifyTrackedNewness for
+// the tracked half of this same problem, and classifyUntrackedNewness for this half). The only
+// signal available for "have I shown this flight before" when there is no `ts` to compare — a
+// genuinely untracked flight, or a tracked one MAX_YEARS_PER_PILOT has pushed out of the
+// resolved window — is the flight's own trip id, remembered per pilot — hence a set of ids
+// rather than a single timestamp. `Flight.tripId` itself (see flightlog/types.ts).
 export type TripId = number
 
 // isSafeInteger, not isInteger: same rationale as isValidPilotId (flightlog/types.ts) — values
@@ -76,7 +78,7 @@ export function removeSeenTripIds(
   return next
 }
 
-// The one place a pilot's remembered untracked-trip set is ever written.
+// The one place a pilot's remembered trip-id set is ever written.
 //
 // Neither a pure REPLACE (next = renderedTripIds) nor a pure UNION (next = previous ∪
 // renderedTripIds) is correct here. A pure replace forgets an id that was shown on an earlier
@@ -86,15 +88,15 @@ export function removeSeenTripIds(
 // store exists to design against.
 //
 // The rule this function implements instead: a pilot's remembered set is always a SUBSET of
-// `fetchedTripIds` — the untracked trip ids actually fetched for this pilot on THIS load (their
-// RECENT_FLIGHTS_PER_PILOT-bounded slice, see feed.ts). Of that fetched scope, an id is kept
-// if it was already remembered before (still relevant — an id that ages out of the fetch
-// window entirely will never be evaluated again, so remembering it forever buys nothing) OR it
-// was actually rendered this load (`renderedTripIds`, a subset of `fetchedTripIds` by
-// construction — see feed.ts's shownUntrackedTripIdsByPilot). Never anything else: an id that
-// was fetched but not previously remembered and not rendered this load must NOT be added — the
-// same "remember only what was actually rendered" rule #5 already applies to the watermark
-// (see watermark-ids.ts's advanceWatermark and feed.ts's shownTrackedTsByPilot).
+// `fetchedTripIds` — every trip id actually fetched for this pilot on THIS load, tracked or not
+// (their RECENT_FLIGHTS_PER_PILOT-bounded slice, see feed.ts's fetchedTripIdsByPilot). Of that
+// fetched scope, an id is kept if it was already remembered before (still relevant — an id that
+// ages out of the fetch window entirely will never be evaluated again, so remembering it
+// forever buys nothing) OR it was actually rendered this load (`renderedTripIds`, a subset of
+// `fetchedTripIds` by construction — see feed.ts's shownTripIdsByPilot). Never anything else: an
+// id that was fetched but not previously remembered and not rendered this load must NOT be
+// added — the same "remember only what was actually rendered" rule #5 already applies to the
+// watermark (see watermark-ids.ts's advanceWatermark and feed.ts's shownTrackedTsByPilot).
 //
 // This keeps the per-pilot bound real (the result can never exceed `fetchedTripIds.size`, which
 // is itself bounded by RECENT_FLIGHTS_PER_PILOT) while still resolving the crowded-out tension:

@@ -3,16 +3,16 @@
 import { useEffect, useState } from 'react'
 import { runWithConcurrencyLimit, type Settled } from '@/lib/concurrency/with-limit'
 import { getWatermark, recordSeen } from '@/lib/watermark-store/storage'
-import { getSeenTripIds, recordSeenUntracked } from '@/lib/seen-trip-store/storage'
+import { getSeenTripIds, recordSeenTripIds } from '@/lib/seen-trip-store/storage'
 import { fetchPilotFeed } from './fetch-pilot-feed'
 import {
   anyPilotHasPriorVisit,
   buildFeedEntries,
   failedPilotResults,
   FEED_SIZE,
-  fetchedUntrackedTripIdsByPilot,
+  fetchedTripIdsByPilot,
   shownTrackedTsByPilot,
-  shownUntrackedTripIdsByPilot,
+  shownTripIdsByPilot,
   type FeedEntry,
   type FetchedPilotFeedResult,
   type PilotFeedFailure,
@@ -37,6 +37,32 @@ function toFetchedResult(pilotId: number, outcome: Settled<FetchedPilotFeedResul
     status: 'error',
     pilotId,
     message: outcome.error instanceof Error ? outcome.error.message : `failed to load pilot ${pilotId}`,
+  }
+}
+
+// "The user has seen this flight" can only honestly mean a flight that made it into the merged,
+// FEED_SIZE-truncated feed actually rendered — see shownTrackedTsByPilot (watermark) and
+// shownTripIdsByPilot (id memory) for the two stores this advances/replaces, both scoped to
+// rendered entries only, never every flight fetched (blocking finding #1's trap, and #62's
+// extension of it to id memory). The one place both stores move forward for a completed load.
+function rememberWhatWasShown(collected: readonly PilotFeedResult[], shownEntries: readonly FeedEntry[]): void {
+  for (const [pilotId, ts] of shownTrackedTsByPilot(shownEntries)) recordSeen(pilotId, ts)
+
+  // fetchedTripIds always has an entry for every pilot shownTripIds could possibly name: both
+  // are derived from the same `collected`/`shownEntries` pair, and a flight can only render for
+  // a pilot whose own fetch succeeded (see fetchedTripIdsByPilot/shownTripIdsByPilot's own doc
+  // comments). A missing entry here would mean that invariant broke, not a case to paper over
+  // with a silent empty-Set fallback (blocking finding #4) — better a loud failure than quietly
+  // replacing this pilot's whole remembered set with only what rendered this load.
+  const fetchedTripIds = fetchedTripIdsByPilot(collected)
+  for (const [pilotId, renderedTripIds] of shownTripIdsByPilot(shownEntries)) {
+    const fetchedForPilot = fetchedTripIds.get(pilotId)
+    if (fetchedForPilot === undefined) {
+      throw new Error(
+        `seen-trip-store: pilot ${pilotId} rendered an entry with no fetched scope recorded — every successful pilot gets one from fetchedTripIdsByPilot, so this should be unreachable`,
+      )
+    }
+    recordSeenTripIds(pilotId, { fetchedTripIds: fetchedForPilot, renderedTripIds })
   }
 }
 
@@ -90,7 +116,7 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
         // forever, with no undo — the same trap applies to the seen-trip store, see #62).
         const result: PilotFeedResult =
           fetched.status === 'success'
-            ? { ...fetched, watermarkAtLoad: getWatermark(pilotId), seenUntrackedTripIdsAtLoad: getSeenTripIds(pilotId) }
+            ? { ...fetched, watermarkAtLoad: getWatermark(pilotId), seenTripIdsAtLoad: getSeenTripIds(pilotId) }
             : fetched
         collected.push(result)
         setResults((previous) => [...previous, result])
@@ -105,25 +131,12 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
       })
       .finally(() => {
         if (cancelled) return
-        // "The user has seen this flight" can only honestly mean a flight that made it into
-        // the merged, FEED_SIZE-truncated feed actually rendered — see shownTrackedTsByPilot
-        // (tracked) and shownUntrackedTripIdsByPilot (untracked, #62). Advancing/replacing once
-        // here (not per pilot, on each fetch settling) trades a slow pilot briefly holding up
-        // every store's update for correctness: a store that silently swallows an unseen
-        // flight, with no undo, is worse than one that updates a moment later once the whole
-        // load has actually settled.
-        const shownEntries = buildFeedEntries(collected, FEED_SIZE)
-        for (const [pilotId, ts] of shownTrackedTsByPilot(shownEntries)) recordSeen(pilotId, ts)
-
-        // Only pilots present in shownUntracked (≥1 rendered untracked entry this load) are
-        // ever written — see fetchedUntrackedTripIdsByPilot/replaceSeenTripIds's doc comments
-        // for why a pilot contributing zero rendered entries must be left completely alone.
-        const fetchedUntracked = fetchedUntrackedTripIdsByPilot(collected)
-        const shownUntracked = shownUntrackedTripIdsByPilot(shownEntries)
-        for (const [pilotId, renderedTripIds] of shownUntracked) {
-          recordSeenUntracked(pilotId, fetchedUntracked.get(pilotId) ?? new Set(), renderedTripIds)
-        }
-
+        // Advancing/replacing once here (not per pilot, on each fetch settling) trades a slow
+        // pilot briefly holding up every store's update for correctness: a store that silently
+        // swallows an unseen flight, with no undo, is worse than one that updates a moment later
+        // once the whole load has actually settled. See rememberWhatWasShown for the "only
+        // rendered entries count" rule this applies to both stores.
+        rememberWhatWasShown(collected, buildFeedEntries(collected, FEED_SIZE))
         setIsLoading(false)
       })
 

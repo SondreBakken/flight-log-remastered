@@ -80,7 +80,7 @@ function success(overrides: Partial<PilotFeedSuccess> & { pilotId: number }): Pi
     watermarkAtLoad: null,
     // Same null-default rationale, for untracked flights (#62): every fixture that doesn't
     // care about untracked newness keeps reading every untracked flight as 'new' too.
-    seenUntrackedTripIdsAtLoad: null,
+    seenTripIdsAtLoad: null,
     ...overrides,
   }
 }
@@ -502,8 +502,8 @@ assert(
 )
 assert(
   anyPilotHasPriorVisit([
-    success({ pilotId: 1, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: new Set([123]) }),
-    success({ pilotId: 2, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: null }),
+    success({ pilotId: 1, watermarkAtLoad: null, seenTripIdsAtLoad: new Set([123]) }),
+    success({ pilotId: 2, watermarkAtLoad: null, seenTripIdsAtLoad: null }),
   ]),
   'anyPilotHasPriorVisit: true when at least one pilot had a prior seen-trip entry, even with no watermark at all',
 )
@@ -1056,8 +1056,12 @@ await withStubbedFetch(
     }),
   )
   assert(
-    firstVisit.includes('first time') && !firstVisit.includes('since your last visit'),
-    'NewSinceLastVisitNotice: a genuine first visit (no prior watermark for any pilot) says something honest, never claims a "last visit" that never happened',
+    firstVisit.includes('first time') && !firstVisit.includes('new since your last visit'),
+    'NewSinceLastVisitNotice: a genuine first visit (no prior watermark for any pilot) says something honest about there being no history yet, not the returning-visitor "N new since your last visit" count caption',
+  )
+  assert(
+    firstVisit.includes('>New<') && !firstVisit.includes('nothing is marked new'),
+    'NewSinceLastVisitNotice: the first-visit caption does not contradict what actually renders — the "New" badge on the entry below genuinely shows, and the caption no longer claims "nothing is marked new yet" while it does (fix round: this exact contradiction used to ship)',
   )
 }
 

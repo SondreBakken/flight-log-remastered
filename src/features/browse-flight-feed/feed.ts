@@ -31,16 +31,22 @@ export type PilotFeedSuccess = {
   // on the result itself, rather than in a second map the caller must keep in sync by hand, so
   // "which watermark goes with which pilot's flights" cannot desynchronise from `results` (see
   // buildFeedEntries below, which used to take a separate watermarksAtLoad map for exactly this
-  // reason). `null` means this pilot has never been seen before. Governs newness for TRACKED
-  // flights only — see seenUntrackedTripIdsAtLoad for the untracked half (#62).
+  // reason). `null` means this pilot has never been seen before. Authoritative for a TRACKED
+  // flight (one with a resolved `ts` this load) — see seenTripIdsAtLoad for what governs
+  // everything else.
   watermarkAtLoad: string | null
-  // The same capture-before-write discipline as watermarkAtLoad, for UNTRACKED flights: this
-  // pilot's remembered set of previously-shown untracked trip ids, as it stood the instant
-  // their fetch settled, from seen-trip-store (@/lib/seen-trip-store/storage). `null` means no
-  // entry has ever been recorded for this pilot's untracked flights — either a genuine first
-  // visit, or every previously-remembered id has since aged out of this pilot's fetch window
-  // (see seen-trip-ids.ts's replaceSeenTripIds) — both read the same way in classifyNewness.
-  seenUntrackedTripIdsAtLoad: ReadonlySet<number> | null
+  // The same capture-before-write discipline as watermarkAtLoad, for flights with NO resolved
+  // `ts` this load: this pilot's remembered set of previously-RENDERED trip ids, as it stood the
+  // instant their fetch settled, from seen-trip-store (@/lib/seen-trip-store/storage). Deliberately
+  // not scoped to literally-untracked flights only — it also holds a TRACKED flight's id, so that
+  // if a LATER load's MAX_YEARS_PER_PILOT window slides past that flight's year and its `ts` goes
+  // unresolved again, id memory (not the null-watermark default) answers "already seen" for it —
+  // see classifyUntrackedNewness and shownTripIdsByPilot below (blocking finding #1: without this,
+  // that flight would silently re-announce as new every time the window moves). `null` means no
+  // entry has ever been recorded for this pilot — either a genuine first visit, or every
+  // previously-remembered id has since aged out of this pilot's fetch window (see
+  // seen-trip-ids.ts's replaceSeenTripIds) — both read the same way, as "new".
+  seenTripIdsAtLoad: ReadonlySet<number> | null
 }
 
 export type PilotFeedFailure = {
@@ -52,20 +58,23 @@ export type PilotFeedFailure = {
 export type PilotFeedResult = PilotFeedSuccess | PilotFeedFailure
 
 // The shape fetch-pilot-feed.ts (infra: talks to our own route handler over HTTP, nothing
-// else) can honestly return. It cannot report `watermarkAtLoad` or `seenUntrackedTripIdsAtLoad`
+// else) can honestly return. It cannot report `watermarkAtLoad` or `seenTripIdsAtLoad`
 // — both are localStorage reads, and this module never touches localStorage — so the caller
 // (use-flight-feed.ts) attaches them right after, before this ever becomes a real
 // PilotFeedResult.
-export type FetchedPilotFeedSuccess = Omit<PilotFeedSuccess, 'watermarkAtLoad' | 'seenUntrackedTripIdsAtLoad'>
+export type FetchedPilotFeedSuccess = Omit<PilotFeedSuccess, 'watermarkAtLoad' | 'seenTripIdsAtLoad'>
 export type FetchedPilotFeedResult = FetchedPilotFeedSuccess | PilotFeedFailure
 
-// A flight's "new since last visit" status. Only ever two states now, not three: #62 gave
-// untracked flights a real signal to check newness against (seen-trip-store's remembered trip
-// ids, in place of the timestamp tracked flights compare against), so there is no longer a
-// flight this repo cannot classify one way or the other. The 'unknown' state this type used to
-// carry (untracked flights had no timestamp anywhere to check) is deliberately removed rather
-// than kept as unreachable dead code — see classifyNewness, which now branches on hasTrack but
-// resolves to 'new' or 'not-new' either way.
+// A flight's "new since last visit" status. Only ever two states, not three: every flight either
+// has a resolved `ts` this load (compare against the watermark, classifyTrackedNewness) or it
+// doesn't (fall back to id memory, classifyUntrackedNewness) — see toFeedEntries below. The
+// 'unknown' state this type used to carry (a flight with genuinely no signal to check at all) is
+// deliberately removed, not kept as unreachable dead code: id memory now remembers EVERY rendered
+// flight's id, tracked or not (see PilotFeedSuccess's seenTripIdsAtLoad doc comment), so a flight
+// whose `ts` goes unresolved on a later load — MAX_YEARS_PER_PILOT capping it out of the window —
+// still has its own past render to check against, rather than falling through to "no signal at
+// all". That is what makes deleting 'unknown' correct now, where it was not before this fix
+// (blocking finding #1): both branches always resolve to 'new' or 'not-new'.
 export type FlightNewness = 'new' | 'not-new'
 
 export type FeedEntry = {
@@ -160,11 +169,13 @@ function classifyTrackedNewness(trackedAt: string, watermarkAtLoad: string | nul
   return trackedAt > watermarkAtLoad ? 'new' : 'not-new'
 }
 
-// The untracked counterpart, membership rather than a comparison: an untracked flight has no
-// `ts` to compare, only its own trip id against the pilot's remembered set (see
-// seen-trip-ids.ts's replaceSeenTripIds for how that set is maintained). `seenAtLoad === null`
-// mirrors the tracked case's `watermarkAtLoad === null` exactly — no entry recorded yet reads
-// as "new", the same honest first-visit default, not a fabricated "not new".
+// The id-memory counterpart, membership rather than a comparison: a flight with no resolved
+// `ts` this load — genuinely untracked, or tracked but pushed out of MAX_YEARS_PER_PILOT's
+// window (see PilotFeedSuccess's seenTripIdsAtLoad doc comment) — has no timestamp to compare,
+// only its own trip id against the pilot's remembered set (see seen-trip-ids.ts's
+// replaceSeenTripIds for how that set is maintained). `seenAtLoad === null` mirrors the tracked
+// case's `watermarkAtLoad === null` exactly — no entry recorded yet reads as "new", the same
+// honest first-visit default, not a fabricated "not new".
 function classifyUntrackedNewness(tripId: number, seenAtLoad: ReadonlySet<number> | null): FlightNewness {
   if (seenAtLoad === null) return 'new'
   return seenAtLoad.has(tripId) ? 'not-new' : 'new'
@@ -181,7 +192,7 @@ function toFeedEntries(result: PilotFeedSuccess): FeedEntry[] {
       newness:
         trackedAt !== null
           ? classifyTrackedNewness(trackedAt, result.watermarkAtLoad)
-          : classifyUntrackedNewness(flight.tripId, result.seenUntrackedTripIdsAtLoad),
+          : classifyUntrackedNewness(flight.tripId, result.seenTripIdsAtLoad),
       trackedAt,
     }
   })
@@ -218,8 +229,9 @@ export function countNewEntries(entries: readonly FeedEntry[]): number {
 // fetched. A flight truncated out of the merge, or belonging to a pilot whose slice never made
 // the cut, must not be marked "seen": the user never saw it (this was the bug — a fetched-but-
 // unrendered flight silently advanced the watermark past itself, with no way to un-see it).
-// Only entries with a resolved track ts (trackedAt !== null) can advance anything; an untracked
-// entry has no ts to advance to — see shownUntrackedTripIdsByPilot for its counterpart.
+// Only entries with a resolved track ts (trackedAt !== null) can advance anything; an entry with
+// no resolved ts has no ts to advance to — see shownTripIdsByPilot for its id-memory counterpart,
+// which remembers this same rendered set (plus every OTHER rendered flight's id too).
 export function shownTrackedTsByPilot(entries: readonly FeedEntry[]): Map<number, string> {
   const maxByPilot = new Map<number, string>()
   for (const entry of entries) {
@@ -231,18 +243,22 @@ export function shownTrackedTsByPilot(entries: readonly FeedEntry[]): Map<number
   return maxByPilot
 }
 
-// The untracked counterpart to shownTrackedTsByPilot, feeding seen-trip-store's
-// recordSeenUntracked instead of watermark-store's recordSeen: which untracked trip ids, per
-// pilot, actually made it into the merged, FEED_SIZE-truncated feed. Same rule, same reason —
-// only entries the user actually saw rendered may ever be remembered as seen (see
-// seen-trip-ids.ts's replaceSeenTripIds doc comment for the full trap this guards against). A
-// pilot contributing zero rendered untracked entries this load is simply absent from the
-// returned map — use-flight-feed.ts only calls recordSeenUntracked for pilots present here, so
-// that absence is what keeps such a pilot's stored set completely untouched.
-export function shownUntrackedTripIdsByPilot(entries: readonly FeedEntry[]): Map<number, Set<number>> {
+// Id memory's write-side counterpart to shownTrackedTsByPilot, feeding seen-trip-store's
+// recordSeenTripIds instead of watermark-store's recordSeen: EVERY rendered flight's trip id,
+// tracked or not, per pilot, that actually made it into the merged, FEED_SIZE-truncated feed.
+// Deliberately not scoped to untracked entries only (that was the pre-fix version, and the
+// source of blocking finding #1): a TRACKED flight's id must also be remembered, so that if a
+// LATER load's MAX_YEARS_PER_PILOT window slides past its year — its `ts` goes unresolved again
+// — id memory can still answer "already seen" instead of the null-signal default of "new" (see
+// classifyUntrackedNewness and PilotFeedSuccess's seenTripIdsAtLoad doc comment). Same "only
+// what was actually rendered" rule as shownTrackedTsByPilot either way — see seen-trip-ids.ts's
+// replaceSeenTripIds doc comment for the full trap this guards against. A pilot contributing
+// zero rendered entries this load is simply absent from the returned map —
+// use-flight-feed.ts only calls recordSeenTripIds for pilots present here, so that absence is
+// what keeps such a pilot's stored set completely untouched.
+export function shownTripIdsByPilot(entries: readonly FeedEntry[]): Map<number, Set<number>> {
   const idsByPilot = new Map<number, Set<number>>()
   for (const entry of entries) {
-    if (entry.trackedAt !== null) continue
     const pilotId = entry.pilot.userId
     const ids = idsByPilot.get(pilotId) ?? new Set<number>()
     ids.add(entry.flight.tripId)
@@ -251,42 +267,41 @@ export function shownUntrackedTripIdsByPilot(entries: readonly FeedEntry[]): Map
   return idsByPilot
 }
 
-// This load's fetched-and-untracked scope, per successful pilot — the bound
-// replaceSeenTripIds's replace formula relies on (see its own doc comment): a pilot's
-// remembered set can never grow past however many untracked ids were actually fetched for
-// them this load, which is itself bounded by RECENT_FLIGHTS_PER_PILOT. Includes EVERY
-// successful pilot, even one with zero untracked flights (an empty Set, not a missing key) —
-// unlike shownUntrackedTripIdsByPilot above, whose keys are exactly who to WRITE for. A
-// failed pilot is excluded entirely: there is no fetched scope to prune against, and no read
-// happened, so nothing about their stored entry should move (the second trap #62 calls out —
-// #5 already got this right for watermarks).
-export function fetchedUntrackedTripIdsByPilot(results: readonly PilotFeedResult[]): Map<number, Set<number>> {
+// This load's whole fetched scope, per successful pilot — the bound replaceSeenTripIds's
+// replace formula relies on (see its own doc comment): a pilot's remembered set can never grow
+// past however many trip ids were actually fetched for them this load, which is itself bounded
+// by RECENT_FLIGHTS_PER_PILOT. Deliberately EVERY fetched flight, tracked or not — narrowing
+// this to only untracked ids (the pre-fix version) would prune a tracked flight's id back out of
+// memory the moment it resolves a track, defeating the exact fallback shownTripIdsByPilot exists
+// to feed (blocking finding #1: a flight briefly tracked, then pushed back out of the resolved
+// window later, must still be found in memory). Includes EVERY successful pilot, even one with
+// zero flights (an empty Set, not a missing key) — unlike shownTripIdsByPilot above, whose keys
+// are exactly who to WRITE for. A failed pilot is excluded entirely: there is no fetched scope
+// to prune against, and no read happened, so nothing about their stored entry should move (the
+// second trap #62 calls out — #5 already got this right for watermarks).
+export function fetchedTripIdsByPilot(results: readonly PilotFeedResult[]): Map<number, Set<number>> {
   const idsByPilot = new Map<number, Set<number>>()
   for (const result of results) {
     if (result.status !== 'success') continue
-    const trackedTripIds = new Set(result.trackedTrips.map((entry) => entry.tripId))
-    const untrackedTripIds = new Set(
-      result.flights.map((flight) => flight.tripId).filter((tripId) => !trackedTripIds.has(tripId)),
-    )
-    idsByPilot.set(result.pilotId, untrackedTripIds)
+    idsByPilot.set(result.pilotId, new Set(result.flights.map((flight) => flight.tripId)))
   }
   return idsByPilot
 }
 
 // Whether ANY successfully-loaded pilot has been seen before, from EITHER store — a recorded
-// watermark (tracked flights) or a recorded seen-trip entry (untracked flights, #62). False
-// only when every one of them is being seen for the very first time in both respects. Drives
-// the "since your last visit" caption (see index.tsx's NewSinceLastVisitNotice): a genuine
-// first-time visitor has no "last visit" to report a count against, however many flights read
-// as 'new' by construction of classifyTrackedNewness/classifyUntrackedNewness's null-signal
-// case above. Checking only watermarkAtLoad would be wrong on its own: a pilot who has been
-// followed for months but has never uploaded a single GPS track (the exact case #62 exists
-// for) would never accumulate a watermark, and would wrongly read as "first visit" forever.
+// watermark or a recorded seen-trip (id memory) entry. False only when every one of them is
+// being seen for the very first time in both respects. Drives the "since your last visit"
+// caption (see index.tsx's NewSinceLastVisitNotice): a genuine first-time visitor has no "last
+// visit" to report a count against, however many flights read as 'new' by construction of
+// classifyTrackedNewness/classifyUntrackedNewness's null-signal case above. Checking only
+// watermarkAtLoad would be wrong on its own: a pilot who has been followed for months but has
+// never uploaded a single GPS track (the exact case #62 exists for) would never accumulate a
+// watermark, and would wrongly read as "first visit" forever.
 export function anyPilotHasPriorVisit(results: readonly PilotFeedResult[]): boolean {
   return results.some(
     (result) =>
       result.status === 'success' &&
-      (result.watermarkAtLoad !== null || result.seenUntrackedTripIdsAtLoad !== null),
+      (result.watermarkAtLoad !== null || result.seenTripIdsAtLoad !== null),
   )
 }
 

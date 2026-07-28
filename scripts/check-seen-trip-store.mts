@@ -8,13 +8,21 @@
 // code SHAPE (hydrate-on-first-read, commit-if-changed, cross-tab listener) with watermark-
 // store, which itself duplicates the shape follow-store established — but that shape being
 // proven correct once, generically, at either of those stores does not carry over here;
-// coverage binds to a module instance, not a pattern (see #62's own directive against
-// extracting a shared store primitive: the three stores' adapters diverge enough — this one's
-// map-of-sets eviction policy neither other store has — that a shared primitive would cost
-// more than it saves). Every guarantee this file's own production code claims (the read/write
-// length guards, the cross-tab key filter, the null-key case, the bounded-replace invariant,
-// clearSeenTripIds, and the cross-store unfollow integration) is proven again here, against
-// THIS module, with its own mutation-tested fixtures.
+// coverage binds to a module instance, not a pattern. This file does NOT extract a shared store
+// primitive across the three (a prior version of this comment cited an eviction-policy
+// divergence to justify that — measured line-identity actually showed this store's adapter
+// MORE similar to watermark-store's than watermark-store's is to follow-store's, so that was
+// not the real reason). The real reason is smaller in scope: both reviews for this fix round
+// agreed extraction is not a merge blocker and the change would be large, so it is left for a
+// later, dedicated pass — not because these adapters have nothing in common, but because
+// nothing about this fix round depends on making that call. pruneSeenTripIdsToFollowedPilots
+// (see storage.ts) is a genuine, new piece of this store's own adapter that watermark-store's
+// does not have, added in this same round — a real point of divergence, unlike the fabricated
+// one this comment used to cite. Every guarantee this file's own production code claims (the
+// read/write length guards, the cross-tab key filter, the null-key case, the bounded-replace
+// invariant, clearSeenTripIds, pruneSeenTripIdsToFollowedPilots, and the cross-store unfollow
+// integration) is proven again here, against THIS module, with its own mutation-tested
+// fixtures.
 
 import { STORED_RAW_MAX_LENGTH } from '../src/lib/seen-trip-store/seen-trip-ids'
 
@@ -104,11 +112,23 @@ function itemCallsDuring(action: () => void): { reads: number; writes: number } 
 // chars, small enough that a mutant which widens STORED_RAW_MAX_LENGTH to 2,000,000 would
 // make THIS SAME payload valid, which is exactly what pins the constant's actual value rather
 // than merely "some limit exists".
+//
+// Records a FAILURE via `assert`, rather than throwing, if the fixture's own size assumptions
+// stop holding (e.g. STORED_RAW_MAX_LENGTH raised well past what 1,700 entries produce): a
+// throw here happens at module-eval time, before any of this file's other checks get a chance
+// to run, degrading the whole script's output to an uncaught stack trace with no PASS/FAIL
+// summary at all — worse than a normal failing assertion, not more informative than one.
 function oversizedValidSeenTripsPayload(): string {
   const entries = Object.fromEntries(Array.from({ length: 1_700 }, (_, index) => [100_000 + index, [1]]))
   const raw = JSON.stringify(entries)
-  if (raw.length <= STORED_RAW_MAX_LENGTH) throw new Error('fixture too small to exceed STORED_RAW_MAX_LENGTH')
-  if (raw.length >= 2_000_000) throw new Error('fixture too large to distinguish the real limit from a 2,000,000 mutant')
+  assert(
+    raw.length > STORED_RAW_MAX_LENGTH,
+    'fixture: oversizedValidSeenTripsPayload exceeds STORED_RAW_MAX_LENGTH (bumping the limit requires bumping this fixture\'s entry count too)',
+  )
+  assert(
+    raw.length < 2_000_000,
+    'fixture: oversizedValidSeenTripsPayload stays under 2,000,000 chars, so it still pins the real limit rather than a hugely inflated mutant',
+  )
   return raw
 }
 
@@ -128,42 +148,42 @@ assert(seenTripStorage.getSeenTripIds(4549) === null, 'an unhydrated store reads
 }
 
 // =====================================================================================
-// recordSeenUntracked: the only write path, implementing replaceSeenTripIds's bounded-replace
+// recordSeenTripIds: the only write path, implementing replaceSeenTripIds's bounded-replace
 // rule (neither pure replace nor pure union — see seen-trip-ids.ts's own doc comment).
 // =====================================================================================
 
-seenTripStorage.recordSeenUntracked(4549, new Set([100, 200]), new Set([100]))
-assertEqual([...(seenTripStorage.getSeenTripIds(4549) ?? [])], [100], 'recordSeenUntracked sets an initial entry from what rendered this load')
+seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([100, 200]), renderedTripIds: new Set([100]) })
+assertEqual([...(seenTripStorage.getSeenTripIds(4549) ?? [])], [100], 'recordSeenTripIds sets an initial entry from what rendered this load')
 assertEqual(
   JSON.parse(fakeLocalStorage.raw(SEEN_TRIP_KEY) ?? '{}'),
   { '4549': [100] },
-  'recordSeenUntracked persists the entry to localStorage',
+  'recordSeenTripIds persists the entry to localStorage',
 )
 
 // A previously-remembered id (100) still within this load's fetched scope but NOT rendered
 // this time survives; a newly-rendered id (200) is added; the fetched scope itself is
 // bounded, so this can only ever grow up to `fetchedTripIds.size`.
-seenTripStorage.recordSeenUntracked(4549, new Set([100, 200, 300]), new Set([200]))
+seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([100, 200, 300]), renderedTripIds: new Set([200]) })
 assertEqual(
   [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
   [100, 200],
-  'recordSeenUntracked preserves a previously-seen id that is still in scope but not rendered THIS load, alongside what rendered this load',
+  'recordSeenTripIds preserves a previously-seen id that is still in scope but not rendered THIS load, alongside what rendered this load',
 )
 
 // Now 100 falls OUT of the fetched scope entirely (no longer among this pilot's recent
 // flights) — it must be pruned, not carried forward forever the way a pure union would.
-seenTripStorage.recordSeenUntracked(4549, new Set([200, 300]), new Set([300]))
+seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([200, 300]), renderedTripIds: new Set([300]) })
 assertEqual(
   [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
   [200, 300],
-  'recordSeenUntracked drops an id that has aged out of the fetched scope, rather than keeping it forever',
+  'recordSeenTripIds drops an id that has aged out of the fetched scope, rather than keeping it forever',
 )
 
 // =====================================================================================
 // clearSeenTripIds: the explicit call unfollowing a pilot must make
 // =====================================================================================
 
-seenTripStorage.recordSeenUntracked(12677, new Set([1]), new Set([1]))
+seenTripStorage.recordSeenTripIds(12677, { fetchedTripIds: new Set([1]), renderedTripIds: new Set([1]) })
 assert(seenTripStorage.getSeenTripIds(12677) !== null, 'sanity: pilot 12677 has a recorded entry before clearing')
 
 seenTripStorage.clearSeenTripIds(12677)
@@ -221,6 +241,45 @@ assertEqual([...(seenTripStorage.getSeenTripIds(1) ?? [])], [500], 'a storage ev
 }
 
 // Re-sync to a clean, known baseline before the boundary-guard sections below.
+fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 4549: [200, 300], 12677: [1] }))
+dispatchStorageEvent(SEEN_TRIP_KEY)
+
+// =====================================================================================
+// pruneSeenTripIdsToFollowedPilots: the fix for storage.ts's own writeSeenTrips doc comment
+// (a prior version of it falsely claimed this map's pilot count was bounded by
+// MAX_PILOTS_PER_FEED — it is not; only ONE LOAD's fetch is bounded that way, and a pilot who
+// stays followed but stops making selectFeedPilotIds's lowest-MAX_PILOTS_PER_FEED cut kept
+// their entry forever without this).
+// =====================================================================================
+
+{
+  seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([4549])) // 12677 is NOT in this set
+  assertEqual(
+    [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
+    [200, 300],
+    'pruneSeenTripIdsToFollowedPilots leaves a pilot present in the followed set completely untouched',
+  )
+  assert(
+    seenTripStorage.getSeenTripIds(12677) === null,
+    'pruneSeenTripIdsToFollowedPilots drops a pilot ABSENT from the followed set — this is the eviction path storage.ts\'s own doc comment describes: a still-followed pilot who simply stopped making the top-MAX_PILOTS_PER_FEED selection has no OTHER way to leave this map',
+  )
+  assertEqual(
+    JSON.parse(fakeLocalStorage.raw(SEEN_TRIP_KEY) ?? '{}'),
+    { '4549': [200, 300] },
+    'pruneSeenTripIdsToFollowedPilots persists the eviction to localStorage',
+  )
+}
+
+{
+  const beforeNoopPrune = fakeLocalStorage.raw(SEEN_TRIP_KEY)
+  const { writes } = itemCallsDuring(() => {
+    seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([4549])) // already exactly the followed set
+  })
+  assertEqual(fakeLocalStorage.raw(SEEN_TRIP_KEY), beforeNoopPrune, 'pruneSeenTripIdsToFollowedPilots is a no-op when every stored pilot is already in the followed set')
+  assert(writes === 0, 'a no-op prune makes no localStorage.setItem call')
+}
+
+// Restore the pre-prune baseline the read-side guard sections below assume.
 fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 4549: [200, 300], 12677: [1] }))
 dispatchStorageEvent(SEEN_TRIP_KEY)
 
@@ -304,7 +363,7 @@ await withFreshStore('write-guard', () => {}, ({ storage: freshStorage, fakeLoca
     const setItemCallsBefore = freshFake.setItemCalls
     const rawBefore = freshFake.raw(SEEN_TRIP_KEY)
     const warningsBefore = writeGuardWarnings
-    freshStorage.recordSeenUntracked(pilotId, new Set([1]), new Set([1]))
+    freshStorage.recordSeenTripIds(pilotId, { fetchedTripIds: new Set([1]), renderedTripIds: new Set([1]) })
     const guardTriggeredForThisCommit = writeGuardWarnings > warningsBefore
     if (!guardTriggeredForThisCommit) continue
     overLimitCommits++
@@ -344,7 +403,7 @@ await withFreshStore(
     dispatchFreshStorageEvent(SEEN_TRIP_KEY)
     assertEqual([...(freshStorage.getSeenTripIds(21) ?? [])], [1], 'a throwing localStorage.getItem during a storage event leaves the in-memory value untouched instead of wiping it')
 
-    freshStorage.recordSeenUntracked(22, new Set([2]), new Set([2]))
+    freshStorage.recordSeenTripIds(22, { fetchedTripIds: new Set([2]), renderedTripIds: new Set([2]) })
     assertEqual([...(freshStorage.getSeenTripIds(22) ?? [])], [2], 'a throwing localStorage.setItem still updates the in-memory value for this tab')
     freshFake.setThrowing(false)
   },
@@ -365,7 +424,7 @@ await withFreshStore(
 
   followStorage.follow(PILOT)
   watermarkStorage.recordSeen(PILOT, '20260101000000')
-  seenTripStorage.recordSeenUntracked(PILOT, new Set([1]), new Set([1]))
+  seenTripStorage.recordSeenTripIds(PILOT, { fetchedTripIds: new Set([1]), renderedTripIds: new Set([1]) })
   assert(followStorage.getSnapshot().followedIds.has(PILOT), 'sanity: pilot is followed before unfollowing')
   assert(seenTripStorage.getSeenTripIds(PILOT) !== null, 'sanity: pilot has a recorded seen-trip entry before unfollowing')
 

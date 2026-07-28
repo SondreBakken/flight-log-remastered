@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect } from 'react'
 import { useFollowedPilotIds } from '@/lib/follow-store/use-follow-store'
+import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
@@ -19,6 +21,18 @@ type FlightFeedProps = {
 // feed cannot be rendered on the server: it has nothing to fetch until it hydrates.
 export default function FlightFeed({ defaultPilotId }: FlightFeedProps) {
   const { followedIds, hasHydrated } = useFollowedPilotIds()
+
+  // The true, untruncated follow set lives here — usePilotFeedResults only ever sees
+  // selectFeedPilotIds's MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to
+  // safely prune seen-trip-store's stored map (see pruneSeenTripIdsToFollowedPilots's own doc
+  // comment for the accumulation bug this closes). Runs on every followedIds change, not just
+  // mount, so unfollowing (already handled explicitly by useFollowPilot's clearSeenTripIds)
+  // and simply falling out of the top MAX_PILOTS_PER_FEED both stay pruned over time.
+  useEffect(() => {
+    if (!hasHydrated) return
+    pruneSeenTripIdsToFollowedPilots(followedIds)
+  }, [hasHydrated, followedIds])
+
   return <FlightFeedView hasHydrated={hasHydrated} followedIds={followedIds} defaultPilotId={defaultPilotId} />
 }
 
@@ -134,10 +148,16 @@ function NewSinceLastVisitNotice({
 }) {
   if (isLoading) return null
   if (!hasSeenBefore) {
+    // Every flight below genuinely reads 'new' right now (classifyTrackedNewness/
+    // classifyUntrackedNewness's null-signal default, since no watermark or seen-trip entry
+    // exists for any followed pilot yet) — the "New" badges ARE showing. This caption used to
+    // claim the opposite ("nothing is marked new yet"), which was false the moment #62 gave
+    // untracked flights the same default (worst for an all-untracked pilot, previously the one
+    // case where that claim was actually true). Describe what's really on screen instead.
     return (
       <p className="text-sm opacity-70">
-        This is the first time your followed pilots&apos; flights have been checked — nothing is
-        marked new yet; that starts from your next visit.
+        This is the first time your followed pilots&apos; flights have been checked, so everything
+        below is shown as new; a real &quot;since your last visit&quot; comparison starts from here.
       </p>
     )
   }

@@ -3,9 +3,9 @@ import {
   anyPilotHasPriorVisit,
   buildFeedEntries,
   countNewEntries,
-  fetchedUntrackedTripIdsByPilot,
+  fetchedTripIdsByPilot,
   shownTrackedTsByPilot,
-  shownUntrackedTripIdsByPilot,
+  shownTripIdsByPilot,
   type FeedEntry,
   type PilotFeedResult,
   type PilotFeedSuccess,
@@ -15,8 +15,8 @@ import type { Flight, Pilot } from '@/lib/flightlog/types'
 // This file covers ONLY the "new since last visit" marking logic added for issue #5 (tracked
 // flights) and extended to untracked flights by #62 — classifyTrackedNewness/
 // classifyUntrackedNewness (exercised through buildFeedEntries's public surface — neither is
-// exported on its own), plus shownTrackedTsByPilot, shownUntrackedTripIdsByPilot,
-// fetchedUntrackedTripIdsByPilot, and anyPilotHasPriorVisit. buildFeedEntries's pre-existing
+// exported on its own), plus shownTrackedTsByPilot, shownTripIdsByPilot,
+// fetchedTripIdsByPilot, and anyPilotHasPriorVisit. buildFeedEntries's pre-existing
 // merge/sort/slice/hasTrack behaviour is already covered by scripts/check-feed.mts and is
 // deliberately not re-asserted here.
 
@@ -49,7 +49,7 @@ function success(overrides: Partial<PilotFeedSuccess> & { pilotId: number }): Pi
     flights: [],
     trackedTrips: [],
     watermarkAtLoad: null,
-    seenUntrackedTripIdsAtLoad: null,
+    seenTripIdsAtLoad: null,
     ...overrides,
   }
 }
@@ -134,7 +134,7 @@ describe('buildFeedEntries — classifying UNTRACKED flight newness against the 
       pilotId: 1,
       flights: [flight],
       trackedTrips: [],
-      seenUntrackedTripIdsAtLoad: new Set([999999]), // some other trip, not this one
+      seenTripIdsAtLoad: new Set([999999]), // some other trip, not this one
     })
     const [entry] = buildFeedEntries([result], 10)
     expect(entry.newness).toBe('new')
@@ -148,7 +148,7 @@ describe('buildFeedEntries — classifying UNTRACKED flight newness against the 
       pilotId: 1,
       flights: [flight],
       trackedTrips: [],
-      seenUntrackedTripIdsAtLoad: new Set([flight.tripId]),
+      seenTripIdsAtLoad: new Set([flight.tripId]),
     })
     const [entry] = buildFeedEntries([result], 10)
     expect(entry.newness).toBe('not-new')
@@ -157,7 +157,7 @@ describe('buildFeedEntries — classifying UNTRACKED flight newness against the 
   it('a pilot never seen before (no seen-trip entry recorded — null, not an empty set) marks every untracked flight "new", mirroring the null-watermark case for tracked flights', () => {
     const flight = makeFlight({ userId: 1 })
     const result = success({ pilotId: 1, flights: [flight], trackedTrips: [] })
-    // seenUntrackedTripIdsAtLoad: null (default)
+    // seenTripIdsAtLoad: null (default)
     const [entry] = buildFeedEntries([result], 10)
     expect(entry.newness).toBe('new')
   })
@@ -169,7 +169,7 @@ describe('buildFeedEntries — classifying UNTRACKED flight newness against the 
       flights: [flight],
       trackedTrips: [],
       watermarkAtLoad: '20260101000000', // present, but irrelevant to an untracked flight
-      seenUntrackedTripIdsAtLoad: new Set([flight.tripId]),
+      seenTripIdsAtLoad: new Set([flight.tripId]),
     })
     const [entry] = buildFeedEntries([result], 10)
     expect(entry.newness).toBe('not-new')
@@ -179,17 +179,55 @@ describe('buildFeedEntries — classifying UNTRACKED flight newness against the 
     const flightA = makeFlight({ userId: 1, date: '2026-01-01' })
     const flightB = makeFlight({ userId: 2, date: '2026-01-02' })
     const results: PilotFeedResult[] = [
-      success({ pilotId: 1, flights: [flightA], seenUntrackedTripIdsAtLoad: new Set([flightA.tripId]) }),
+      success({ pilotId: 1, flights: [flightA], seenTripIdsAtLoad: new Set([flightA.tripId]) }),
       // Pilot B's remembered set is seeded with flightA's tripId (a different pilot's flight)
       // and nothing else — flightB's OWN tripId is not in it, so flightB must read 'new'.
       // Leaking pilot A's classification (or pilot A's set) into pilot B would wrongly read
       // 'not-new' here.
-      success({ pilotId: 2, flights: [flightB], seenUntrackedTripIdsAtLoad: new Set([flightA.tripId]) }),
+      success({ pilotId: 2, flights: [flightB], seenTripIdsAtLoad: new Set([flightA.tripId]) }),
     ]
     const entries = buildFeedEntries(results, 10)
     const byPilot = new Map(entries.map((entry) => [entry.pilot.userId, entry.newness]))
     expect(byPilot.get(1)).toBe('not-new')
     expect(byPilot.get(2)).toBe('new')
+  })
+})
+
+describe('id memory closes the year-window gap for a TRACKED flight (blocking finding #1)', () => {
+  it('a flight shown as tracked on one load, then reported with no resolved track on a LATER load (MAX_YEARS_PER_PILOT pushed its year out of the window), classifies "not-new" from id memory rather than the null-seen-trip-entry default of "new"', () => {
+    const flight = makeFlight({ userId: 1 })
+
+    // Load 1: the flight has a resolved ts. shownTripIdsByPilot (the fix) remembers its id
+    // alongside advancing the watermark — this is what use-flight-feed.ts's
+    // rememberWhatWasShown does for every completed load.
+    const load1Result = success({
+      pilotId: 1,
+      flights: [flight],
+      trackedTrips: [{ tripId: flight.tripId, updatedAt: '20260101000000' }],
+      watermarkAtLoad: null,
+      seenTripIdsAtLoad: null,
+    })
+    const load1Entries = buildFeedEntries([load1Result], 10)
+    expect(load1Entries[0]?.newness).toBe('new') // sanity: first ever load, no watermark yet
+    const idMemoryAfterLoad1 = shownTripIdsByPilot(load1Entries).get(1)
+    expect(idMemoryAfterLoad1).toEqual(new Set([flight.tripId])) // sanity: the fix actually remembered it
+
+    // Load 2: the SAME trip id, but this time the route reports no resolved track for it at
+    // all (trackedTrips: []) — the honest degradation MAX_YEARS_PER_PILOT's own doc comment
+    // describes for a flight whose year fell out of the resolved window. Without blocking
+    // finding #1's fix, seenTripIdsAtLoad would still be null here (nothing was ever written to
+    // untracked-only id memory for a TRACKED flight), and classifyUntrackedNewness's null-signal
+    // default would wrongly call it 'new' again, despite having already been shown and counted.
+    const load2Result = success({
+      pilotId: 1,
+      flights: [flight],
+      trackedTrips: [], // this load could not resolve a track for it
+      watermarkAtLoad: '20260101000000', // load 1 already advanced this
+      seenTripIdsAtLoad: idMemoryAfterLoad1 ?? null,
+    })
+    const load2Entries = buildFeedEntries([load2Result], 10)
+    expect(load2Entries[0]?.hasTrack).toBe(false) // sanity: genuinely unresolved this load
+    expect(load2Entries[0]?.newness).toBe('not-new')
   })
 })
 
@@ -207,7 +245,7 @@ describe('countNewEntries', () => {
         { tripId: notNewFlight.tripId, updatedAt: '20250101000000' },
       ],
       watermarkAtLoad: '20260101000000',
-      seenUntrackedTripIdsAtLoad: new Set([notNewUntrackedFlight.tripId]),
+      seenTripIdsAtLoad: new Set([notNewUntrackedFlight.tripId]),
     })
     const entries = buildFeedEntries([result], 10)
     expect(countNewEntries(entries)).toBe(2)
@@ -261,8 +299,8 @@ describe('shownTrackedTsByPilot — the watermark advances only over what was ac
   })
 })
 
-describe('shownUntrackedTripIdsByPilot — the seen-trip store advances only over untracked ids actually rendered (#62)', () => {
-  it('collects the untracked trip ids actually shown for a pilot, ignoring a tracked entry (non-null trackedAt)', () => {
+describe('shownTripIdsByPilot — id memory advances only over ids actually rendered, tracked or not (#62, extended by blocking finding #1)', () => {
+  it('collects EVERY rendered trip id for a pilot, a tracked entry (non-null trackedAt) included — not scoped to untracked ones only, unlike the pre-fix version', () => {
     const pilot = makePilot(1)
     const untracked = makeFlight({ userId: 1 })
     const tracked = makeFlight({ userId: 1 })
@@ -270,37 +308,34 @@ describe('shownUntrackedTripIdsByPilot — the seen-trip store advances only ove
       { pilot, flight: untracked, hasTrack: false, newness: 'new', trackedAt: null },
       { pilot, flight: tracked, hasTrack: true, newness: 'new', trackedAt: '20260101000000' },
     ]
-    const candidates = shownUntrackedTripIdsByPilot(entries)
-    expect(candidates.get(1)).toEqual(new Set([untracked.tripId]))
+    const candidates = shownTripIdsByPilot(entries)
+    expect(candidates.get(1)).toEqual(new Set([untracked.tripId, tracked.tripId]))
   })
 
-  it('a pilot contributing zero rendered untracked entries is absent from the map entirely, not present with an empty set', () => {
-    const pilot = makePilot(1)
-    const tracked = makeFlight({ userId: 1 })
-    const entries: FeedEntry[] = [{ pilot, flight: tracked, hasTrack: true, newness: 'new', trackedAt: '20260101000000' }]
-    const candidates = shownUntrackedTripIdsByPilot(entries)
+  it('a pilot contributing zero rendered entries is absent from the map entirely, not present with an empty set', () => {
+    const candidates = shownTripIdsByPilot([])
     expect(candidates.has(1)).toBe(false)
   })
 
-  it('scopes candidates per pilot: one pilot\'s shown untracked ids do not leak into another\'s', () => {
+  it('scopes candidates per pilot: one pilot\'s shown ids do not leak into another\'s', () => {
     const flightA = makeFlight({ userId: 1 })
     const flightB = makeFlight({ userId: 2 })
     const entries: FeedEntry[] = [
       { pilot: makePilot(1), flight: flightA, hasTrack: false, newness: 'new', trackedAt: null },
       { pilot: makePilot(2), flight: flightB, hasTrack: false, newness: 'new', trackedAt: null },
     ]
-    const candidates = shownUntrackedTripIdsByPilot(entries)
+    const candidates = shownTripIdsByPilot(entries)
     expect(candidates.get(1)).toEqual(new Set([flightA.tripId]))
     expect(candidates.get(2)).toEqual(new Set([flightB.tripId]))
   })
 
   it('an empty entry list produces no candidates', () => {
-    expect(shownUntrackedTripIdsByPilot([])).toEqual(new Map())
+    expect(shownTripIdsByPilot([])).toEqual(new Map())
   })
 })
 
-describe('fetchedUntrackedTripIdsByPilot — the per-pilot scope replaceSeenTripIds prunes stale ids against (#62)', () => {
-  it('a flight covered by trackedTrips is excluded from the untracked scope, one NOT covered is included', () => {
+describe('fetchedTripIdsByPilot — the per-pilot scope replaceSeenTripIds prunes stale ids against (#62, extended by blocking finding #1)', () => {
+  it('includes EVERY fetched flight, tracked or not — not scoped to untracked ones only, unlike the pre-fix version: narrowing this would prune a tracked flight\'s id back out of memory the moment it resolves a track, defeating the fallback shownTripIdsByPilot exists to feed', () => {
     const trackedFlight = makeFlight({ userId: 1 })
     const untrackedFlight = makeFlight({ userId: 1 })
     const result = success({
@@ -308,24 +343,19 @@ describe('fetchedUntrackedTripIdsByPilot — the per-pilot scope replaceSeenTrip
       flights: [trackedFlight, untrackedFlight],
       trackedTrips: [{ tripId: trackedFlight.tripId, updatedAt: '20260101000000' }],
     })
-    const scope = fetchedUntrackedTripIdsByPilot([result])
-    expect(scope.get(1)).toEqual(new Set([untrackedFlight.tripId]))
+    const scope = fetchedTripIdsByPilot([result])
+    expect(scope.get(1)).toEqual(new Set([trackedFlight.tripId, untrackedFlight.tripId]))
   })
 
-  it('a successful pilot with zero untracked flights still gets an entry — an empty Set, not a missing key', () => {
-    const trackedFlight = makeFlight({ userId: 1 })
-    const result = success({
-      pilotId: 1,
-      flights: [trackedFlight],
-      trackedTrips: [{ tripId: trackedFlight.tripId, updatedAt: '20260101000000' }],
-    })
-    const scope = fetchedUntrackedTripIdsByPilot([result])
+  it('a successful pilot with zero flights still gets an entry — an empty Set, not a missing key', () => {
+    const result = success({ pilotId: 1, flights: [], trackedTrips: [] })
+    const scope = fetchedTripIdsByPilot([result])
     expect(scope.has(1)).toBe(true)
     expect(scope.get(1)).toEqual(new Set())
   })
 
   it('a failed pilot has no entry at all — there is no fetched scope to prune against, and none should be inferred', () => {
-    const scope = fetchedUntrackedTripIdsByPilot([{ status: 'error', pilotId: 1, message: 'boom' }])
+    const scope = fetchedTripIdsByPilot([{ status: 'error', pilotId: 1, message: 'boom' }])
     expect(scope.has(1)).toBe(false)
   })
 })
@@ -341,16 +371,16 @@ describe('anyPilotHasPriorVisit — a prior watermark OR a prior seen-trip entry
 
   it('true when at least one successful pilot had a prior seen-trip entry, even with no watermark at all — the pilot who has never uploaded a single GPS track (#62\'s motivating case) must not read as "first visit" forever', () => {
     const results: PilotFeedResult[] = [
-      success({ pilotId: 1, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: new Set([123]) }),
-      success({ pilotId: 2, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: null }),
+      success({ pilotId: 1, watermarkAtLoad: null, seenTripIdsAtLoad: new Set([123]) }),
+      success({ pilotId: 2, watermarkAtLoad: null, seenTripIdsAtLoad: null }),
     ]
     expect(anyPilotHasPriorVisit(results)).toBe(true)
   })
 
   it('false when every successful pilot has no prior watermark AND no prior seen-trip entry — a genuine first visit', () => {
     const results: PilotFeedResult[] = [
-      success({ pilotId: 1, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: null }),
-      success({ pilotId: 2, watermarkAtLoad: null, seenUntrackedTripIdsAtLoad: null }),
+      success({ pilotId: 1, watermarkAtLoad: null, seenTripIdsAtLoad: null }),
+      success({ pilotId: 2, watermarkAtLoad: null, seenTripIdsAtLoad: null }),
     ]
     expect(anyPilotHasPriorVisit(results)).toBe(false)
   })

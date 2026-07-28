@@ -61,6 +61,15 @@ describe('parseStoredSeenTrips / serializeSeenTrips', () => {
     expect(parseStoredSeenTrips(oversizedValidSeenTripsPayload())).toEqual({ ok: false })
   })
 
+  it('drops a trip id past Number.MAX_SAFE_INTEGER even though it is a whole number — pins Number.isSafeInteger, not Number.isInteger (RED if the validator swaps to isInteger, since 2**53+4 is exactly representable as a float and would then wrongly pass)', () => {
+    const unsafeButWholeTripId = 2 ** 53 + 4
+    const raw = JSON.stringify({ 4549: [500, unsafeButWholeTripId] })
+    const result = parseStoredSeenTrips(raw)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect([...(result.seenTripIdsByPilot.get(4549) ?? [])]).toEqual([500])
+  })
+
   it('an entry with an invalid pilot id, a non-array value, or an array of invalid trip ids is dropped, but a valid entry alongside it still succeeds', () => {
     const raw = JSON.stringify({
       '-1': [1, 2], // invalid pilot id
