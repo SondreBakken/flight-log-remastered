@@ -26,6 +26,10 @@ export type TrackPoint = {
   secondsFromStart: number
 }
 
+// Total distance (its own labeled line in the two 2010-era GpsDump fixtures, track-233524.kml
+// and track-235690.kml) is read nowhere in this file — the newer GpsDumpAndroid format has no
+// equivalent line to reconcile it against, so it stays unparsed rather than added as a field
+// only the older fixtures could ever populate.
 export type TrackStats = {
   date: string | null
   startFinish: string | null
@@ -36,6 +40,20 @@ export type TrackStats = {
   maxClimb: string | null
   minClimb: string | null
 }
+
+// A stats-block parse outcome, one of two states — deliberately not three. ScoringGeometryResult
+// (below) needs `null` because a flight can genuinely lack a given scoring geometry. The stats
+// block is different: every fixture sampled (see parse-track.ts's parseStats, both current-format
+// and 2010-era GpsDump exports) carries one, so there is no observed "this flight legitimately has
+// no statistics" case to keep distinct from "unreadable" — only parsed vs `'unparseable'` (markup
+// present but none of the known label variants matched it, or the block was empty/missing
+// entirely; both collapse to the same "nothing to show, and it's not because the flight has
+// nothing" signal). Note this folds a genuinely distinct third case — "the block is missing
+// entirely" vs. "the block is present but this exporter's wording isn't recognised" — into one
+// signal; kept collapsed rather than split into its own state because no sampled fixture has
+// ever shown the "missing entirely" shape to actually confirm it needs distinguishing. See
+// parse-track.test.ts and scripts/check-parsers.mts for what's pinned.
+export type TrackStatsResult = TrackStats | 'unparseable'
 
 // The five single-LineString scoring geometries flightlog.org computes from a track, keyed
 // by the KML's own `Metadata/@type` value (see parse-track.ts). Triangles (`distance_flat_
@@ -97,7 +115,7 @@ export type ScoringGeometryResult = ScoringGeometry | null | 'unparseable'
 export type Track = {
   tripId: number
   points: TrackPoint[]
-  stats: TrackStats
+  stats: TrackStatsResult
   scoring: Record<ScoringGeometryKind, ScoringGeometryResult>
 }
 

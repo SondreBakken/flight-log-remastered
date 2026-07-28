@@ -21,6 +21,8 @@ const requiredFixtures = [
   'fixtures/pilot-12677.html',
   'fixtures/pilot-4549.html',
   'fixtures/track-1001428.kml',
+  'fixtures/track-233524.kml',
+  'fixtures/track-235690.kml',
   'fixtures/countries.html',
   'fixtures/clubs-160.html',
   'fixtures/clubs-29.html',
@@ -72,9 +74,43 @@ for (const [file, userId] of pilotFixtures) {
 }
 
 const track = parseTrack(readFileSync('fixtures/track-1001428.kml', 'utf8'), 1001428)
-console.log(`track 1001428: points=${track.points.length} maxAlt=${track.stats.maxAltitude} duration=${track.stats.duration}`)
+const stats1001428 = track.stats
+const stats1001428Display =
+  stats1001428 === 'unparseable'
+    ? 'unparseable'
+    : { maxAlt: stats1001428.maxAltitude, duration: stats1001428.duration }
+console.log(`track 1001428: points=${track.points.length} stats=${JSON.stringify(stats1001428Display)}`)
 assert(track.points.length > 0, 'track 1001428: parses at least one point')
-assert(track.stats.maxAltitude !== null, 'track 1001428: parses a max altitude')
+assert(stats1001428 !== 'unparseable' && stats1001428.maxAltitude !== null, 'track 1001428: parses a max altitude')
+
+// #59: fixed-width label variants across GpsDump export versions. track-233524.kml is GpsDump
+// 4.36 and track-235690.kml is GpsDump 4.23 — both 2010-era GpsDump desktop builds, using older
+// wording ("Max./min. height", "Max. mean/top speed", the combined "Max/min climb rate ... over
+// 60s" line) than the other five sampled fixtures, which are GpsDumpAndroid 2.8.67/2.8.72 (a
+// different product line, not a newer version of the same one) — see parse-track.ts's
+// readStatLine/parseClimbRates. Every one of these five fields must resolve on both eras, not
+// just the newer one. The synthetic "unrecognised label" and "pilot comment can't override a
+// stat" cases live in parse-track.test.ts instead of here — hand-built KML, not a fixture, so
+// they run in CI on a clean checkout rather than only when fixtures/ happens to be present.
+const olderGpsDumpFixtures = [
+  ['fixtures/track-233524.kml', 233524],
+  ['fixtures/track-235690.kml', 235690],
+] as const
+
+for (const [file, tripId] of olderGpsDumpFixtures) {
+  const olderTrack = parseTrack(readFileSync(file, 'utf8'), tripId)
+  const stats = olderTrack.stats
+  console.log(`${file}: stats=${stats === 'unparseable' ? 'unparseable' : JSON.stringify(stats)}`)
+  if (stats === 'unparseable') {
+    assert(false, `${file}: older GpsDump label wording still resolves to real stats, not 'unparseable'`)
+    continue
+  }
+  assert(stats.maxAltitude !== null, `${file}: "Max./min. height" resolves a max altitude`)
+  assert(stats.minAltitude !== null, `${file}: "Max./min. height" resolves a min altitude`)
+  assert(stats.maxSpeed !== null, `${file}: "Max. mean/top speed" resolves a max speed`)
+  assert(stats.maxClimb !== null, `${file}: the combined "Max/min climb rate" line resolves a max climb`)
+  assert(stats.minClimb !== null, `${file}: the combined "Max/min climb rate" line resolves a min climb`)
+}
 
 const countries = parseCountries(readFileSync('fixtures/countries.html', 'utf8'))
 const norway = countries.find((country) => country.countryId === 160)
