@@ -68,6 +68,24 @@ page.on('console', (m) => {
   if (m.type() === 'error') consoleErrors.push(m.text())
 })
 
+// #47 review gap: only the `?__verifyMap` URL above was ever exercised end-to-end, so nothing
+// pinned the gate's NEGATIVE direction — that window.__takeoffsMap stays undefined on an
+// ORDINARY navigation, without the param. A call site degraded to `if (true)` (see
+// takeoffs-map.tsx) would have stayed green through this whole script and every other check in
+// the repo, since every one of them sends the param. Runs first, in its own throwaway page, so
+// it cannot leave state the main run below depends on.
+const baseUrl = url.split('?')[0]
+const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
+await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+const negativeMapButton = negativePage.getByRole('button', { name: 'Map' })
+await negativeMapButton.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+await negativeMapButton.click().catch(() => {})
+await negativePage.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
+await negativePage.waitForTimeout(1000)
+const handleExposedWithoutParam = await negativePage.evaluate(() => window.__takeoffsMap !== undefined)
+await negativePage.close()
+report(!handleExposedWithoutParam, 'window.__takeoffsMap stays undefined on an ordinary navigation without ?__verifyMap (the gate\'s negative direction)')
+
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
 const mapButton = page.getByRole('button', { name: 'Map' })

@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
 
-const url = process.argv[2] ?? 'http://localhost:3005/flights/1001428'
+const url = process.argv[2] ?? 'http://localhost:3000/flights/1001428'
 const out = process.argv[3] ?? 'verify-track.png'
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })

@@ -5,10 +5,36 @@ import { chromium } from 'playwright'
 // canvas. See TrackMap's assignment of window.__flightTrackMap for why this can reach
 // into the live map instance instead of trusting a screenshot alone (issue #21: raster
 // tiles intermittently do not appear in captures for reasons unrelated to this change).
-const url = process.argv[2] ?? 'http://localhost:3005/flights/1001428'
+//
+// Run against `pnpm run build && pnpm run start`, never `pnpm dev` (#47): the handle above is
+// gated behind the `__verifyMap` query param, not NODE_ENV, precisely so it survives into a
+// production bundle — dev mode is the least likely place to reproduce a bundler-specific
+// failure (see README's maplibre-gl v6/Turbopack note), and until now it was the only mode
+// this script had ever run against.
+const url = process.argv[2] ?? 'http://localhost:3000/flights/1001428?__verifyMap'
 const out = process.argv[3] ?? 'verify-track-gradient.png'
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
+
+// #47 review gap: only the `?__verifyMap` URL above was ever exercised end-to-end, so nothing
+// pinned the gate's NEGATIVE direction — that window.__flightTrackMap stays undefined on an
+// ORDINARY navigation, without the param. A call site degraded to `if (true)` (see
+// track-map.tsx) would have stayed green through this whole script and every other check in
+// the repo, since every one of them sends the param. Runs first, in its own throwaway page, so
+// it cannot leave state the main run below depends on.
+const baseUrl = url.split('?')[0]
+const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
+await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+await negativePage.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
+await negativePage.waitForTimeout(1000)
+const handleExposedWithoutParam = await negativePage.evaluate(() => window.__flightTrackMap !== undefined)
+await negativePage.close()
+console.log(
+  handleExposedWithoutParam
+    ? 'FAIL - window.__flightTrackMap is set on an ordinary navigation without ?__verifyMap'
+    : 'ok - window.__flightTrackMap stays undefined on an ordinary navigation without ?__verifyMap',
+)
+
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
 const logs: string[] = []
 const bad: string[] = []
@@ -94,7 +120,7 @@ console.log('track-gradient assertion:', assertion)
 await page.screenshot({ path: out })
 await browser.close()
 
-if (!assertion.ok) {
+if (!assertion.ok || handleExposedWithoutParam) {
   console.error('FAIL - track gradient assertion did not pass')
   process.exit(1)
 }

@@ -7,7 +7,7 @@ import { chromium, type Page } from 'playwright'
 // than a combined feed, which would depend on both pilots' recent flights happening to
 // interleave inside the top-30 merge window — a live-data-dependent coincidence, not a
 // property of the code.
-const url = process.argv[2] ?? 'http://localhost:3005'
+const url = process.argv[2] ?? 'http://localhost:3000'
 const out = process.argv[3] ?? 'verify-feed.png'
 
 // The exact key follow-store/storage.ts reads and writes — seeding through this key,

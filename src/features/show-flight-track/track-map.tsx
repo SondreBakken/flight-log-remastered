@@ -10,6 +10,7 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
+import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
 import { formatAltitude } from './format-altitude'
 import { TRACK_LINE_COLOR } from './colors'
@@ -105,11 +106,23 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, className }: Trac
     mapRef.current = map
     // No test runner in this repo; browser verification scripts (scripts/verify-track-gradient.mts,
     // scripts/verify-track-hover.mts) drive a real page instead and need a handle on the live map to
-    // assert source/layer state programmatically rather than trust a screenshot alone. Gated to
-    // non-production so the branch is dead-code-eliminated from the shipped bundle, and cleared on
-    // unmount below so a removed map (its GL context, tile cache, and the point array it closes
-    // over) does not stay reachable from `window` after teardown.
-    if (process.env.NODE_ENV !== 'production') {
+    // assert source/layer state programmatically rather than trust a screenshot alone — and, per
+    // #47, they have to run against a real `pnpm run build && pnpm run start`, not `next dev`, to
+    // catch a bundler-specific failure dev mode is the least likely place to reproduce (see
+    // README's maplibre-gl v6/Turbopack note). See src/lib/maplibre/map-debug.ts for why that
+    // means an opt-in query param rather than a NODE_ENV gate: `next build` is what inlines
+    // NODE_ENV and lets the bundler eliminate a dead branch, so a NODE_ENV-gated handle would
+    // never survive into the very build these scripts exist to test. Severity of the residual
+    // exposure is low, not zero: unlike a data-only handle, this one hands out a live map
+    // instance, i.e. scripted control of the map and its GL context, not just a snapshot — but
+    // reaching it at all already requires the same arbitrary script execution on the page that
+    // this query param doesn't meaningfully raise or lower (see takeoffs-map.tsx's own comment),
+    // and this page's `points` array is already serialized to the client for every visitor of
+    // this public route (it's how TrackMap gets rendered at all), so the handle reveals no DATA
+    // the visitor's own browser hadn't already downloaded. Cleared on unmount below so a removed
+    // map (its GL context, tile cache, and the point array it closes over) does not stay
+    // reachable from `window` after teardown.
+    if (isMapDebugEnabled()) {
       window.__flightTrackMap = map
     }
 
@@ -175,7 +188,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, className }: Trac
       map.remove()
       mapRef.current = null
       hoverMarkerRef.current = null
-      if (process.env.NODE_ENV !== 'production' && window.__flightTrackMap === map) {
+      if (window.__flightTrackMap === map) {
         window.__flightTrackMap = undefined
       }
     }

@@ -4,7 +4,12 @@ import { chromium } from 'playwright'
 // requestAnimationFrame, which would make a real hover interaction silently never resolve
 // (see verify-track-gradient.mts, and issue #21 for why a screenshot alone is not
 // evidence). This drives real pointer input and asserts on live DOM/map state.
-const url = process.argv[2] ?? 'http://localhost:3005/flights/1001428'
+//
+// Run against `pnpm run build && pnpm run start`, never `pnpm dev` (#47): the window.__flightTrackMap
+// handle this script depends on is gated behind the `__verifyMap` query param, not NODE_ENV,
+// precisely so it survives into a production bundle — see verify-track-gradient.mts's own
+// comment for why that matters and why this script had never run against a build before.
+const url = process.argv[2] ?? 'http://localhost:3000/flights/1001428?__verifyMap'
 const out = process.argv[3] ?? 'verify-track-hover.png'
 
 // A marker rendered many kilometres away on a real flight track projects to a screen
@@ -33,6 +38,27 @@ await page.goto(url, { waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
 await page
   .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('flight-track') === true, { timeout: 20000 })
+  .catch(() => {})
+// isSourceLoaded only reports that the GeoJSON parsed and indexed, not that MapLibre has
+// actually PAINTED a frame with it — this script's own mousemove-driven hover relies on
+// MapLibre's internal hit-testing against the rendered pixels (see the mousemove handler's own
+// comment in track-map.tsx), which is not ready the instant the source loads. Confirmed against
+// a real production build (#47): the very first synthetic hover after only isSourceLoaded plus
+// a flat wait silently missed (marker never showed), while the identical move succeeded once
+// this also waits for 'idle' — MapLibre's own signal that no further rendering, including this
+// layer's first paint, is queued. A settle condition satisfied before the thing under test is
+// actually ready is exactly the failure shape this repo's verify scripts otherwise guard
+// against.
+await page
+  .evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const map = window.__flightTrackMap
+        if (!map || map.loaded()) return resolve()
+        map.once('idle', () => resolve())
+        setTimeout(resolve, 15000)
+      }),
+  )
   .catch(() => {})
 await page.waitForTimeout(1000)
 
@@ -145,6 +171,13 @@ console.log('map -> chart hover ok:', mapHoverOk)
 
 await page.mouse.move(50, 50)
 await page.waitForTimeout(200)
+
+// The barogram sits below the map + legend, and its own vertical midpoint can land just past
+// the bottom edge of the viewport (confirmed against a real production build, #47: 1211px into
+// a 1200px-tall viewport) — synthetic mouse input can't reach a coordinate outside the
+// viewport, so the hover below silently never lands without this. getBoundingClientRect() is
+// read fresh AFTER scrolling, since scrolling changes it.
+await page.locator('svg[role="slider"]').scrollIntoViewIfNeeded()
 
 const chartScale = await page.evaluate(() => {
   const svg = document.querySelector('svg[role="slider"]')

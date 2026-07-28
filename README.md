@@ -40,11 +40,19 @@ your last build.
 `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`) are a different kind of check: they
 drive a real headless browser against a running app, so they are deliberately **not** part of
 `pnpm run check` or any other automated gate — there is nothing in this repo that starts a server,
-waits for it, and tears it down again. Run them by hand after touching the relevant feature. Most run
-against `pnpm dev` (e.g. `pnpm exec tsx scripts/verify-track-hover.mts`); `verify-takeoffs.mts` and
-`verify-sites-map.mts` are the exceptions — both exercise the prerendered static takeoffs artifact
-`check:takeoffs-prerender` proves exists, which only exists after `pnpm run build && pnpm run start`,
-so they must run against that, never against `pnpm dev`.
+waits for it, and tears it down again. Run them by hand after touching the relevant feature.
+`verify-map.mts` and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g.
+`pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and `verify-sites-map.mts` must run
+against `pnpm run build && pnpm run start`, never `pnpm dev` — dev cannot serve them at all: both
+exercise the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which
+only exists after a real build. `verify-track-gradient.mts` and `verify-track-hover.mts` (#47) are
+different: the `window.__flightTrackMap` handle they depend on is gated behind the `?__verifyMap`
+query param rather than `NODE_ENV` *precisely so it works against either mode* — a `NODE_ENV` gate
+would have been dead-code-eliminated out of exactly the production build these scripts exist to
+test (see `src/lib/maplibre/map-debug.ts`). Run them against `pnpm run build && pnpm run start`
+anyway, by preference rather than necessity: dev is not forbidden, just the least likely place to
+reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
+maplibre-gl v6/Turbopack note below).
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches
