@@ -51,8 +51,14 @@ export async function getTracksForPilot(
 
 // Asking per trip would mean one request per row; the per-year index answers the same
 // question for a whole logbook in one request, which matters on a volunteer-run server.
-export async function getTrackedTripIds(userId: number, years: number[]): Promise<Set<number>> {
-  const tripIds = new Set<number>()
+//
+// Returns the full TrackIndexEntry (tripId AND updatedAt), not just tripIds: the
+// recent-flights feed (see browse-flight-feed/feed.ts) needs each entry's `ts` to tell a
+// newly-updated track apart from one already seen (issue #5) — a distinction getTrackedTripIds
+// below discards. That ts is otherwise free: this function fetches nothing getTrackedTripIds
+// didn't already fetch, it just stops throwing the timestamp away.
+export async function getTrackedTripEntries(userId: number, years: number[]): Promise<TrackIndexEntry[]> {
+  const entries: TrackIndexEntry[] = []
   let firstError: unknown
 
   await runWithConcurrencyLimit(
@@ -61,7 +67,7 @@ export async function getTrackedTripIds(userId: number, years: number[]): Promis
     (year) => getTracksForPilot(userId, year),
     (_year, outcome) => {
       if (outcome.ok) {
-        for (const entry of outcome.value) tripIds.add(entry.tripId)
+        entries.push(...outcome.value)
       } else {
         // Preserve the original Promise.all-style contract (any one year failing fails
         // the whole call) rather than silently returning a partial result — callers
@@ -74,7 +80,15 @@ export async function getTrackedTripIds(userId: number, years: number[]): Promis
   )
 
   if (firstError !== undefined) throw firstError
-  return tripIds
+  return entries
+}
+
+// The pilot logbook page only needs "does this trip have a track", never the timestamp — kept
+// as its own function (delegating to getTrackedTripEntries, not a second fetch loop) so that
+// caller doesn't have to build a Set out of a TrackIndexEntry[] itself.
+export async function getTrackedTripIds(userId: number, years: number[]): Promise<Set<number>> {
+  const entries = await getTrackedTripEntries(userId, years)
+  return new Set(entries.map((entry) => entry.tripId))
 }
 
 export async function hasTrack(tripId: number): Promise<boolean> {

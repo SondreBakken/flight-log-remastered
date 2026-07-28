@@ -19,7 +19,7 @@ import { CONCURRENCY_LIMIT } from '../src/features/browse-flight-feed/use-flight
 import { fetchPilotFeed } from '../src/features/browse-flight-feed/fetch-pilot-feed'
 import { FeedView, FlightFeedView } from '../src/features/browse-flight-feed'
 import { runWithConcurrencyLimit, type Settled } from '../src/lib/concurrency/with-limit'
-import type { Flight, Pilot } from '../src/lib/flightlog/types'
+import type { Flight, Pilot, TrackIndexEntry } from '../src/lib/flightlog/types'
 
 let failures = 0
 
@@ -70,7 +70,7 @@ function success(overrides: Partial<PilotFeedSuccess> & { pilotId: number }): Pi
     status: 'success',
     pilot: makePilot({ userId: overrides.pilotId }),
     flights: [],
-    trackedTripIds: [],
+    trackedTrips: [],
     ...overrides,
   }
 }
@@ -244,13 +244,13 @@ assertEqual(
   const pilot = makePilot({ userId: 77 })
   let calledWithPilotId: number | undefined
   let calledWithYears: number[] = []
-  const stubResolveTrackedTripIds = async (pilotId: number, years: number[]): Promise<Set<number>> => {
+  const stubResolveTrackedTrips = async (pilotId: number, years: number[]): Promise<TrackIndexEntry[]> => {
     calledWithPilotId = pilotId
     calledWithYears = years
-    return new Set()
+    return []
   }
 
-  const body = await loadRecentFlightsForPilot(77, { pilot, flights: divergentHistory }, stubResolveTrackedTripIds)
+  const body = await loadRecentFlightsForPilot(77, { pilot, flights: divergentHistory }, stubResolveTrackedTrips)
 
   assertEqual(calledWithPilotId, 77, 'loadRecentFlightsForPilot: resolves tracks for the pilot it was asked about')
   assertEqual(
@@ -340,13 +340,20 @@ assertEqual(
   assertEqual(entries.length, FEED_SIZE, 'buildFeedEntries at default arity: more entries than FEED_SIZE still truncates to exactly FEED_SIZE')
 }
 
-// hasTrack is derived per entry from that pilot's own trackedTripIds, not shared/guessed.
+// hasTrack is derived per entry from that pilot's own trackedTrips, not shared/guessed.
 {
   const pilot = makePilot({ userId: 4 })
   const withTrack = makeFlight({ userId: 4, date: '2026-01-01' })
   const withoutTrack = makeFlight({ userId: 4, date: '2026-01-02' })
   const entries = buildFeedEntries(
-    [success({ pilotId: 4, pilot, flights: [withTrack, withoutTrack], trackedTripIds: [withTrack.tripId] })],
+    [
+      success({
+        pilotId: 4,
+        pilot,
+        flights: [withTrack, withoutTrack],
+        trackedTrips: [{ tripId: withTrack.tripId, updatedAt: '20260101000000' }],
+      }),
+    ],
     10,
   )
   const byTripId = new Map(entries.map((e) => [e.flight.tripId, e.hasTrack]))
@@ -700,7 +707,7 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 await withStubbedFetch(
-  async () => jsonResponse(200, { pilot: makePilot({ userId: 42 }), flights: [], trackedTripIds: [] }),
+  async () => jsonResponse(200, { pilot: makePilot({ userId: 42 }), flights: [], trackedTrips: [] }),
   async () => {
     const result = await fetchPilotFeed(42)
     assertEqual(result.status, 'success', 'fetchPilotFeed: a valid 200 response resolves to a success result')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { FeedEntryRow } from '@/features/browse-flight-feed/components/feed-entry-row'
 import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 
@@ -7,6 +7,11 @@ import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 // if two field values swapped table cells. Indexing into row cells makes column order
 // part of what the test asserts.
 function renderRow(entry: FeedEntry) {
+  // Unmounts whatever a PRIOR renderRow call in the same test left behind — without this,
+  // the badge test below (which calls renderRow three times to compare newness states)
+  // would accumulate multiple <table> rows in the document, and screen.getByRole('row')
+  // would throw "multiple elements found" instead of returning the row just rendered.
+  cleanup()
   render(
     <table>
       <tbody>
@@ -33,6 +38,7 @@ const baseEntry: FeedEntry = {
     note: null,
   },
   hasTrack: true,
+  newness: 'not-new',
 }
 
 describe('FeedEntryRow', () => {
@@ -53,10 +59,21 @@ describe('FeedEntryRow', () => {
   })
 
   it('renders "none" instead of a track link when the flight has no track', () => {
-    const cells = renderRow({ ...baseEntry, hasTrack: false })
+    const cells = renderRow({ ...baseEntry, hasTrack: false, newness: 'unknown' })
     const trackCell = cells[5]
 
     expect(within(trackCell).queryByRole('link', { name: 'View track' })).toBeNull()
     expect(trackCell.textContent).toBe('none')
+  })
+
+  it('shows a "New" badge only when newness is \'new\', never for \'not-new\' or \'unknown\' (issue #5)', () => {
+    const [newDateCell] = renderRow({ ...baseEntry, newness: 'new' })
+    expect(within(newDateCell).queryByText('New')).not.toBeNull()
+
+    const [notNewDateCell] = renderRow({ ...baseEntry, newness: 'not-new' })
+    expect(within(notNewDateCell).queryByText('New')).toBeNull()
+
+    const [unknownDateCell] = renderRow({ ...baseEntry, hasTrack: false, newness: 'unknown' })
+    expect(within(unknownDateCell).queryByText('New')).toBeNull()
   })
 })

@@ -2,8 +2,17 @@
 
 import { useEffect, useState } from 'react'
 import { runWithConcurrencyLimit, type Settled } from '@/lib/concurrency/with-limit'
+import { getWatermark, recordSeen } from '@/lib/watermark-store/storage'
 import { fetchPilotFeed } from './fetch-pilot-feed'
-import { buildFeedEntries, failedPilotResults, FEED_SIZE, type FeedEntry, type PilotFeedFailure, type PilotFeedResult } from './feed'
+import {
+  buildFeedEntries,
+  failedPilotResults,
+  FEED_SIZE,
+  maxTrackedTs,
+  type FeedEntry,
+  type PilotFeedFailure,
+  type PilotFeedResult,
+} from './feed'
 
 // Low single digits: enough that a fast pilot doesn't sit queued behind a slow one, far
 // below the ~200-requests-in-a-few-minutes threshold that silently kills a flightlog.org
@@ -42,6 +51,13 @@ export type FlightFeedResults = {
 export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
   const [results, setResults] = useState<PilotFeedResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  // Each pilot's watermark AS IT STOOD the instant that pilot's own fetch settled, captured
+  // in the onSettled callback below BEFORE recordSeen (same callback, right after) advances
+  // it — otherwise "new" would be computed against the watermark this very load just moved,
+  // and nothing would ever render as new. State, not a ref: React (with the compiler enabled
+  // here) disallows reading a ref's value during render (react-hooks/refs), and this value IS
+  // read during render, below, to classify each entry's newness.
+  const [watermarksAtLoad, setWatermarksAtLoad] = useState(new Map<number, string | null>())
 
   useEffect(() => {
     let cancelled = false
@@ -58,7 +74,22 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
       (pilotId) => fetchPilotFeed(pilotId, controller.signal),
       (pilotId, outcome) => {
         if (cancelled) return
-        setResults((previous) => [...previous, toPilotFeedResult(pilotId, outcome)])
+        const result = toPilotFeedResult(pilotId, outcome)
+        if (result.status === 'success') {
+          // "The user has seen the feed" for THIS pilot means: their own fetch resolved and
+          // is about to render. Advancing right here (not once the whole feed finishes
+          // loading) means a pilot whose fetch is slow doesn't hold up every other pilot's
+          // watermark — and never happens on any cadence but this one, on-load, effect run.
+          //
+          // Read (getWatermark) then write (recordSeen) happen here, OUTSIDE the setState
+          // updater below — a state updater must stay pure, and recordSeen is a real
+          // localStorage write, not a value derivation.
+          const watermarkAtLoad = getWatermark(pilotId)
+          setWatermarksAtLoad((previous) => new Map(previous).set(pilotId, watermarkAtLoad))
+          const candidateTs = maxTrackedTs(result.trackedTrips)
+          if (candidateTs !== null) recordSeen(pilotId, candidateTs)
+        }
+        setResults((previous) => [...previous, result])
       },
     )
       .catch((error: unknown) => {
@@ -84,7 +115,7 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
 
   return {
     isLoading,
-    entries: buildFeedEntries(results, FEED_SIZE),
+    entries: buildFeedEntries(results, FEED_SIZE, watermarksAtLoad),
     failedPilots: failedPilotResults(results),
   }
 }

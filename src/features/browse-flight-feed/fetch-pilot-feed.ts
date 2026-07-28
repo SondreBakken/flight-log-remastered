@@ -45,7 +45,7 @@ export async function fetchPilotFeed(pilotId: number, signal?: AbortSignal): Pro
     if (!isRecentFlightsSuccessBody(body)) {
       return { status: 'error', pilotId, message: `pilot ${pilotId}: malformed response` }
     }
-    return { status: 'success', pilotId, pilot: body.pilot, flights: body.flights, trackedTripIds: body.trackedTripIds }
+    return { status: 'success', pilotId, pilot: body.pilot, flights: body.flights, trackedTrips: body.trackedTrips }
   } catch (error) {
     return { status: 'error', pilotId, message: browserFailureMessage(pilotId, error) }
   }

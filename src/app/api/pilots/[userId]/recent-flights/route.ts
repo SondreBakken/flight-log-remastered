@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
-import { getTrackedTripIds } from '@/lib/flightlog/tracks'
+import { getTrackedTripEntries } from '@/lib/flightlog/tracks'
 import { loadRecentFlightsForPilot } from '@/features/browse-flight-feed/feed'
 import { isValidPilotId } from '@/lib/follow-store/follow-ids'
 import type { RecentFlightsErrorBody, RecentFlightsSuccessBody } from './contract'
@@ -34,10 +34,10 @@ export async function GET(_request: Request, { params }: RouteParams): Promise<R
   try {
     // getPilotLogbook returns a pilot's ENTIRE history; loadRecentFlightsForPilot slices it
     // down BEFORE resolving which flights have a GPS track — see its doc comment for why
-    // the years passed to getTrackedTripIds must come from the slice, never the full
+    // the years passed to getTrackedTripEntries must come from the slice, never the full
     // history.
     const logbook = await getPilotLogbook(pilotId)
-    const body: RecentFlightsSuccessBody = await loadRecentFlightsForPilot(pilotId, logbook, getTrackedTripIds)
+    const body: RecentFlightsSuccessBody = await loadRecentFlightsForPilot(pilotId, logbook, getTrackedTripEntries)
     return NextResponse.json(body, { headers: { 'Cache-Control': CACHE_CONTROL } })
   } catch (error) {
     // error.message embeds the scraped-from path (see http.ts: "flightlog.org returned 500

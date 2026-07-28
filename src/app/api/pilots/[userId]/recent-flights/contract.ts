@@ -1,13 +1,17 @@
-import type { Flight, Pilot } from '@/lib/flightlog/types'
+import type { Flight, Pilot, TrackIndexEntry } from '@/lib/flightlog/types'
 
 // The one wire shape for this route, shared by the route handler (server) and
 // fetch-pilot-feed.ts (client) so they cannot drift apart the way an inline object type on
 // one side and a hand-copied one on the other can. `error` is deliberately just a stable,
 // non-upstream-derived string — see the route handler's doc comment for why.
+//
+// `trackedTrips` carries each tracked flight's `ts`, not just its tripId (issue #5): the feed
+// needs it to tell a newly-updated track apart from one already seen. That timestamp comes
+// from data this route already fetches (see getTrackedTripEntries) — it is free.
 export type RecentFlightsSuccessBody = {
   pilot: Pilot
   flights: Flight[]
-  trackedTripIds: number[]
+  trackedTrips: TrackIndexEntry[]
 }
 
 export type RecentFlightsErrorBody = {
@@ -25,6 +29,6 @@ export function isRecentFlightsSuccessBody(value: unknown): value is RecentFligh
     typeof candidate.pilot === 'object' &&
     candidate.pilot !== null &&
     Array.isArray(candidate.flights) &&
-    Array.isArray(candidate.trackedTripIds)
+    Array.isArray(candidate.trackedTrips)
   )
 }

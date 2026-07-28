@@ -3,6 +3,7 @@ import { fireEvent, render, within } from '@testing-library/react'
 import type { FollowButton as FollowButtonComponent } from './index'
 
 const STORAGE_KEY = 'flight-log:followed-pilots'
+const WATERMARK_STORAGE_KEY = 'flight-log:track-watermarks'
 const PILOT_ID = 42
 
 function seedFollowedIds(ids: number[]): void {
@@ -85,5 +86,33 @@ describe('FollowButton', () => {
     fireEvent.click(button)
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(button.textContent).toBe('Follow')
+  })
+
+  it('drops the pilot\'s watermark on unfollow — the explicit call issue #5 requires, so a later refollow shows their whole history as new again instead of comparing against a stale mark', async () => {
+    seedFollowedIds([PILOT_ID])
+    window.localStorage.setItem(WATERMARK_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: '20260101000000' }))
+    const FollowButton = await loadFreshFollowButton()
+
+    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
+    const button = within(container).getByRole<HTMLButtonElement>('button')
+    expect(button.getAttribute('aria-pressed')).toBe('true') // sanity: starts followed
+
+    fireEvent.click(button) // the only click direction that unfollows
+    expect(button.getAttribute('aria-pressed')).toBe('false') // sanity: click actually unfollowed
+
+    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({})
+  })
+
+  it('does NOT touch the watermark on follow — only unfollowing clears it', async () => {
+    seedFollowedIds([])
+    window.localStorage.setItem(WATERMARK_STORAGE_KEY, JSON.stringify({ 999: '20260101000000' }))
+    const FollowButton = await loadFreshFollowButton()
+
+    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
+    const button = within(container).getByRole<HTMLButtonElement>('button')
+
+    fireEvent.click(button) // follows PILOT_ID — an unrelated pilot's watermark must survive
+
+    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({ '999': '20260101000000' })
   })
 })

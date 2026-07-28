@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useFollowedPilotIds } from '@/lib/follow-store/use-follow-store'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
-import { selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
+import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
 
 type FlightFeedProps = {
   // Server-only (see lib/flightlog/config.ts), so it arrives as a plain prop from the
@@ -94,6 +94,7 @@ export function FeedView({
           : `following ${followedCount} pilots — showing recent flights from the first ${shownCount} to keep this page fast`}
         {isLoading ? ' · loading…' : ''}
       </p>
+      <NewSinceLastVisitNotice isLoading={isLoading} entries={entries} />
       <FailedPilotsNotice failures={failedPilots} />
       {entries.length === 0 ? (
         <NoRecentFlights isLoading={isLoading} />
@@ -101,6 +102,22 @@ export function FeedView({
         <FeedTable entries={entries} />
       )}
     </>
+  )
+}
+
+// A flight with no uploaded GPS track has no `ts` anywhere on flightlog.org, so it cannot be
+// checked for newness at all (see FlightNewness's doc comment in feed.ts) — "N new" without
+// qualification would silently claim every followed pilot's untracked flights were checked
+// too. Shown only once loading settles: a count that includes still-arriving pilots would
+// undercount and then jump, which reads as more confusing than informative mid-load.
+function NewSinceLastVisitNotice({ isLoading, entries }: { isLoading: boolean; entries: FeedEntry[] }) {
+  if (isLoading) return null
+  const newCount = countNewEntries(entries)
+  return (
+    <p className="text-sm opacity-70">
+      {newCount} new since your last visit — counted only among flights with a saved GPS track;
+      flights without one aren&apos;t checked.
+    </p>
   )
 }
 
