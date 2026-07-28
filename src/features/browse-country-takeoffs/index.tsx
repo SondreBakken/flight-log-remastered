@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
@@ -91,6 +91,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
   const [windFilter, setWindFilter] = useState<WindFilter>(readWindFilterFromUrl)
+  const windSelectRef = useRef<HTMLSelectElement | null>(null)
   const nearby = useNearby()
   // Separate from `nearby.status` on purpose: the user's INTENT to sort by distance survives
   // a denial or an unavailable browser (so the explanatory copy below stays visible instead of
@@ -102,6 +103,19 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   const handleWindFilterChange = useCallback((next: WindFilter) => {
     setWindFilter(next)
     syncWindFilterToUrl(next)
+  }, [])
+
+  // windFilter's own useState initialiser (readWindFilterFromUrl) already gets REACT's state
+  // right on a fresh, shared-link load — but hydration does not resync a controlled <select>'s
+  // DOM value to that state: hydration never reads a select's value in the first place, and its
+  // update path only runs when the `value` prop actually differs between renders, which it
+  // never does here (the mount render already carries the final windFilter). Assigning the DOM
+  // value directly, once, after mount is what a controlled select's own render pass can't do.
+  useEffect(() => {
+    if (windSelectRef.current) windSelectRef.current.value = windFilter
+    // Mount-only: windFilter already holds what readWindFilterFromUrl seeded it with; every
+    // later change already flows through the select's own value prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Corrects the address bar once on mount for a link that arrived with an invalid `?wind=`
@@ -166,6 +180,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
             onRegionFilterChange={setRegionFilter}
             windFilter={windFilter}
             onWindFilterChange={handleWindFilterChange}
+            windSelectRef={windSelectRef}
             nearbyEnabled={nearbyEnabled}
             onNearbyToggle={handleNearbyToggle}
             nearbyStatus={nearby.status}
@@ -247,6 +262,7 @@ function SearchControls({
   onRegionFilterChange,
   windFilter,
   onWindFilterChange,
+  windSelectRef,
   nearbyEnabled,
   onNearbyToggle,
   nearbyStatus,
@@ -258,6 +274,7 @@ function SearchControls({
   onRegionFilterChange: (value: RegionFilter) => void
   windFilter: WindFilter
   onWindFilterChange: (value: WindFilter) => void
+  windSelectRef: RefObject<HTMLSelectElement | null>
   nearbyEnabled: boolean
   onNearbyToggle: (checked: boolean) => void
   nearbyStatus: NearbyStatus
@@ -289,6 +306,7 @@ function SearchControls({
           ))}
         </select>
         <select
+          ref={windSelectRef}
           value={windFilter}
           onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
