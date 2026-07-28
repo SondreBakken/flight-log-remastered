@@ -12,12 +12,43 @@ type PilotLogbookProps = {
 export default function PilotLogbook({ pilot, flights, trackedTripIds }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
-      <PilotHeader pilot={pilot} flightCount={flights.length} trackCount={trackedTripIds.size} />
+      <PilotHeader
+        pilot={pilot}
+        flightCount={totalFlightCount(flights)}
+        trackCount={trackedRowCount(flights, trackedTripIds)}
+      />
       {flights.length === 0 ? <EmptyLogbook /> : (
         <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
       )}
     </section>
   )
+}
+
+// `flights.length` counts TABLE ROWS, not flights — a row aggregates same-day, same-glider
+// flights (#68's `flightCount` field), so pilot 12677's four rows (flightCount 1, 2, 6, 1)
+// are ten flights, not four (#70, confirmed against rqtid=1's own "Flights" column, which
+// reports 10). Summing `flightCount` is what makes "N flights shown" true of the pilot's
+// flying rather than of the table's row count.
+function totalFlightCount(flights: Flight[]): number {
+  return flights.reduce((total, flight) => total + flight.flightCount, 0)
+}
+
+// The other half of the line counts TRACKS, and says so, because flightlog.org publishes no
+// per-flight track relationship to say anything more precise. One tracklog exists per trip_id
+// (rqtid=22 returns data_item_count 1), and an aggregated row's flights share that one id, so
+// neither available number is a count of tracked flights: summing `flightCount` over-claims
+// and one-per-row under-claims.
+//
+// Over-claiming is measured, not hypothetical. Pilot 9377's trip 802531 is the only
+// aggregated-AND-tracked row found across 78 pilots of two clubs. Its row reads flightCount 2,
+// its description reads "#11 og 12", and its tracklog is a single continuous descent from 279m
+// to 83m followed by 135s stationary, with a largest continuous gain of 3.0m — GPS noise, not a
+// second launch. Two flights in the entry, one flight in the track.
+//
+// Counting rows whose trip is tracked needs no inference: it is what the track index can
+// actually answer.
+function trackedRowCount(flights: Flight[], trackedTripIds: Set<number>): number {
+  return flights.filter((flight) => trackedTripIds.has(flight.tripId)).length
 }
 
 function PilotHeader({
@@ -41,7 +72,7 @@ function PilotHeader({
         {[pilot.club, pilot.country].filter(Boolean).join(' · ')}
       </p>
       <p className="text-sm opacity-70">
-        {flightCount} flights shown · {trackCount} with a GPS track
+        {flightCount} flights shown · {trackCount} GPS tracks
       </p>
     </header>
   )
