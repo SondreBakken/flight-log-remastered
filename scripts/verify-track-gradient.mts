@@ -15,6 +15,26 @@ const url = process.argv[2] ?? 'http://localhost:3000/flights/1001428?__verifyMa
 const out = process.argv[3] ?? 'verify-track-gradient.png'
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
+
+// #47 review gap: only the `?__verifyMap` URL above was ever exercised end-to-end, so nothing
+// pinned the gate's NEGATIVE direction — that window.__flightTrackMap stays undefined on an
+// ORDINARY navigation, without the param. A call site degraded to `if (true)` (see
+// track-map.tsx) would have stayed green through this whole script and every other check in
+// the repo, since every one of them sends the param. Runs first, in its own throwaway page, so
+// it cannot leave state the main run below depends on.
+const baseUrl = url.split('?')[0]
+const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
+await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+await negativePage.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
+await negativePage.waitForTimeout(1000)
+const handleExposedWithoutParam = await negativePage.evaluate(() => window.__flightTrackMap !== undefined)
+await negativePage.close()
+console.log(
+  handleExposedWithoutParam
+    ? 'FAIL - window.__flightTrackMap is set on an ordinary navigation without ?__verifyMap'
+    : 'ok - window.__flightTrackMap stays undefined on an ordinary navigation without ?__verifyMap',
+)
+
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
 const logs: string[] = []
 const bad: string[] = []
@@ -100,7 +120,7 @@ console.log('track-gradient assertion:', assertion)
 await page.screenshot({ path: out })
 await browser.close()
 
-if (!assertion.ok) {
+if (!assertion.ok || handleExposedWithoutParam) {
   console.error('FAIL - track gradient assertion did not pass')
   process.exit(1)
 }

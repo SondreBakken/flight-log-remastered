@@ -11,5 +11,5 @@ const VERIFY_MAP_QUERY_PARAM = '__verifyMap'
 // production output. Each call site documents why that residual exposure is acceptable for its
 // own data.
 export function isMapDebugEnabled(): boolean {
-  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).has(VERIFY_MAP_QUERY_PARAM)
+  return new URLSearchParams(window.location.search).has(VERIFY_MAP_QUERY_PARAM)
 }
