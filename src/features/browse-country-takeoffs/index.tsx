@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+import { TakeoffsMap } from './takeoffs-map'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
 import {
@@ -80,8 +81,13 @@ function readWindFilterFromUrl(): WindFilter {
 // `state.takeoffs`, the same array the browser already fetched once from the prerendered
 // takeoffs route — no per-keystroke or per-filter-change network request, and geolocation is a
 // browser API call, not a request to flightlog.org either.
+// 'list' first — the directory's original view, unchanged by #10, so a caller who never
+// touches the new toggle sees exactly the same page as before.
+type DirectoryView = 'list' | 'map'
+
 export default function TakeoffDirectory({ countryId, countryName, regions }: TakeoffDirectoryProps) {
   const state = useTakeoffs(countryId)
+  const [view, setView] = useState<DirectoryView>('list')
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
   const [windFilter, setWindFilter] = useState<WindFilter>(readWindFilterFromUrl)
@@ -142,32 +148,78 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   return (
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{countryName} takeoffs</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">{countryName} takeoffs</h1>
+          <ViewToggle view={view} onViewChange={setView} />
+        </div>
         <TakeoffCountSummary state={state} />
       </header>
-      <SearchControls
-        query={query}
-        onQueryChange={setQuery}
-        regions={regionsWithUnregioned}
-        regionFilter={regionFilter}
-        onRegionFilterChange={setRegionFilter}
-        windFilter={windFilter}
-        onWindFilterChange={handleWindFilterChange}
-        nearbyEnabled={nearbyEnabled}
-        onNearbyToggle={handleNearbyToggle}
-        nearbyStatus={nearby.status}
-      />
-      <TakeoffResults
-        state={state}
-        takeoffs={takeoffs}
-        query={query}
-        regionFilter={regionFilter}
-        windFilter={windFilter}
-        userLocation={userLocation}
-        regions={regions}
-      />
+      {view === 'map' ? (
+        <TakeoffsMapSection state={state} takeoffs={takeoffs} />
+      ) : (
+        <>
+          <SearchControls
+            query={query}
+            onQueryChange={setQuery}
+            regions={regionsWithUnregioned}
+            regionFilter={regionFilter}
+            onRegionFilterChange={setRegionFilter}
+            windFilter={windFilter}
+            onWindFilterChange={handleWindFilterChange}
+            nearbyEnabled={nearbyEnabled}
+            onNearbyToggle={handleNearbyToggle}
+            nearbyStatus={nearby.status}
+          />
+          <TakeoffResults
+            state={state}
+            takeoffs={takeoffs}
+            query={query}
+            regionFilter={regionFilter}
+            windFilter={windFilter}
+            userLocation={userLocation}
+            regions={regions}
+          />
+        </>
+      )}
     </section>
   )
+}
+
+// Reuses the SAME `takeoffs` array useTakeoffs already fetched (see index.tsx's own doc
+// comment on why: the dataset is already resident in the browser) — switching to the map view
+// never issues a second request, it just hands the one array this component already holds to
+// a different renderer.
+function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange: (view: DirectoryView) => void }) {
+  return (
+    <div role="group" aria-label="Directory view" className="flex gap-1 rounded border border-black/20 p-0.5 text-sm dark:border-white/25">
+      <button
+        type="button"
+        aria-pressed={view === 'list'}
+        onClick={() => onViewChange('list')}
+        className={classes('rounded px-2 py-1', view === 'list' && 'bg-black/10 dark:bg-white/15')}
+      >
+        List
+      </button>
+      <button
+        type="button"
+        aria-pressed={view === 'map'}
+        onClick={() => onViewChange('map')}
+        className={classes('rounded px-2 py-1', view === 'map' && 'bg-black/10 dark:bg-white/15')}
+      >
+        Map
+      </button>
+    </div>
+  )
+}
+
+function classes(...values: Array<string | false | undefined>): string {
+  return values.filter(Boolean).join(' ')
+}
+
+function TakeoffsMapSection({ state, takeoffs }: { state: TakeoffsState; takeoffs: TakeoffDirectoryEntry[] }) {
+  if (state.status === 'loading') return <p className="text-sm opacity-70">Loading takeoffs…</p>
+  if (state.status === 'error') return <p className="text-sm text-red-600">{state.message}</p>
+  return <TakeoffsMap takeoffs={takeoffs} />
 }
 
 function TakeoffCountSummary({ state }: { state: TakeoffsState }) {

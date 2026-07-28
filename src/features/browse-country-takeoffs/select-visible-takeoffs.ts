@@ -139,7 +139,11 @@ function withoutDistance(takeoffs: TakeoffDirectoryEntry[]): TakeoffMatch[] {
 // confident, wrong distance (thousands of km) as fact. 1948 of Norway's 6012 takeoffs (32.4%)
 // carry this placeholder — more than twice as common as missing wind (991), which this branch
 // already refused to silently drop (see windUnknownCount above).
-function hasKnownLocation(takeoff: TakeoffDirectoryEntry): boolean {
+//
+// Exported so #10's map data builder (build-takeoffs-geojson.ts) excludes the exact same
+// placeholder takeoffs from the map that this file already excludes from "nearby" distances,
+// rather than a second lat===0/lon===0 check that could silently drift from this one.
+export function hasKnownLocation(takeoff: TakeoffDirectoryEntry): boolean {
   return takeoff.lat !== 0 || takeoff.lon !== 0
 }
 
