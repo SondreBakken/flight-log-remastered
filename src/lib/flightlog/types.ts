@@ -77,9 +77,9 @@ export type Takeoff = {
   lon: number
   // Confirmed (Norway, 6012 rows): integer, range 0-255, 166 distinct values, heavily skewed
   // rather than evenly spread (3017/6012 rows fall in 0-31 alone; 0 is 991 rows, 255 is 366; 90
-  // of the 256 possible values never appear) — consistent with an 8-bit bitmask, not a single
-  // compass point (see docs/flightlog-api.md for the full reasoning). The bit-to-direction
-  // mapping was not independently confirmed.
+  // of the 256 possible values never appear) — an 8-bit bitmask, not a single compass point (see
+  // docs/flightlog-api.md for the full reasoning). Bit-to-direction mapping pinned in #43 — use
+  // decodeWindDirections/windIncludesDirection from ./wind, don't re-derive it here.
   wind: number
   countryId: number
   regionId: number

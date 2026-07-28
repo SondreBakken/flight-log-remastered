@@ -156,10 +156,80 @@ capture of both endpoints, full and empty alike) — just one `<table border=1>`
   contiguous arc, exactly the shape a site's real-world wind exposure would produce under an
   **8-bit bitmask over compass octants** (a site usable from several adjacent directions sets
   multiple adjacent bits; `0` = none recorded, `255` = all eight) — not a single compass point,
-  confirming the caution in issue #12 that "sites work across ranges." The bit-to-direction
-  mapping itself was not independently confirmed (no site cross-referenced against its known
-  real-world wind exposure); only the shape of the encoding (integer bitmask, not an enum or a
-  string) is established here.
+  confirming the caution in issue #12 that "sites work across ranges."
+- **`wind` bit-to-direction mapping — pinned (#43).** `a=22` (takeoff detail) renders the same
+  bits as a compass image; the image's own `alt` text names the active octants in plain text,
+  e.g. `alt=' N NE E SE S SW W NW'` for `wind=255`, `alt=' NW'` for `wind=1`, nothing at all
+  (no `<img>` tag) for `wind=0`. That `alt` text is ground truth — no OCR or pixel-reading of
+  the image itself was needed. Hypothesis going in: bit position steps around the compass at a
+  constant 45° per bit, in some direction, from some starting octant — two unknowns, offset and
+  rotation direction.
+
+  Three live passes, 14 requests total, pinned it: pass 1 minted a session and fetched 8
+  takeoffs (5 single-bit values plus `wind` 0/28/255); pass 2 re-minted and fetched 1 more
+  (bit 6, id 4638) — 2 mints + 9 takeoffs = **11** requests, not the 9 a previous version of
+  this doc claimed (its own table already listed all 9 takeoffs; the text just forgot pass 2's
+  mint and takeoff when it summarised). Pass 3 (this fix) re-minted once more and fetched 2
+  more takeoffs (ids 4163, 7869) to directly confirm bits 2 and 4, which the first two passes
+  had left resting on a single ambiguous multi-bit sample (see below) — 1 mint + 2 takeoffs = 3
+  requests. **14 live requests total.**
+
+  | takeoff (id) | wind | bits | `a=22` alt text | read as |
+  |---|---|---|---|---|
+  | Strandafjellet (5919) | 0 | `00000000` | no `<img>` | none |
+  | Andøya, Bleik… (772) | 1 | `00000001` | ` NW` | bit0 = NW |
+  | Albbasjoaivi (2845) | 2 | `00000010` | ` W` | bit1 = W |
+  | Andørja, kråktindan (4163) | 4 | `00000100` | ` SW` | bit2 = SW |
+  | Frafjord Hegrajeljuvet (10242) | 8 | `00001000` | ` S` | bit3 = S |
+  | Adjektind, ved Lønsdal (7869) | 16 | `00010000` | ` SE` | bit4 = SE |
+  | Austre Blåfjellenden (7947) | 32 | `00100000` | ` E` | bit5 = E |
+  | Astridtinden - Botnhamn (4638) | 64 | `01000000` | ` NE` | bit6 = NE |
+  | Aurland, Aurlandsdalen (1165) | 128 | `10000000` | ` N` | bit7 = N |
+  | Dovre (2924) | 28 | `00011100` | ` SE S SW` | bits2-4 = {SW,S,SE} — corroborates, doesn't establish (see below) |
+  | Trysil, Lerberget (6250) | 255 | `11111111` | ` N NE E SE S SW W NW` | all eight |
+
+  All 8 bits are now confirmed **directly**, each as its own single-bit value. They fit one
+  formula with zero deviation: `compassIndex = (7 - bit) mod 8` over `[N,NE,E,SE,S,SW,W,NW]`
+  clockwise — equivalently, bit position runs **counter-clockwise from N at bit 7 down to NW at
+  bit 0**.
+
+  **What the earlier argument for bits 2 and 4 got wrong.** Passes 1-2 treated those two bits as
+  pinned by the 3-bit Dovre sample (`wind=28` → `alt=' SE S SW'`) alone, reasoning that a
+  mapping which happened to agree with the other 6 points but disagreed on bits 2/4 would only
+  reproduce a contiguous real-world arc here "by chance." That doesn't discriminate: transposing
+  what bits 2 and 4 point to (`2→SE, 4→SW` instead of `2→SW, 4→SE`) yields the exact same set
+  `{SE, S, SW}` for `wind=28`, since that set is symmetric under the swap — the one multi-bit
+  request this depended on carried zero information about the two bits it was spent on, and the
+  "only order a contiguous arc can produce" argument additionally assumed the `alt` text is
+  emitted in bit order, which contradicts this doc's own account of the ordering below. The
+  bit2/bit4 single-value requests in pass 3 are what actually settles it, directly: `alt=' SW'`
+  for bit2 alone, `alt=' SE'` for bit4 alone — the mapping above, not the transposed one.
+
+  **A second, independent argument, free of any request budget.** Computed offline over all
+  6012 Norway `wind` values (verified against `fixtures/takeoffs-160.html`): under the mapping
+  above, 5676/6012 (**94.4%**) decode to a circularly contiguous compass arc (or `0`/`255`);
+  under the bits-2/4-transposed alternative, only 4233/6012 (**70.4%**) do. A real population of
+  takeoff wind exposure should look mostly like contiguous arcs under whichever mapping is
+  correct, and mostly not under a wrong one — this is exactly that signal, and it independently
+  favours this mapping by a wide margin, agreeing with the direct single-bit requests.
+
+  **What is NOT established: the site's `alt`-text ordering.** Under the confirmed mapping,
+  descending bit order (bit7 → bit0) and clockwise compass order are, by construction, the exact
+  same sequence (`bit = 7 - clockwiseIndex`), so no multi-direction sample — including `wind=255`
+  and `wind=28` above — can ever tell "the site emits directions in bit order" apart from "the
+  site emits them in clockwise order": the two hypotheses predict identical output for every
+  input. Nothing here proves the site's own iteration is semantically clockwise rather than
+  positionally bit-ordered, and nothing needs to — `decodeWindDirections` returns clockwise
+  order because that's the order its `alt` text happens to read as, not because "clockwise, not
+  bit order" was independently confirmed as the site's mechanism.
+
+  Full table, `bit → octant`: `0→NW, 1→W, 2→SW, 3→S, 4→SE, 5→E, 6→NE, 7→N`. `0` = no direction
+  recorded, `255` = all eight. Session showed no throttling or kill signal across any of the
+  three passes (all known-good URLs stayed 200 throughout, chained referer, 2-3.8s jittered
+  spacing) — see `decodeWindDirections`/`windIncludesDirection` in `src/lib/flightlog/wind.ts`,
+  the single implementation #10 and #12 both consume. All 11 `a=22` responses fetched across the
+  three passes are saved under the gitignored `fixtures/` as `a22-<id>-wind<N>.html`, so this
+  table is re-checkable without hitting the site again.
 - **Field order as the positive signal.** Neither response wraps its results in anything more
   specific than `<table border=1>` — no other attribute or wrapping element distinguishes it from
   rqtid=8's schema doc or the sibling endpoint's own response, both of which share the identical
