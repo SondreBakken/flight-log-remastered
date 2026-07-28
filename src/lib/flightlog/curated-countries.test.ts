@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from './curated-countries'
+import { CURATED_CLUB_COUNTRY_IDS, CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from './curated-countries'
 
 describe('parseCuratedCountryId', () => {
   it('accepts the exact canonical decimal spelling generateStaticParams produces', () => {
@@ -25,5 +25,11 @@ describe('parseCuratedCountryId', () => {
 
   it.each(['abc', '', '-160', '01', '160abc'])('rejects the malformed id %j', (malformed) => {
     expect(parseCuratedCountryId(malformed)).toBeNull()
+  })
+})
+
+describe('CURATED_CLUB_COUNTRY_IDS', () => {
+  it('contains Norway, the only club list this app has measured and chosen to prerender', () => {
+    expect(CURATED_CLUB_COUNTRY_IDS).toEqual([160])
   })
 })

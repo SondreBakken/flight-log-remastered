@@ -14,6 +14,8 @@ pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
 pnpm run check                            # every check: below, in one pass
 pnpm run check:parsers                    # parsers against saved fixtures; SKIPs (exit 0) if fixtures/ is absent
+pnpm run check:takeoffs-prerender         # takeoffs API route is prerendered at build time; needs a fresh `pnpm run build`
+pnpm run check:clubs-prerender            # clubs page is prerendered for the curated set at build time; needs a fresh `pnpm run build`
 pnpm run check:barogram                   # barogram downsampling and scaling math
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
@@ -26,11 +28,12 @@ pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 ```
 
-`pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with one
-exception**: `check:takeoffs-prerender` reads `.next/prerender-manifest.json` and needs a local `pnpm
-run build` to exist and be currently up to date with the working tree first (it compares mtimes and
-FAILs, rather than silently skipping or passing, if the build is missing or stale — see its own doc
-comment). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
+`pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with two
+exceptions**: `check:takeoffs-prerender` and `check:clubs-prerender` both read
+`.next/prerender-manifest.json` and need a local `pnpm run build` to exist and be currently up to
+date with the working tree first (each compares mtimes and FAILs, rather than silently skipping or
+passing, if the build is missing or stale — see `scripts/lib/prerender-manifest-check.mts`, shared by
+both). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
 your last build.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
