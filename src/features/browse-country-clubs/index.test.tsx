@@ -25,6 +25,31 @@ describe('CountryClubs', () => {
     )
   })
 
+  // #7: clubs used to render as plain text with no way to reach a club's own page. Two
+  // clubs, listed with the higher clubId first, so a bug that links by row INDEX (or by the
+  // first/last club's id) rather than each row's own `club.clubId` shows up as a wrong href,
+  // not an accidentally-correct one — the exact class of bug #11's review caught in a
+  // sibling table before this test existed.
+  it("links each club's name to its own club page, keyed by clubId, not row position", () => {
+    render(
+      <CountryClubs
+        countryId={160}
+        countryName="Norway"
+        clubs={[
+          { clubId: 77, name: 'Bergen Paragliderklubb', flightCount: 15 },
+          { clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Bergen Paragliderklubb' }).getAttribute('href')).toBe(
+      '/countries/160/clubs/77',
+    )
+    expect(screen.getByRole('link', { name: 'Jetta Luftsportsklubb' }).getAttribute('href')).toBe(
+      '/countries/160/clubs/32',
+    )
+  })
+
   it('renders the deliberate empty state, not a table, when the country has no clubs', () => {
     render(<CountryClubs countryId={160} countryName="Bouvet Island" clubs={[]} />)
 

@@ -57,10 +57,25 @@ export const CLUB_ROSTER_EXPECTATIONS: readonly {
   // "Frozen pins vs. live pins" section, which lists this as the fourth live-crossing check.
   rowCount: number
   // A coarse sanity band on the rendered HTML PAGE's total byte size — not a field-shape guard,
-  // just wide enough (roughly ±25% of the observed 53,192 bytes) to catch the artifact being
-  // grossly wrong (truncated, swapped for unrelated content) while tolerating the page shell's
-  // own hashed asset chunk names and whitespace moving between Next.js versions. The country
-  // name / club count / row count assertions in check-clubs-prerender.mts are what actually pin
-  // correctness; this is a backstop underneath them, not a replacement.
+  // just wide enough (±25% of the observed baseline) to catch the artifact being grossly wrong
+  // (truncated, swapped for unrelated content, or missing a whole class of content) while
+  // tolerating the page shell's own hashed asset chunk names and whitespace moving between
+  // Next.js versions. The country name / club count / row count assertions in
+  // check-clubs-prerender.mts are what actually pin correctness; this is a backstop underneath
+  // them, not a replacement.
+  //
+  // Rebaselined by #7's own fix round: each of the 91 club rows gained a real
+  // `<a href="/countries/160/clubs/<id>">` link into its own club page (see
+  // browse-country-clubs/index.tsx's ClubTable), observed 71,180 bytes after the change — but
+  // the FLOOR from the PREVIOUS baseline ([40_000, 66_000], ~53,192 observed pre-#7) was carried
+  // over unchanged instead of recomputed from the new number, so it cleared the new baseline by
+  // only 0.35% (a band this loose no longer catches the exact regression it exists for: removing
+  // every one of those 91 links again rebuilds to 53,188 bytes, which the stale [53_000, 90_000]
+  // range would have let straight through). Recomputed here as ±25% of the CURRENT 71,180
+  // baseline instead — [53_385, 88_975] — which does catch that specific revert (53,188 falls
+  // below the new floor by 197 bytes) without needing to widen the tolerance itself. Expect
+  // this pair to move together the next time the page shell changes deliberately: derive both
+  // ends from whatever the new observed baseline is, never bump just the ceiling or just carry
+  // the old floor forward.
   htmlBytesRange: Range
-}[] = [{ countryId: 160, countryName: 'Norway', rowCount: 91, htmlBytesRange: [40_000, 66_000] }]
+}[] = [{ countryId: 160, countryName: 'Norway', rowCount: 91, htmlBytesRange: [53_385, 88_975] }]

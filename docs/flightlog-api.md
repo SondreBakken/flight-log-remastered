@@ -44,7 +44,7 @@ All confirmed working with an **anonymous** session.
 
 | rqtid | Params | Content-Type | Returns |
 |---|---|---|---|
-| 1 | `club_id`, `country_id` | text/html | Pilot stats table: Name, Flights, Distance (km), Time (hours) |
+| 1 | `club_id` **(required)** | text/html | Pilot stats table: Name, Flights, Distance (km), Time (hours) — `country_id` is accepted but decorative, see below |
 | 2 | (ignores params) | text/html | Single most recent flight site-wide. Columns: `trip_id, tripdate, triptime, duration_hhmm, cnt, distance_km, description, brandmodel, user_id, user_name, club_id, club_name, country_id, country_name, start_id, start_name, class_id` |
 | 5 | `tz` | text/xml | Timezone → UTC time helper |
 | 8 | — | text/html | Takeoff full schema, header row only (confirmed: 24 `<th>` cells, never any `<tr><td>` data — not fetched in production, used only to confirm field order): `altitude, altitudediff, country_id, createdby, createdname, createdtime, description, id, img_id, lat, lon, name, region_id, subregion_id, timestamp, updatedby, updatedtime, url, wind, tracklog_id, img_key, country_name, region_name, subregion_name` |
@@ -64,6 +64,24 @@ response byte-identical to the unfiltered `club_id`/`country_id` call (verified 
 comparison, not just length). No filter found. `a=114` (below) supersedes this for resolving a name
 to a `user_id`; it does not supersede it for a name-filtered stats table — `rqtid=1` returns
 Name/Flights/Distance/Time with no `user_id`, `a=114` returns `user_id` links with no stats.
+
+**`rqtid=1`'s real key is `club_id`, not `country_id` — confirmed live, #7.** Omitting
+`club_id` (with `country_id` present) does not error and does not come back empty: it silently
+returns 146 rows belonging to a completely different, unrelated club
+(`fixtures/rqtid1-missing-club-id.html`) — a plausible-looking WRONG answer, not a signal a
+caller would notice without cross-checking names against a roster. Omitting `country_id` (with
+`club_id` present) instead returns a response **byte-identical** to the full request
+(`fixtures/rqtid1-missing-country-id.html` vs `fixtures/rqtid1-51.html`, confirmed by diff, not
+just row count) — `country_id` is accepted but does nothing. `getClubStats` in this app's own
+code (`src/lib/flightlog/club-stats.ts`) therefore takes `clubId: number` as a required,
+non-optional parameter and never sends `country_id` at all, rather than accepting an options
+bag a caller could build without the one param that actually matters.
+
+**`rqtid=1` cannot distinguish a real club with zero flights from a nonexistent `club_id`.**
+Both render the identical header-only empty table
+(`fixtures/rqtid1-37.html` and `fixtures/rqtid1-nonexistent-club.html` are byte-identical,
+confirmed by diff). A caller that needs that distinction has to cross-reference `a=26` (below),
+which has its own, unambiguous not-found signal.
 
 ### rqtid=9 (country list)
 
@@ -303,7 +321,8 @@ resolved with an **anonymous** session (below) — pilot search needs no auth. R
 | 23 | Takeoffs, generic index — **not** a detail page (see below) | — | — |
 | 24 | Pilots/Clubs, variant index | — | — |
 | 25 | Clubs in a country | `country_id` | — |
-| 26, 27 | **Club detail + member roster** | `country_id`, `club_id` | — |
+| 26 | **Club detail + member roster** (see below) | `country_id`, `club_id` | — |
+| 27 | Dead — renders the page shell and an empty results div for every club tried, see below | `country_id`, `club_id` | — |
 | 28 | Pilot profile | `user_id` | `xc=xc`, `offset`, `year` |
 | 29 | Pilot flights | `user_id` | — |
 | 30 | New flight wizard — **write** | `user_id` | — |
@@ -487,6 +506,127 @@ honeypot copy, same as every other page) around one results block:
 Takeoff detail (`a=22`) carries coordinates three ways: DMS in the body, UTM/WGS84, and decimal
 degrees embedded in an outbound weather-API link (`Lat=61.89222222&Lon=9.14222222`). For bulk
 work prefer `rqtid=11`, which gives decimal directly.
+
+### Club detail + member roster (`a=26`) — #7
+
+```
+GET /fl.html?l=1&a=26&country_id=160&club_id=51
+```
+
+**Correction to this doc's own earlier claim (and the issue that cites it) that `a=26, 27`
+together are "club detail + member roster."** Only `a=26` is real. `a=27` (any
+`country_id`/`club_id` tried, including a real club with members) renders the ordinary page
+shell and then an **empty results div** — `<div style='padding:0px 10px'>\n\n</div>` — no
+table, no roster, nothing (`fixtures/a27-51-club.html`, `fixtures/a27-37-club.html`). Fed to
+this app's own `parseClubDetail`, both throw immediately (no info table, no roster table — it
+shares none of `a=26`'s markup) rather than silently parsing as an empty club. Same correction
+pattern #11 already applied to `a=23` for takeoffs: a page cited as a detail/roster source that
+turns out, live, to be a dead variant.
+
+`a=26` itself renders BOTH the club's own info block and its full member roster on the one
+response — there is no second request to make for the roster the way `a=22`/`a=42` need two
+separate ones for takeoff detail vs. flights.
+
+```html
+<!-- trimmed, a26-51-club.html (Voss) -->
+<div align='left'><table cellspacing='1' cellpadding='3' bgcolor='#778899'>
+<tr><td bgcolor='white'>Link to more info</td><td bgcolor='white'><a href='https://www.vosshpk.no'>https://www.vosshpk.no</a></td></tr>
+<tr><td bgcolor='white'>Description</td><td bgcolor='white'><a href='/fl.html?rqtid=3&club_id=51&…'><img src='…' alt='club logo'></a>Lokalisert på Voss i Vestland</td></tr>
+<tr><td bgcolor='white'>Members</td><td bgcolor='white'>1271</td></tr>
+<tr><td bgcolor='white'>Coordinates</td><td bgcolor='white'>
+      DMS: N 60&deg; 38&#039; 25&#039;&#039; &nbsp;E 6&deg; 30&#039; 4&#039;&#039;<br>UTM: 32V &nbsp;363342 &nbsp;6725319 (WGS84)<br><a href='https://earth.google.com/web/search/60.64027778,6.50111111' target='_blank'>earth.google.com</a></td></tr>
+<tr><td bgcolor='white'>created</td><td bgcolor='white'>0000-00-00 00:00:00 </td></tr>
+<tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2026-02-14 13:52:15 Martin Krossøy</td></tr>
+</table>
+<table><tr><td><h4>Club members</h4><table cellspacing='1' cellpadding='3' bgcolor='black'>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=8711>Ada Sofie Thrane Bjorøy</a></td></tr>
+…
+</table></td><td>&nbsp;&nbsp;</td></tr><table>
+</div>
+```
+
+- **Info block** (`table[cellspacing="1"][cellpadding="3"][bgcolor="#778899"]`, distinct from
+  every table `a=25`'s clubs list or this same page's own roster uses): label/value rows keyed
+  by the first `<td>`'s text, same shape `a=22` (takeoff detail) already uses for its own
+  label/value table — `parse-club-detail.ts` reuses that file's `labelledRows` technique
+  verbatim. `Description`, `Members`, `created` and `Updated` are the only rows present on
+  every sampled club, including the zero-member one; `Link to more info` and `Coordinates` are
+  both genuinely optional — Oslo's real fixture (`club_id=33`) has no `Coordinates` row at all,
+  and a club with no external site has no `Link to more info` row.
+- **Club name** is not a labelled row — it comes from the breadcrumb's fourth
+  `<span style='font-style:italic'>`, exactly the same technique and index `a=22`'s own
+  `readBreadcrumbName` uses (`Home -> Pilots/Clubs -> <Country> -> <Club name>`), confirmed 4
+  spans deep on every sampled club, including the zero-member one.
+- **Description can be multi-line.** Oslo's real fixture has an actual `<br><br>` paragraph
+  break inside it, not just a single line — the same "split on `<br>`, reload each fragment,
+  keep the line breaks" technique `parse-takeoff-detail.ts`'s `readDescription` already uses is
+  needed here too, not a plain `.text()` call. A club logo `<img>` (wrapped in its own `<a>`)
+  often precedes the real text inside the same cell and must not leak into it — `.text()`
+  already drops it since neither the anchor nor the image carries a text node of its own.
+- **Coordinates** carries DMS, UTM/WGS84, and an `earth.google.com` link with decimal degrees
+  in its own path segment (`.../search/60.64027778,6.50111111`) — the same three-way shape
+  `a=22` documents for takeoffs, here reachable directly as decimal without `rqtid=11`'s help
+  since a club has no equivalent bulk endpoint. `mapUrl` in this app's own `ClubDetail` type is
+  that anchor's `href`, taken verbatim.
+- **The not-found signal — the cleanest on this site.** A nonexistent `club_id` returns a
+  **0-byte response body**, `200 OK`, no page shell at all (`fixtures/a26-nonexistent-club.html`
+  is a literal empty file). A real but empty club (`club_id=37`) instead returns the full shell,
+  `Members: 0`, and a present-but-empty roster table — the same "container present, positive
+  shape confirmed, zero rows" pattern `a=25` uses for a country with no clubs, just reached via
+  a 0-byte-body check instead of a missing-table check. `parseClubDetail` therefore short-
+  circuits on an empty trimmed body and returns `null` before ever calling `cheerio.load` on it
+  — collapsing this into "unrecognised markup" (a throw) or "an empty club" (rendering
+  `Members: 0`) would both be wrong in different ways, the same two-outcome split `a=22`'s own
+  `parseTakeoffDetail` already documents for its own not-found case.
+- **Member roster** (`table[cellspacing="1"][cellpadding="3"][bgcolor="black"]` — the exact same
+  three-attribute selector `a=25`'s clubs list uses for ITS results table, here scoped to a
+  different page): one `<tr><td><a href=...&a=28&user_id=N>Name</a></td></tr>` per member, a
+  single unquoted-attribute `href` (`href=https://…`, no quotes — real markup, cheerio parses it
+  fine) and a single `<td>`, unlike the clubs list's two. `a=28` is the same pilot-profile action
+  code `a=114` (pilot search) and `a=22`'s site records both use.
+- **Scoping the member search to the roster table is not optional.** The page also carries a
+  handful of unrelated `user_id=`-bearing anchors elsewhere — a "pilot details" icon link
+  (`<a href='…&a=28&user_id=N&xc=xc'><img … alt='pilot details'></a>`, no name text) observed 5
+  times on Voss's own fixture, all outside the roster table. Searching the whole document for
+  `a[href*="user_id="]` instead of scoping to rows already inside the roster table picks these
+  up as 5 phantom, blank-name roster rows (measured: 1276 whole-document matches vs. 1271 real
+  roster `<tr>`s, matching the declared `Members: 1271` exactly once scoped) —
+  `parse-club-roster.ts`'s `findMemberAnchor` is deliberately called on `row.find(...)`, never
+  on the document, the same scoping discipline `parse-clubs.ts` already uses for its own anchor
+  search.
+- **A name can legitimately belong to two different members.** Voss's 1271-row roster has 7 name
+  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. "Cato Wiese-Hansen" as
+  `user_id` 5286 and 11085; the 7th is the 5 phantom blank-name icon anchors above, which never
+  reach the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
+  `user_id` only, never by name, so two members sharing a name are two rows, not one.
+- **HTML entities decode to identical text across the roster and `rqtid=1`'s stats table** —
+  the roster spells one Voss pilot `Luis &#039;&#039;Mickey&#039;&#039; Fonseca`, `rqtid=1`'s
+  own stats table spells the same pilot `Luis ''Mickey'' Fonseca` verbatim. Both parse through
+  cheerio's own `.text()`, which decodes entities during HTML parsing — confirmed live, not
+  assumed: the two strings compare equal with no extra decode step in `resolve-stats-pilots.ts`.
+  See "THE JOIN" below for why this matters.
+
+### THE JOIN — resolving `rqtid=1`'s name-only stats to a roster `user_id` — #7
+
+`rqtid=1` (above) carries **no `user_id`, only a display name** — flightlog.org itself appears
+to have no reliable per-pilot key for this table, only a name. Cross-referencing it against
+`a=26`'s roster is therefore a genuine best-effort join, not a lookup with a guaranteed answer,
+and the ambiguity is real: Voss's 290-row stats table resolves 289 rows to exactly one roster
+`user_id` and leaves exactly 1 — "Cato Wiese-Hansen" — unresolved, because that name belongs to
+two distinct roster members (5286, 11085) and there is nothing in either response to say which
+one actually flew.
+
+This app's own join (`src/features/browse-club/resolve-stats-pilots.ts`) is built FROM the
+roster, not from the stats table: Voss has 1271 members and only 290 with any recorded flight,
+so "never flown" is the common case, not the exception, and a member list built by starting
+from `rqtid=1` instead would silently omit 981 real members. A roster member's own follow
+button is therefore unconditional (the roster always has their `user_id`, independent of
+whether they show up in `rqtid=1` at all); a stats-leaderboard row's follow button/link is
+conditional, resolved only where its name indexes to exactly one roster `user_id` — zero
+matches (a name in `rqtid=1` that isn't in the current roster at all) and more-than-one match
+(the Cato Wiese-Hansen case) both resolve to no link, never a guess. This repo has shipped the
+"parser answers confidently with the wrong thing" failure five times before this issue (#25,
+#6, #32, #8, #59) — silently picking one of two ambiguous `user_id`s here would be a sixth.
 
 ### Takeoff detail (`a=22`) and flights at a takeoff (`a=42`) — #11
 

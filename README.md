@@ -206,6 +206,28 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=160" -o fixtures/clubs-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=29" -o fixtures/clubs-29.html
+# #7's club page. 51 (Voss) is the largest club sampled (1271 members); 33 (Oslo) has no
+# Coordinates row, confirming that field is genuinely optional; 37 is a real club with zero
+# members — the case rqtid=1 alone cannot tell apart from a nonexistent club_id, see
+# docs/flightlog-api.md's "THE JOIN". Any large numeric club_id works for the nonexistent case.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=26&country_id=160&club_id=51" -o fixtures/a26-51-club.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=26&country_id=160&club_id=33" -o fixtures/a26-33-club.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=26&country_id=160&club_id=37" -o fixtures/a26-37-club.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=26&country_id=160&club_id=999999999" -o fixtures/a26-nonexistent-club.html
+# a=27 is dead (see docs/flightlog-api.md's correction) — these two fixtures exist only to
+# pin that live, not to back a parser this app actually uses.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=27&country_id=160&club_id=51" -o fixtures/a27-51-club.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=27&country_id=160&club_id=37" -o fixtures/a27-37-club.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=1&club_id=51&country_id=160" -o fixtures/rqtid1-51.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=1&club_id=37&country_id=160" -o fixtures/rqtid1-37.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=1&club_id=999999999&country_id=160" -o fixtures/rqtid1-nonexistent-club.html
+# The danger #7 exists to make impossible: omitting club_id doesn't error, it silently returns
+# a DIFFERENT club's pilots (see docs/flightlog-api.md). country_id alone, without club_id,
+# does nothing useful — this fixture pins exactly that live measurement.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=1&country_id=160" -o fixtures/rqtid1-missing-club-id.html
+# country_id is decorative for this endpoint — omitting it (club_id present) is confirmed
+# byte-identical to rqtid1-51.html.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=1&club_id=51" -o fixtures/rqtid1-missing-country-id.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-form.html
 curl -s -b /tmp/fl.txt -A "$UA" -H "Content-Type: application/x-www-form-urlencoded" \
   --data "form=find_user&user_fullname=nde&go=Go" "https://flightlog.org/fl.html?l=1&a=114" -o fixtures/pilot-search-grouped.html
@@ -234,7 +256,12 @@ Routes:
 - `/pilots/search` find a pilot by name, with a follow button per result
 - `/flights/[tripId]` track on a map plus flight statistics
 - `/countries` every country, linking into its club list
-- `/countries/[countryId]` clubs in that country, with each club's total flight count
+- `/countries/[countryId]` clubs in that country, with each club's total flight count, linking
+  into each club's own page
+- `/countries/[countryId]/clubs/[clubId]` a single club: description, coordinates, member
+  roster (every member, each with a follow button), and a pilot-stats leaderboard sortable by
+  flights/distance/hours, with a follow button only where a leaderboard row's name resolves to
+  exactly one roster member
 - `/countries/[countryId]/takeoffs` searchable/filterable takeoff directory for a curated
   country (list and map views), linking each takeoff into its own detail page
 - `/countries/[countryId]/takeoffs/[takeoffId]` a single takeoff: description, region,
@@ -253,6 +280,8 @@ There is no documented API. Two undocumented surfaces are used, both reachable a
 | Tracklog | `fl.html?rqtid=19&trip_id=N` | KML, ~1 Hz lon/lat/alt |
 | Country list | `fl.html?rqtid=9` | HTML table, scraped |
 | Clubs in a country | `fl.html?l=1&a=25&country_id=N` | HTML, scraped |
+| Club detail + member roster | `fl.html?l=1&a=26&country_id=N&club_id=M` | HTML, scraped |
+| Per-club pilot stats | `fl.html?rqtid=1&club_id=M` | HTML table, scraped |
 | Regions in a country | `fl.html?rqtid=10&country_id=N` | HTML table, scraped |
 | Takeoffs in a country | `fl.html?rqtid=11&country_id=N` | HTML table, scraped |
 | Takeoff detail | `fl.html?l=1&a=22&country_id=N&start_id=M` | HTML, scraped |

@@ -3,6 +3,10 @@ import { parseFlights, parsePilot } from '../src/lib/flightlog/parse-flights'
 import { parseTrack } from '../src/lib/flightlog/parse-track'
 import { parseCountries } from '../src/lib/flightlog/parse-countries'
 import { parseClubs } from '../src/lib/flightlog/parse-clubs'
+import { parseClubDetail } from '../src/lib/flightlog/parse-club-detail'
+import { parseClubRoster } from '../src/lib/flightlog/parse-club-roster'
+import { parseClubStats } from '../src/lib/flightlog/parse-club-stats'
+import { resolveStatsPilots } from '../src/features/browse-club/resolve-stats-pilots'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
 import { parseRegions } from '../src/lib/flightlog/parse-regions'
@@ -26,6 +30,17 @@ const requiredFixtures = [
   'fixtures/countries.html',
   'fixtures/clubs-160.html',
   'fixtures/clubs-29.html',
+  'fixtures/a26-51-club.html',
+  'fixtures/a26-33-club.html',
+  'fixtures/a26-37-club.html',
+  'fixtures/a26-nonexistent-club.html',
+  'fixtures/a27-51-club.html',
+  'fixtures/a27-37-club.html',
+  'fixtures/rqtid1-51.html',
+  'fixtures/rqtid1-37.html',
+  'fixtures/rqtid1-nonexistent-club.html',
+  'fixtures/rqtid1-missing-club-id.html',
+  'fixtures/rqtid1-missing-country-id.html',
   'fixtures/pilot-search-form.html',
   'fixtures/pilot-search-grouped.html',
   'fixtures/pilot-search-zero.html',
@@ -125,6 +140,112 @@ assert(clubs.length === 91, `clubs-160.html (Norway): parses all 91 clubs (got $
 const emptyClubs = parseClubs(readFileSync('fixtures/clubs-29.html', 'utf8'), 29)
 console.log(`clubs-29.html (Bouvet Island): clubs=${emptyClubs.length}`)
 assert(emptyClubs.length === 0, `clubs-29.html (Bouvet Island): genuinely zero clubs (got ${emptyClubs.length})`)
+
+// #7's club page. Voss (51) is the largest club on hand: 1271 members, 290 with any recorded
+// flight, and 6 real name collisions in the roster (see resolve-stats-pilots.ts's own doc
+// comment) — the fixture that actually exercises the ambiguous-name path below.
+const vossHtml = readFileSync('fixtures/a26-51-club.html', 'utf8')
+const vossDetail = parseClubDetail(vossHtml, 51)
+const vossRoster = parseClubRoster(vossHtml, 51)
+console.log(
+  `a26-51-club.html: name=${vossDetail?.name} members=${vossDetail?.memberCount} roster=${vossRoster.length} mapUrl=${vossDetail?.mapUrl}`,
+)
+assert(vossDetail?.name === 'Voss Hang- Og Paragliderklubb', `a26-51-club.html: resolves the expected name (got ${vossDetail?.name ?? 'MISSING'})`)
+assert(vossDetail?.memberCount === 1271, `a26-51-club.html: Members reads 1271 (got ${vossDetail?.memberCount})`)
+assert(vossRoster.length === 1271, `a26-51-club.html: roster carries all 1271 members, matching the declared count (got ${vossRoster.length})`)
+assert(
+  vossDetail?.mapUrl === 'https://earth.google.com/web/search/60.64027778,6.50111111',
+  `a26-51-club.html: extracts the earth.google.com decimal-degree map link (got ${vossDetail?.mapUrl})`,
+)
+
+// Oslo (33): the fixture with no Coordinates row at all, confirming that field is genuinely
+// optional and not just untested.
+const osloDetail = parseClubDetail(readFileSync('fixtures/a26-33-club.html', 'utf8'), 33)
+console.log(`a26-33-club.html: name=${osloDetail?.name} members=${osloDetail?.memberCount} coordinatesText=${osloDetail?.coordinatesText}`)
+assert(osloDetail?.memberCount === 677, `a26-33-club.html: Members reads 677 (got ${osloDetail?.memberCount})`)
+assert(osloDetail?.coordinatesText === null, `a26-33-club.html: a club with no Coordinates row parses coordinatesText as null, not a throw (got ${osloDetail?.coordinatesText})`)
+
+// Øø Eiken (37): a REAL club with zero members — the case rqtid=1 alone (below) cannot tell
+// apart from a nonexistent club_id, and the reason a=26 is this app's only source of truth
+// for that distinction.
+const eikenHtml = readFileSync('fixtures/a26-37-club.html', 'utf8')
+const eikenDetail = parseClubDetail(eikenHtml, 37)
+const eikenRoster = parseClubRoster(eikenHtml, 37)
+console.log(`a26-37-club.html: detail=${eikenDetail === null ? 'null' : 'present'} members=${eikenDetail?.memberCount} roster=${eikenRoster.length}`)
+assert(eikenDetail !== null, 'a26-37-club.html: a real, zero-member club parses as a present ClubDetail, not null')
+assert(eikenDetail?.memberCount === 0, `a26-37-club.html: Members reads 0 (got ${eikenDetail?.memberCount})`)
+assert(eikenRoster.length === 0, `a26-37-club.html: roster is genuinely empty, not a throw (got ${eikenRoster.length})`)
+
+// The one not-found signal this endpoint has: a 0-byte body, 200 OK, no page shell at all —
+// must resolve to null, never render as an empty club (see parseClubDetail's own doc comment).
+const nonexistentClubDetail = parseClubDetail(readFileSync('fixtures/a26-nonexistent-club.html', 'utf8'), 999999999)
+console.log(`a26-nonexistent-club.html: detail=${nonexistentClubDetail === null ? 'null' : 'NOT NULL'}`)
+assert(nonexistentClubDetail === null, `a26-nonexistent-club.html: resolves to null, not a throw or an empty-but-present object (got ${JSON.stringify(nonexistentClubDetail)})`)
+
+// #11's own correction pattern, applied to a=27: the issue and docs/flightlog-api.md both
+// claimed a=27 was the member roster; it is dead (renders the page shell plus an empty
+// results div for every club tried, live). Feeding it to parseClubDetail throws — it shares
+// none of a=26's markup (no info table, no roster table) — proving live that this app is
+// right not to fetch it.
+const a27Throws = (file: string) => {
+  try {
+    parseClubDetail(readFileSync(file, 'utf8'), 51)
+    return false
+  } catch {
+    return true
+  }
+}
+console.log(`a27-51-club.html: threw=${a27Throws('fixtures/a27-51-club.html')}`)
+console.log(`a27-37-club.html: threw=${a27Throws('fixtures/a27-37-club.html')}`)
+assert(a27Throws('fixtures/a27-51-club.html'), 'a27-51-club.html: the real captured a=27 page throws when fed to parseClubDetail, confirming it shares none of a=26\'s markup')
+assert(a27Throws('fixtures/a27-37-club.html'), 'a27-37-club.html: same, for the second sampled club')
+
+// rqtid=1's own stats table: 290 of Voss's 1271 members have ever flown.
+const vossStats = parseClubStats(readFileSync('fixtures/rqtid1-51.html', 'utf8'), 51)
+console.log(`rqtid1-51.html: stats=${vossStats.length}`)
+assert(vossStats.length === 290, `rqtid1-51.html: parses all 290 pilot-stats rows (got ${vossStats.length})`)
+
+// A real, zero-member club (37) and a nonexistent club_id render the IDENTICAL empty stats
+// table — confirmed byte-identical live (see docs/flightlog-api.md's "THE JOIN") — the parser
+// itself cannot and does not try to tell them apart; both simply parse to [].
+const eikenStats = parseClubStats(readFileSync('fixtures/rqtid1-37.html', 'utf8'), 37)
+const nonexistentStats = parseClubStats(readFileSync('fixtures/rqtid1-nonexistent-club.html', 'utf8'), 999999999)
+console.log(`rqtid1-37.html: stats=${eikenStats.length}, rqtid1-nonexistent-club.html: stats=${nonexistentStats.length}`)
+assert(eikenStats.length === 0, `rqtid1-37.html: a real empty club parses to zero stats rows (got ${eikenStats.length})`)
+assert(nonexistentStats.length === 0, `rqtid1-nonexistent-club.html: a nonexistent club ALSO parses to zero stats rows — the parser cannot tell these apart (got ${nonexistentStats.length})`)
+
+// The danger #7 exists to make impossible: rqtid=1 WITHOUT club_id doesn't error or come back
+// empty, it silently returns 146 rows belonging to a completely different club. This fixture
+// pins that live measurement so it can't quietly drift unnoticed; getClubStats's own signature
+// (a required, non-optional clubId, never an options bag) is what actually stops this from
+// ever reaching production, not this assertion — see club-stats.ts's own doc comment.
+const missingClubIdStats = parseClubStats(readFileSync('fixtures/rqtid1-missing-club-id.html', 'utf8'), 51)
+console.log(`rqtid1-missing-club-id.html: stats=${missingClubIdStats.length} (a plausible-looking WRONG answer, not an error)`)
+assert(
+  missingClubIdStats.length === 146,
+  `rqtid1-missing-club-id.html: omitting club_id returns 146 rows of an unrelated club, not an error (got ${missingClubIdStats.length}) — confirms the danger getClubStats's required-clubId signature guards against`,
+)
+
+// country_id is decorative for this endpoint — omitting it (with club_id present) returns a
+// result identical to the full request, confirmed both by byte-for-byte fixture equality and
+// by the parsed row count here.
+const missingCountryIdStats = parseClubStats(readFileSync('fixtures/rqtid1-missing-country-id.html', 'utf8'), 51)
+console.log(`rqtid1-missing-country-id.html: stats=${missingCountryIdStats.length}`)
+assert(
+  missingCountryIdStats.length === vossStats.length,
+  `rqtid1-missing-country-id.html: omitting country_id (with club_id present) parses identically to the full request (got ${missingCountryIdStats.length} vs ${vossStats.length})`,
+)
+
+// THE JOIN (see resolve-stats-pilots.ts and docs/flightlog-api.md): Voss's roster carries two
+// distinct user_ids both named "Cato Wiese-Hansen" against a single rqtid=1 stats row — this
+// must resolve to userId: null, never a guess at which of the two flew.
+const vossResolved = resolveStatsPilots(vossRoster, vossStats)
+const catoRow = vossResolved.find((row) => row.name === 'Cato Wiese-Hansen')
+const resolvedCount = vossResolved.filter((row) => row.userId !== null).length
+console.log(`Voss join: resolved=${resolvedCount}/${vossResolved.length}, Cato Wiese-Hansen userId=${catoRow?.userId ?? 'null'}`)
+assert(catoRow !== undefined, 'Voss join: the ambiguous "Cato Wiese-Hansen" stats row is present in the resolved output')
+assert(catoRow?.userId === null, `Voss join: "Cato Wiese-Hansen" resolves to userId null, not a guessed id (got ${catoRow?.userId})`)
+assert(resolvedCount > 0 && resolvedCount < vossResolved.length, `Voss join: some stats rows resolve unambiguously and at least one does not (got ${resolvedCount}/${vossResolved.length})`)
 
 // pilot-search-form.html is a=114's bare GET form: no query submitted, so it has zero candidate
 // rows AND no "-1 No match found" banner (that banner only renders on a POST response, zero-
