@@ -527,9 +527,11 @@ the ambiguous 302), just not a detail page — this app never fetches it.
   attribute. Each anchor's `href` carries a `trip_id` but **no `user_id`** — unlike `a=42`'s own
   flight rows (below), a site record's pilot name cannot be a follow target from this response
   alone.
-- **Nonexistent `start_id`.** Same `200 OK`, same table, same six required labels present —
-  confirmed live (`fixtures/a22-nonexistent-detail.html`, a `start_id` far outside any real
-  Norway id) — but every value is blank and the breadcrumb (`Home -> Takeoffs -> <Country> -> `)
+- **Nonexistent `start_id`.** Same `200 OK`, same table, same five required labels present —
+  `region` is deliberately not one of them (see `parse-takeoff-detail.ts`'s own `REQUIRED_LABELS`
+  comment) and is exactly the label the nonexistent fixture does not carry — confirmed live
+  (`fixtures/a22-nonexistent-detail.html`, a `start_id` far outside any real Norway id) — but
+  every value is blank and the breadcrumb (`Home -> Takeoffs -> <Country> -> `)
   has only three `<span style='font-style:italic;'>` entries instead of four: no fourth span
   for the takeoff's own name at all. That missing fourth span is the one signal that reliably
   tells a bad id apart from a real, sparsely-populated takeoff (`fixtures/a22-119-detail.html`
@@ -550,10 +552,11 @@ the ambiguous 302), just not a detail page — this app never fetches it.
 - **No `a=22` coordinate fallback.** Both corruption shapes `rqtid=11` documents above (the
   full Null Island placeholder, and a lat/lon axis swap) were checked against `a=22` for the
   same takeoff (`start_id=8478`, "Veines (Kongsfjord)", `lat=0`/`lon=70.73` in `rqtid=11`):
-  `a=22`'s own `Coordinates` row is present but shows the SAME underlying corrupt value (DMS
-  for a `lat` of `0`), not a separate, independently-correct reading. There is no second source
-  of truth here to fall back to — a takeoff excluded by `hasKnownLocation` stays excluded, full
-  stop.
+  `a=22`'s own `Coordinates` row is absent for this takeoff (confirmed against
+  `fixtures/a22-8478-detail.html`), the same "container present, row missing" shape a takeoff
+  with no coordinates ever recorded produces elsewhere on this site — not a separate,
+  independently-corrupt reading to fall back to. There is no second source of truth here — a
+  takeoff excluded by `hasKnownLocation` stays excluded, full stop.
 - **No within-year pagination followed either.** The `offset=1000` link at both the top and
   bottom of `a=42`'s results table appears identically on an empty-this-year response and a
   63-flight one (`fixtures/a42-179-flights.html`) — its unit is not row count and is not

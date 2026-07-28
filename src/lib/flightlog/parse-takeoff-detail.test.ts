@@ -1,3 +1,4 @@
+import * as cheerio from 'cheerio'
 import { describe, expect, it } from 'vitest'
 import { parseTakeoffDetail } from './parse-takeoff-detail'
 
@@ -26,7 +27,8 @@ const MINIMAL_HTML = `<html><body>
 </body></html>`
 
 // The real, verbatim shape of a nonexistent `start_id` (fixtures/a22-nonexistent-detail.html):
-// same table, same required labels, but no fourth breadcrumb span and every value blank.
+// same table, same five REQUIRED_LABELS (region deliberately excluded — see that constant's
+// own comment), but no fourth breadcrumb span and every value blank.
 const NONEXISTENT_HTML = `<html><body>
 <table><tr><td>${BREADCRUMB(null)}</td></tr></table>
 <div align='left'><table cellspacing='1' cellpadding='3' bgcolor='black'><tr><td bgcolor='white'>Altitude</td><td bgcolor='white'> meters asl </td></tr><tr><td bgcolor='white'>Description</td><td bgcolor='white'><br/></td></tr><tr><td bgcolor='white'>Siterecord</td><td bgcolor='white'></td></tr><tr><td bgcolor='white'>created</td><td bgcolor='white'> </td></tr><tr><td bgcolor='white'>Updated</td><td bgcolor='white'> </td></tr></table></div>
@@ -42,6 +44,13 @@ const WRONG_PAGE_HTML = `<html><body>
 </body></html>`
 
 const NO_TABLE_HTML = `<html><body><p>homepage fallback content</p></body></html>`
+
+// A real takeoff whose Description cell carries nothing but the wind-compass image and a
+// `<br>` — no actual text. Distinct from MINIMAL_HTML, which does have description text.
+const EMPTY_DESCRIPTION_HTML = `<html><body>
+<table><tr><td>${BREADCRUMB('No Description Here')}</td></tr></table>
+<div align='left'><table cellspacing='1' cellpadding='3' bgcolor='black'><tr><td bgcolor='white'>Altitude</td><td bgcolor='white'>100 meters asl</td></tr><tr><td bgcolor='white'>Description</td><td bgcolor='white'><img src='/fl.html?rqtid=17' alt=' E'><br/></td></tr><tr><td bgcolor='white'>Siterecord</td><td bgcolor='white'></td></tr><tr><td bgcolor='white'>created</td><td bgcolor='white'>2001-02-23 10:47:50 </td></tr><tr><td bgcolor='white'>Updated</td><td bgcolor='white'> </td></tr></table></div>
+</body></html>`
 
 describe('parseTakeoffDetail', () => {
   it('parses a fully populated takeoff, including all three site record classes', () => {
@@ -100,5 +109,39 @@ describe('parseTakeoffDetail', () => {
 
   it('throws when the results table is missing entirely', () => {
     expect(() => parseTakeoffDetail(NO_TABLE_HTML, 179)).toThrow(/not recognised/)
+  })
+
+  // description sits next to region/altitude/linkUrl/createdAt/updatedAt in the type (all
+  // `string | null`, `''` never used as the absent sentinel) — a takeoff with no actual
+  // description text (only the compass image and an empty `<br>`) must resolve to null, the
+  // same absent-value shape every sibling field already uses.
+  it('resolves description to null, not an empty string, when the cell carries no actual text', () => {
+    const detail = parseTakeoffDetail(EMPTY_DESCRIPTION_HTML, 1)
+    expect(detail?.description).toBeNull()
+  })
+
+  // REQUIRED_LABELS is otherwise only pinned in aggregate (WRONG_PAGE_HTML drops all five at
+  // once) — dropping any ONE label individually must still throw, not silently accept a
+  // response missing, say, just `Siterecord`.
+  it.each(['Altitude', 'Description', 'Siterecord', 'created', 'Updated'])(
+    'throws when the required label %s is missing from the results table, even though every other label is present',
+    (label) => {
+      const $ = cheerio.load(POPULATED_HTML)
+      $(`table[cellspacing='1'][cellpadding='3'][bgcolor='black'] td`)
+        .filter((_, el) => $(el).text().trim() === label)
+        .closest('tr')
+        .remove()
+
+      expect(() => parseTakeoffDetail($.html(), 179)).toThrow(/missing expected field/)
+    },
+  )
+
+  // The floor check parseTakeoffFlights already applies to its own rows, mirrored here for
+  // site records: an anchor inside the Siterecord cell that looks like a record but fails
+  // strict extraction (a class label that isn't PG/HG/HG2, a malformed "Name, N Km" text) is a
+  // markup-shape defect, not a smaller record count to silently accept.
+  it('throws when a site record anchor is present but fails strict extraction, rather than silently dropping it', () => {
+    const html = POPULATED_HTML.replace('PG: <a href=', "XX: <a href=")
+    expect(() => parseTakeoffDetail(html, 179)).toThrow(/site record/)
   })
 })

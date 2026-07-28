@@ -31,12 +31,23 @@ const POPULATED_HTML = `<html><body>
 </table>
 </body></html>`
 
-// The real, verbatim shape for BOTH a genuine zero-flights-this-year takeoff
-// (fixtures/a42-119-flights.html) and a nonexistent start_id
-// (fixtures/a42-nonexistent-flights.html): identical table shell, identical pagination rows,
-// zero 6-cell rows either way. Row emptiness alone cannot tell the two apart — see this
-// module's own doc comment for why that distinction is deliberately not made here.
-const EMPTY_HTML = `<html><body>
+// The real, verbatim shape of a genuine zero-flights-this-year takeoff
+// (fixtures/a42-119-flights.html): the results table shell is identical to the nonexistent-id
+// shape below (zero 6-cell rows either way), but the page's own `<h3>` heading still names the
+// takeoff — that's the one signal that distinguishes the two (see this module's own doc
+// comment).
+const QUIET_HTML = `<html><body>
+<h3>Flights -  Hafstadfjellet (ikke logg på dette startstedet, bruk Hafstadfjellet - Førde)</h3>
+<table cellspacing='1' cellpadding='2' bgcolor='#22aa00'>
+<tr><td bgcolor='white'></td><td bgcolor='white' colspan='4'></td><td bgcolor='white' align='right'><a href='?offset=1000'><b>&gt; &gt; &gt;</b></a></td></tr>
+<tr><td bgcolor='white'></td><td bgcolor='white' colspan='4'></td><td bgcolor='white' align='right'><a href='?offset=1000'><b>&gt; &gt; &gt;</b></a></td></tr>
+</table>
+</body></html>`
+
+// The real, verbatim shape of a nonexistent `start_id` (fixtures/a42-nonexistent-flights.html):
+// the identical empty table shell QUIET_HTML above renders, but the `<h3>` heading carries no
+// name at all — the identity gate this parser now applies.
+const NONEXISTENT_HTML = `<html><body>
 <h3>Flights - </h3>
 <table cellspacing='1' cellpadding='2' bgcolor='#22aa00'>
 <tr><td bgcolor='white'></td><td bgcolor='white' colspan='4'></td><td bgcolor='white' align='right'><a href='?offset=1000'><b>&gt; &gt; &gt;</b></a></td></tr>
@@ -46,9 +57,18 @@ const EMPTY_HTML = `<html><body>
 
 const NO_TABLE_HTML = `<html><body><p>homepage fallback content</p></body></html>`
 
+// The results table can be present with no `<h3>` heading at all — unrecognised markup (this
+// app's own responses always carry one), not the identity-gate case above, which needs the
+// heading present but empty.
+const TABLE_NO_HEADING_HTML = `<html><body>
+<table cellspacing='1' cellpadding='2' bgcolor='#22aa00'>
+<tr><td bgcolor='white'></td><td bgcolor='white' colspan='4'></td><td bgcolor='white' align='right'><a href='?offset=1000'><b>&gt; &gt; &gt;</b></a></td></tr>
+</table>
+</body></html>`
+
 describe('parseTakeoffFlights', () => {
   it('parses every flight row, associating each with its own date group, and drops the pagination/date rows', () => {
-    const flights = parseTakeoffFlights(POPULATED_HTML)
+    const flights = parseTakeoffFlights(POPULATED_HTML, 179)
 
     expect(flights).toEqual([
       {
@@ -79,20 +99,28 @@ describe('parseTakeoffFlights', () => {
   })
 
   it('never drops user_id or trip_id: every parsed flight carries both', () => {
-    const flights = parseTakeoffFlights(POPULATED_HTML)
-    expect(flights.every((flight) => Number.isInteger(flight.userId) && Number.isInteger(flight.tripId))).toBe(true)
+    const flights = parseTakeoffFlights(POPULATED_HTML, 179)
+    expect(flights?.every((flight) => Number.isInteger(flight.userId) && Number.isInteger(flight.tripId))).toBe(true)
   })
 
-  // The failure mode this repo has hit four times: an empty result must mean "genuinely zero
-  // flights this year", not "markup this parser silently gave up on". Both the real
-  // zero-flights case and the nonexistent-start_id case render this exact shell — this parser
-  // alone cannot and must not try to distinguish them; see the module doc comment on why that
-  // decision lives in parseTakeoffDetail instead.
-  it('returns an empty array, not a throw, for the identical empty shell both a real zero-flight takeoff and a nonexistent start_id render', () => {
-    expect(parseTakeoffFlights(EMPTY_HTML)).toEqual([])
+  // The failure mode this repo has hit four times, this time closed at the source instead of
+  // deferred to a separate parser: an empty result must mean "genuinely zero flights this
+  // year", never "markup this parser silently gave up on" or "no such takeoff". The identity
+  // gate (this response's own `<h3>` heading) is what tells a real, quiet takeoff apart from a
+  // nonexistent one — see the two tests immediately below.
+  it('returns a genuinely empty array, not null, for a real takeoff with zero flights this year (the heading still names it)', () => {
+    expect(parseTakeoffFlights(QUIET_HTML, 119)).toEqual([])
+  })
+
+  it('returns null, not an empty array and not a throw, when the heading carries no takeoff name at all — the nonexistent start_id shape', () => {
+    expect(parseTakeoffFlights(NONEXISTENT_HTML, 999999999)).toBeNull()
   })
 
   it('throws when the results table is missing entirely, rather than returning an empty list', () => {
-    expect(() => parseTakeoffFlights(NO_TABLE_HTML)).toThrow(/not recognised/)
+    expect(() => parseTakeoffFlights(NO_TABLE_HTML, 1)).toThrow(/not recognised/)
+  })
+
+  it('throws when the table is present but the "Flights - " heading is missing entirely — unrecognised markup, not the identity-gate case', () => {
+    expect(() => parseTakeoffFlights(TABLE_NO_HEADING_HTML, 1)).toThrow(/not recognised/)
   })
 })

@@ -1,24 +1,21 @@
 import * as cheerio from 'cheerio'
 import type { Nodes } from './parse-flightlog-table'
 import type { SiteRecord, SiteRecordClass, TakeoffDetail } from './types'
+import { readIdFromHref } from './parse-takeoff-flights'
 
-// Same table style clubs (a=25) and the generic takeoff index (a=23) both use — see
-// parse-clubs.ts's own comment, which called this selector "unique to this table across every
-// fixture on hand" before a=22/a=23 were sampled. It is not unique site-wide after all; it is
-// unique to THIS response family only in combination with REQUIRED_LABELS below, which is what
-// actually tells a genuine a=22 detail page apart from a=23's country index (same table shape,
-// rows are `<a>Country</a>`/count pairs, none of the labels below) or a=25's club list (rows
-// are `<a>Club</a>`/count pairs) — both fetched by this app for their own routes, never by this
-// parser, but the distinction still has to hold structurally, not by trusting the URL we asked
-// for.
+// The same table shape a=25 (clubs) and a=23 (generic takeoffs index) both use — not unique by
+// itself; REQUIRED_LABELS below is what actually tells a genuine a=22 detail page apart from
+// those two siblings. See docs/flightlog-api.md's "Takeoff detail (a=22)" section.
 const RESULTS_TABLE_SELECTOR = 'table[cellspacing="1"][cellpadding="3"][bgcolor="black"]'
 
 // Present on every real a=22 response sampled (a populated takeoff, a minimal one, and even
 // the nonexistent-start_id shell) — "region" and "Link to more info" are NOT in this list on
-// purpose: region is genuinely absent for a real takeoff flightlog.org never assigned one to
-// (the same regionId-0 case the takeoffs directory already handles, see UNREGIONED_LABEL), and
-// "Link to more info" only renders when a takeoff actually has one. Neither can be required
-// without turning a legitimate real takeoff into a false "unrecognised markup" throw.
+// purpose: "Link to more info" only renders when a takeoff actually has one, confirmed live.
+// region is INFERRED, not measured, to be absent for a takeoff with regionId 0 (the same case
+// the takeoffs directory handles, see UNREGIONED_LABEL) — no fixture on hand demonstrates it;
+// all three real fixtures sampled carry a region row. Kept defensive on that inference: if
+// wrong, this parser just tolerates a row it didn't strictly need, rather than throwing on a
+// real takeoff.
 const REQUIRED_LABELS = ['Altitude', 'Description', 'Siterecord', 'created', 'Updated']
 
 // The breadcrumb's fourth `<span style='font-style:italic;'>` — Home / Takeoffs / Country /
@@ -48,11 +45,6 @@ function readNumber(raw: string): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-function readTripId(href: string | undefined): number | null {
-  const match = href?.match(/trip_id=(\d+)/)
-  return match ? Number(match[1]) : null
-}
-
 // Maps every `<tr>` with exactly two `<td>`s to its label/value pair — rows that don't fit
 // that shape (the Holfuy map link, the embedded weather-widget iframe, both `colspan='2'`) are
 // simply not label/value data and are skipped, not treated as a parse failure.
@@ -71,6 +63,15 @@ function labelledRows($: ReturnType<typeof cheerio.load>, table: Nodes): Map<str
   return rows
 }
 
+// A label absent from `rows` (an optional field flightlog.org only sometimes renders — region,
+// Altitude, created, Updated all go through this) reads as null, not a missing-field error;
+// REQUIRED_LABELS above is what already guarantees the labels this function is actually called
+// with are present for a real takeoff.
+function readLabelledText(rows: Map<string, Nodes>, label: string, transform: (raw: string) => string | null = textOrNull): string | null {
+  const cell = rows.get(label)
+  return cell ? transform(cell.text()) : null
+}
+
 function readBreadcrumbName($: ReturnType<typeof cheerio.load>): string | null {
   const spans = $(BREADCRUMB_SPAN_SELECTOR)
   if (spans.length <= BREADCRUMB_NAME_INDEX) return null
@@ -78,23 +79,20 @@ function readBreadcrumbName($: ReturnType<typeof cheerio.load>): string | null {
 }
 
 // The description cell packs a wind-compass image and (sometimes) a start-photo thumbnail
-// ahead of the actual text, with `<br>` as the only paragraph separator flightlog.org ever
-// emits — the exact same shape parsePilot's profile block already handles (see
-// parse-flights.ts), split on `<br>` and reloaded fragment-by-fragment so each fragment's own
-// `.text()` drops any inline markup (images, the rare embedded link) while keeping line
-// breaks. Rendered as plain text on the page, not `dangerouslySetInnerHTML`: this is
-// unsanitised third-party HTML from flightlog.org, this repo has no HTML sanitiser dependency,
-// and every other free-text field already scraped from this site (club names, pilot notes,
-// flight notes) goes through the same `.text()`-only treatment — introducing a sanitiser for
-// this one field alone would be a new dependency for a single call site, not a consistent
-// policy.
-function readDescription(cell: Nodes): string {
+// ahead of the actual text, split on `<br>` (flightlog.org's only paragraph separator) and
+// reloaded fragment-by-fragment so each fragment's own `.text()` drops the inline markup while
+// keeping line breaks. Rendered as plain text on the page, not `dangerouslySetInnerHTML`: this
+// is unsanitised third-party HTML, this repo has no HTML sanitiser dependency, and every other
+// free-text field already scraped from this site goes through the same `.text()`-only
+// treatment — introducing a sanitiser for this one field alone would be a new dependency for a
+// single call site, not a consistent policy.
+function readDescription(cell: Nodes): string | null {
   const html = cell.html() ?? ''
   const lines = html
     .split(/<br\s*\/?>/i)
     .map((fragment) => cheerio.load(fragment).text().trim())
     .filter((line) => line !== '')
-  return lines.join('\n')
+  return lines.length > 0 ? lines.join('\n') : null
 }
 
 // "PG: <a>Name, 196.9 Km</a>&nbsp;&nbsp;HG: <a>...". The class label (PG/HG/HG2) is a bare
@@ -119,20 +117,29 @@ function readSiteRecordNameAndDistance(text: string): { pilotName: string; dista
   return { pilotName, distanceKm }
 }
 
+function toSiteRecord(anchor: Nodes): SiteRecord | null {
+  const tripId = readIdFromHref(anchor.attr('href'), 'trip_id')
+  const recordClass = readSiteRecordClass(anchor)
+  const nameAndDistance = readSiteRecordNameAndDistance(anchor.text().trim())
+  if (tripId === null || recordClass === null || nameAndDistance === null) return null
+  return { recordClass, tripId, ...nameAndDistance }
+}
+
 // Zero extra requests: every site record's link carries a `trip_id` (usable as a flight-detail
 // href) but no `user_id` — a follow button needs a `user_id` this row never has, so the pilot
 // name here is text, not a follow target, per #11's own scope note.
-function readSiteRecords($: ReturnType<typeof cheerio.load>, cell: Nodes): SiteRecord[] {
-  const records: SiteRecord[] = []
-  cell.find('a').each((_, el) => {
-    const anchor = $(el)
-    const tripId = readTripId(anchor.attr('href'))
-    const recordClass = readSiteRecordClass(anchor)
-    const nameAndDistance = readSiteRecordNameAndDistance(anchor.text().trim())
-    if (tripId !== null && recordClass !== null && nameAndDistance !== null) {
-      records.push({ recordClass, tripId, ...nameAndDistance })
-    }
-  })
+//
+// Same floor check parseTakeoffFlights uses: an anchor that looked like a site record but
+// failed strict extraction is a defect, not a smaller record count.
+function readSiteRecords($: ReturnType<typeof cheerio.load>, cell: Nodes, takeoffId: number): SiteRecord[] {
+  const anchors = cell.find('a').toArray().map((el) => $(el))
+  const records = anchors.map(toSiteRecord).filter((record): record is SiteRecord => record !== null)
+
+  if (records.length !== anchors.length) {
+    throw new Error(
+      `Takeoff detail markup not recognised for takeoff ${takeoffId}: ${records.length}/${anchors.length} site record(s) recognised`,
+    )
+  }
   return records
 }
 
@@ -167,12 +174,12 @@ export function parseTakeoffDetail(html: string, takeoffId: number): TakeoffDeta
   return {
     takeoffId,
     name,
-    region: rows.has('region') ? textOrNull(rows.get('region')!.text()) : null,
-    altitude: textOrNull(rows.get('Altitude')!.text()),
+    region: readLabelledText(rows, 'region'),
+    altitude: readLabelledText(rows, 'Altitude'),
     description: readDescription(descriptionCell),
     linkUrl: linkCell ? (linkCell.find('a').first().attr('href') ?? null) : null,
-    createdAt: dateOrNull(rows.get('created')!.text()),
-    updatedAt: dateOrNull(rows.get('Updated')!.text()),
-    siteRecords: readSiteRecords($, siteRecordCell),
+    createdAt: readLabelledText(rows, 'created', dateOrNull),
+    updatedAt: readLabelledText(rows, 'Updated', dateOrNull),
+    siteRecords: readSiteRecords($, siteRecordCell, takeoffId),
   }
 }

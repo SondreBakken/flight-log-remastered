@@ -89,6 +89,21 @@ describe('TakeoffDetail route guard', () => {
     ).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
   })
 
+  // #11's cross-check: a=42's own identity signal (null — see parseTakeoffFlights) reporting
+  // "no such takeoff" while a=22 just confirmed the opposite is a genuine inconsistency between
+  // two independently-cached responses, not the ordinary 404 path above (which already returns
+  // before this check runs).
+  it('throws when getTakeoffFlights reports no such takeoff but getTakeoffDetail confirms it exists', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
+    mockedGetTakeoffFlights.mockResolvedValue(null)
+    mockedGetTakeoffs.mockResolvedValue([])
+
+    await expect(TakeoffDetail({ params: Promise.resolve({ countryId: '160', takeoffId: '179' }) })).rejects.toThrow(
+      /a=42 reports no such takeoff/,
+    )
+  })
+
   it('fetches all four sources in parallel and forwards the resolved country name, detail and flights to the view', async () => {
     mockedGetCountries.mockResolvedValue([
       { countryId: 160, name: 'Norway' },

@@ -43,7 +43,7 @@ describe('getTakeoffFlights', () => {
     expect(mockedFetch).toHaveBeenCalledWith('/fl.html?l=1&a=42&country_id=160&start_id=179', {
       referer: 'https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=179',
     })
-    expect(mockedParse).toHaveBeenCalledWith('<html>flights stub</html>')
+    expect(mockedParse).toHaveBeenCalledWith('<html>flights stub</html>', 179)
     expect(flights).toHaveLength(1)
     expect(mockedCacheLife).toHaveBeenCalledWith('hours')
     expect(mockedCacheTag).toHaveBeenCalledWith('takeoff-160-179')
@@ -57,5 +57,18 @@ describe('getTakeoffFlights', () => {
 
     expect(mockedFetch).toHaveBeenCalledWith('/fl.html?l=1&a=42&country_id=29&start_id=42', expect.anything())
     expect(mockedCacheTag).toHaveBeenCalledWith('takeoff-29-42')
+  })
+
+  // A plain passthrough, not a 404 decision of its own — see this module's own doc comment on
+  // why page.tsx, not this function, is what decides whether a null here is an ordinary 404 or
+  // an inconsistency worth throwing on.
+  it('passes parseTakeoffFlights\' null straight through, without treating it as an error itself', async () => {
+    mockedFetch.mockResolvedValue('<html>stub</html>')
+    mockedParse.mockReturnValue(null)
+
+    const flights = await getTakeoffFlights(160, 179)
+
+    expect(mockedParse).toHaveBeenCalledWith('<html>stub</html>', 179)
+    expect(flights).toBeNull()
   })
 })

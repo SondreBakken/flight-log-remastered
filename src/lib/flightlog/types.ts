@@ -120,7 +120,7 @@ export type TakeoffDetail = {
   name: string
   region: string | null
   altitude: string | null
-  description: string
+  description: string | null
   linkUrl: string | null
   createdAt: string | null
   updatedAt: string | null

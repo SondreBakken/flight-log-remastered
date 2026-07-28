@@ -1,10 +1,10 @@
 import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
 import { fetchFlightlogText, FLIGHTLOG_ORIGIN } from './http'
+import { ENGLISH } from './config'
 import { parseTakeoffDetail } from './parse-takeoff-detail'
 import type { TakeoffDetail } from './types'
 
-const ENGLISH = 1
 const TAKEOFF_DETAIL = 22
 // The real page a browser lands on right before opening a specific takeoff's detail (see
 // this fixture's own breadcrumb: Home -> Takeoffs -> <Country> -> <takeoff>) — a=21 is "Takeoffs

@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import TakeoffDetailView from '@/features/browse-takeoff-detail'
-import { hasKnownLocation } from '@/features/browse-country-takeoffs/select-visible-takeoffs'
+import { hasKnownLocation } from '@/lib/flightlog/has-known-location'
 import { getCountries } from '@/lib/flightlog/countries'
 import { parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
@@ -61,6 +61,18 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
   // shell a nonexistent start_id does (see parseTakeoffFlights' doc comment), so trusting it
   // here would 404 a real, quiet takeoff.
   if (detail === null) notFound()
+
+  // getTakeoffFlights returning null here means a=42's OWN identity signal disagrees with
+  // a=22's, which just confirmed (above) that this takeoff is real — not the ordinary 404 case
+  // (that already returned above), a genuine inconsistency between two independently-fetched,
+  // independently-cached responses. Thrown, not silently treated as zero flights: a thrown
+  // error is never cached, where a confident-but-wrong empty list would be (see
+  // takeoff-flights.ts's own doc comment).
+  if (flights === null) {
+    throw new Error(
+      `Takeoff ${takeoffId} (country ${countryId}): a=42 reports no such takeoff but a=22 confirms it exists`,
+    )
+  }
 
   const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
 

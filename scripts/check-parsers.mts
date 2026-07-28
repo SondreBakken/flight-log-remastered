@@ -35,6 +35,7 @@ const requiredFixtures = [
   'fixtures/a22-119-detail.html',
   'fixtures/a22-8478-detail.html',
   'fixtures/a22-nonexistent-detail.html',
+  'fixtures/a23-179-detail.html',
   'fixtures/a42-179-flights.html',
   'fixtures/a42-119-flights.html',
   'fixtures/a42-nonexistent-flights.html',
@@ -186,24 +187,42 @@ const nonexistentDetail = parseTakeoffDetail(readFileSync('fixtures/a22-nonexist
 console.log(`a22-nonexistent-detail.html: detail=${nonexistentDetail === null ? 'null' : 'NOT NULL'}`)
 assert(nonexistentDetail === null, `a22-nonexistent-detail.html: resolves to null, not a throw or an empty-but-present object (got ${JSON.stringify(nonexistentDetail)})`)
 
-const solbergasenFlights = parseTakeoffFlights(readFileSync('fixtures/a42-179-flights.html', 'utf8'))
-const missingUserOrTrip = solbergasenFlights.filter((f) => !Number.isInteger(f.userId) || !Number.isInteger(f.tripId))
-console.log(`a42-179-flights.html: flights=${solbergasenFlights.length} missingUserOrTrip=${missingUserOrTrip.length}`)
-assert(solbergasenFlights.length === 63, `a42-179-flights.html (Drammen, Solbergåsen): parses all 63 flights (got ${solbergasenFlights.length})`)
+const solbergasenFlights = parseTakeoffFlights(readFileSync('fixtures/a42-179-flights.html', 'utf8'), 179)
+const missingUserOrTrip = (solbergasenFlights ?? []).filter((f) => !Number.isInteger(f.userId) || !Number.isInteger(f.tripId))
+console.log(`a42-179-flights.html: flights=${solbergasenFlights?.length ?? 'NULL'} missingUserOrTrip=${missingUserOrTrip.length}`)
+assert(solbergasenFlights?.length === 63, `a42-179-flights.html (Drammen, Solbergåsen): parses all 63 flights (got ${solbergasenFlights?.length ?? 'NULL'})`)
 assert(missingUserOrTrip.length === 0, `a42-179-flights.html: every flight carries both user_id and trip_id (got ${missingUserOrTrip.length} missing)`)
 
-// Same "row emptiness alone cannot tell them apart" pair as parseTakeoffDetail above, from the
-// OTHER endpoint: a real takeoff with zero flights this year (119) and a nonexistent start_id
-// both render zero flight rows here — this parser is not the one that tells them apart (see
-// its own doc comment), so both are asserted to return the same, genuinely empty array rather
-// than either one throwing.
-const quietTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-119-flights.html', 'utf8'))
-console.log(`a42-119-flights.html (real takeoff, quiet year): flights=${quietTakeoffFlights.length}`)
-assert(quietTakeoffFlights.length === 0, `a42-119-flights.html: genuinely zero flights this year (got ${quietTakeoffFlights.length})`)
+// The identity gate (#11's fix round): a real takeoff with zero flights this year (119) still
+// names itself in the page's own `<h3>` heading, so it resolves to a genuinely empty array —
+// never null, which is reserved for the nonexistent-start_id case immediately below.
+const quietTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-119-flights.html', 'utf8'), 119)
+console.log(`a42-119-flights.html (real takeoff, quiet year): flights=${quietTakeoffFlights?.length ?? 'NULL'}`)
+assert(quietTakeoffFlights?.length === 0, `a42-119-flights.html: genuinely zero flights this year, not null (got ${JSON.stringify(quietTakeoffFlights)})`)
 
-const nonexistentTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-nonexistent-flights.html', 'utf8'))
-console.log(`a42-nonexistent-flights.html: flights=${nonexistentTakeoffFlights.length}`)
-assert(nonexistentTakeoffFlights.length === 0, `a42-nonexistent-flights.html: zero flights (got ${nonexistentTakeoffFlights.length})`)
+// The regression this fix round exists to close: a nonexistent start_id must resolve to null
+// (the identity gate — see parseTakeoffFlights' own doc comment), never an empty-but-present
+// array, which previously left a wrong "no flights" cached for the wrong reason.
+const nonexistentTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-nonexistent-flights.html', 'utf8'), 999999999)
+console.log(`a42-nonexistent-flights.html: flights=${nonexistentTakeoffFlights === null ? 'null' : 'NOT NULL'}`)
+assert(
+  nonexistentTakeoffFlights === null,
+  `a42-nonexistent-flights.html: resolves to null via the identity gate, not an empty-but-present array (got ${JSON.stringify(nonexistentTakeoffFlights)})`,
+)
+
+// a23 shares a=22's exact results-table selector but none of its REQUIRED_LABELS (see
+// parse-takeoff-detail.ts) — cited in docs/flightlog-api.md's "Correction to this doc's own
+// earlier claim" note but, until now, never actually exercised against the real captured page.
+const a23Throws = (() => {
+  try {
+    parseTakeoffDetail(readFileSync('fixtures/a23-179-detail.html', 'utf8'), 179)
+    return false
+  } catch {
+    return true
+  }
+})()
+console.log(`a23-179-detail.html: threw=${a23Throws}`)
+assert(a23Throws, 'a23-179-detail.html: the real captured a=23 page throws when fed to parseTakeoffDetail, rather than parsing as a detail object')
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)

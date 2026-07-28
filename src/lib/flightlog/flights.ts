@@ -1,10 +1,10 @@
 import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
 import { fetchFlightlogText, FLIGHTLOG_ORIGIN } from './http'
+import { ENGLISH } from './config'
 import { parseFlights, parsePilot } from './parse-flights'
 import type { Flight, Pilot } from './types'
 
-const ENGLISH = 1
 const PILOT_PAGE = 28
 
 export async function getPilotLogbook(

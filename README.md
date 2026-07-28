@@ -100,6 +100,7 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=119" -o fixtures/a22-119-detail.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=8478" -o fixtures/a22-8478-detail.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=999999999" -o fixtures/a22-nonexistent-detail.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=23&country_id=160&start_id=179" -o fixtures/a23-179-detail.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=179" -o fixtures/a42-179-flights.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=119" -o fixtures/a42-119-flights.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=999999999" -o fixtures/a42-nonexistent-flights.html
