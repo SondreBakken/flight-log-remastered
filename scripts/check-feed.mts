@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { isDeepStrictEqual, inspect } from 'node:util'
 import {
+  anyPilotHasPriorWatermark,
   buildFeedEntries,
   failedPilotResults,
   FEED_SIZE,
@@ -10,7 +11,9 @@ import {
   MAX_YEARS_PER_PILOT,
   RECENT_FLIGHTS_PER_PILOT,
   selectFeedPilotIds,
+  shownTrackedTsByPilot,
   sliceRecentFlights,
+  type FeedEntry,
   type PilotFeedFailure,
   type PilotFeedResult,
   type PilotFeedSuccess,
@@ -71,6 +74,10 @@ function success(overrides: Partial<PilotFeedSuccess> & { pilotId: number }): Pi
     pilot: makePilot({ userId: overrides.pilotId }),
     flights: [],
     trackedTrips: [],
+    // null (never seen before) by default, so every existing fixture that doesn't care about
+    // newness keeps reading every tracked flight as 'new' — matches buildFeedEntries's own
+    // classifyNewness null-watermark case, not a fabricated default value.
+    watermarkAtLoad: null,
     ...overrides,
   }
 }
@@ -395,6 +402,107 @@ assertEqual(
 
 // An empty follow list (nothing fetched at all): also an empty feed.
 assertEqual(buildFeedEntries([], 10), [], 'buildFeedEntries: no followed pilots produces an empty feed')
+
+// =====================================================================================
+// shownTrackedTsByPilot: the watermark-advance candidate, derived ONLY from entries that
+// survived the merge/truncate — the fix for blocking finding #1 (the watermark used to
+// advance over every flight FETCHED, marking flights the user never saw as seen forever).
+// =====================================================================================
+
+// The measured worst case from the finding: two pilots, the second contributes zero rendered
+// entries because its own flights are all older than FEED_SIZE lets through. Its watermark
+// must not appear in the advance map at all — not advanced to some smaller value, ABSENT.
+{
+  nextTripId = 600
+  const seenPilot = makePilot({ userId: 61 })
+  const truncatedPilot = makePilot({ userId: 62 })
+  // seenPilot alone supplies FEED_SIZE recent flights, all newer than every one of
+  // truncatedPilot's five flights — so truncatedPilot contributes zero entries after the
+  // merge truncates to FEED_SIZE, exactly the measured scenario.
+  const seenFlights = Array.from({ length: FEED_SIZE }, (_, index) =>
+    makeFlight({ userId: 61, date: `2026-06-${String(30 - (index % 28)).padStart(2, '0')}` }),
+  )
+  const truncatedFlights = Array.from({ length: 5 }, (_, index) => makeFlight({ userId: 62, date: `2020-01-0${index + 1}` }))
+  const results: PilotFeedResult[] = [
+    success({
+      pilotId: 61,
+      pilot: seenPilot,
+      flights: seenFlights,
+      trackedTrips: seenFlights.map((f) => ({ tripId: f.tripId, updatedAt: '20260601000000' })),
+    }),
+    success({
+      pilotId: 62,
+      pilot: truncatedPilot,
+      flights: truncatedFlights,
+      trackedTrips: truncatedFlights.map((f) => ({ tripId: f.tripId, updatedAt: '20200101000000' })),
+    }),
+  ]
+  const shownEntries = buildFeedEntries(results, FEED_SIZE)
+  assert(
+    shownEntries.every((entry) => entry.pilot.userId === 61),
+    'shownTrackedTsByPilot fixture sanity: the merged feed really does contain zero entries for the truncated-out pilot',
+  )
+  const advanceCandidates = shownTrackedTsByPilot(shownEntries)
+  assert(advanceCandidates.has(61), 'shownTrackedTsByPilot: the pilot whose flights ARE shown gets an advance candidate')
+  assert(
+    !advanceCandidates.has(62),
+    'shownTrackedTsByPilot: a pilot truncated out of the merged feed entirely gets NO advance candidate — their watermark must not move for flights nobody saw',
+  )
+}
+
+// Within one pilot's own entries, only the newest SHOWN ts counts, not a ts fetched but
+// truncated away (e.g. by FEED_SIZE cutting into the middle of one pilot's own flights).
+{
+  const pilot = makePilot({ userId: 70 })
+  const shown: FeedEntry = {
+    pilot,
+    flight: makeFlight({ userId: 70, date: '2026-05-01' }),
+    hasTrack: true,
+    newness: 'new',
+    trackedAt: '20260501000000',
+  }
+  const alsoShownButOlder: FeedEntry = {
+    pilot,
+    flight: makeFlight({ userId: 70, date: '2026-04-01' }),
+    hasTrack: true,
+    newness: 'new',
+    trackedAt: '20260401000000',
+  }
+  const untracked: FeedEntry = {
+    pilot,
+    flight: makeFlight({ userId: 70, date: '2026-04-15' }),
+    hasTrack: false,
+    newness: 'unknown',
+    trackedAt: null,
+  }
+  const candidates = shownTrackedTsByPilot([shown, alsoShownButOlder, untracked])
+  assertEqual(
+    candidates.get(70),
+    '20260501000000',
+    'shownTrackedTsByPilot: takes the newest ts among a pilot\'s OWN shown entries, ignoring an untracked one (null trackedAt) entirely',
+  )
+}
+
+assertEqual(shownTrackedTsByPilot([]), new Map(), 'shownTrackedTsByPilot: no shown entries produces no advance candidates')
+
+// =====================================================================================
+// anyPilotHasPriorWatermark: distinguishes a genuine first visit (nothing to report "since
+// your last visit" against) from an established one — drives NewSinceLastVisitNotice's honest
+// first-visit state below.
+// =====================================================================================
+
+assert(
+  anyPilotHasPriorWatermark([success({ pilotId: 1, watermarkAtLoad: '20260101000000' }), success({ pilotId: 2, watermarkAtLoad: null })]),
+  'anyPilotHasPriorWatermark: true when at least one pilot had a prior watermark, even if another is being seen for the first time',
+)
+assert(
+  !anyPilotHasPriorWatermark([success({ pilotId: 1, watermarkAtLoad: null }), success({ pilotId: 2, watermarkAtLoad: null })]),
+  'anyPilotHasPriorWatermark: false only when EVERY successful pilot has no prior watermark — a genuine first visit',
+)
+assert(
+  !anyPilotHasPriorWatermark([failure(1)]),
+  'anyPilotHasPriorWatermark: a failed pilot contributes no watermark either way',
+)
 
 // =====================================================================================
 // failedPilotResults: a failed pilot must be SURFACED, never silently dropped
@@ -737,6 +845,36 @@ await withStubbedFetch(
   },
 )
 
+// Transitional shape (FIX: stale HTTP cache after deploy) — this route caches responses for
+// up to max-age=60 + stale-while-revalidate=300 (route.ts's CACHE_CONTROL), so a client can
+// still receive a body cached from before `trackedTrips: TrackIndexEntry[]` replaced the older
+// `trackedTripIds: number[]` shape, for up to that whole window after a deploy. Requiring only
+// the new shape turned that ordinary cache staleness into the amber "could not be loaded"
+// banner for every followed pilot. This must still resolve to a SUCCESS, just with a track ts
+// that reads as unknown until the next real fetch replaces the cached body.
+await withStubbedFetch(
+  async () => jsonResponse(200, { pilot: makePilot({ userId: 13 }), flights: [], trackedTripIds: [991729, 991730] }),
+  async () => {
+    const result = await fetchPilotFeed(13)
+    assertEqual(result.status, 'success', 'fetchPilotFeed: a response cached under the pre-#5 trackedTripIds shape still resolves to success, not the amber failure banner')
+    if (result.status === 'success') {
+      assertEqual(
+        result.trackedTrips.map((t) => t.tripId).sort(),
+        [991729, 991730],
+        'fetchPilotFeed: every legacy tracked trip id is preserved through the transitional shape',
+      )
+    }
+  },
+)
+
+await withStubbedFetch(
+  async () => jsonResponse(200, { pilot: makePilot({ userId: 14 }), flights: [], trackedTripIds: ['not-a-number'] }),
+  async () => {
+    const result = await fetchPilotFeed(14)
+    assertEqual(result.status, 'error', 'fetchPilotFeed: a trackedTripIds array that is not actually numbers is still treated as malformed, not blindly trusted')
+  },
+)
+
 await withStubbedFetch(
   async () => {
     throw new DOMException('the operation timed out', 'TimeoutError')
@@ -768,7 +906,7 @@ await withStubbedFetch(
 // fetch call — the mutation that deletes it makes THIS reject instead of resolve.
 {
   let threw = false
-  let result: PilotFeedResult | undefined
+  let result: Awaited<ReturnType<typeof fetchPilotFeed>> | undefined
   try {
     result = await fetchPilotFeed(999)
   } catch {
@@ -808,6 +946,7 @@ await withStubbedFetch(
       isLoading: false,
       entries: [],
       failedPilots: [failure(9, 'could not load recent flights for pilot 9')],
+      hasSeenBefore: true,
     }),
   )
   assert(
@@ -816,11 +955,97 @@ await withStubbedFetch(
   )
 
   const withoutFailure = renderToStaticMarkup(
-    createElement(FeedView, { shownCount: 1, followedCount: null, isLoading: false, entries: [], failedPilots: [] }),
+    createElement(FeedView, {
+      shownCount: 1,
+      followedCount: null,
+      isLoading: false,
+      entries: [],
+      failedPilots: [],
+      hasSeenBefore: true,
+    }),
   )
   assert(
     !withoutFailure.includes('could not be loaded'),
     'FeedView: an empty failedPilots prop renders no failure notice',
+  )
+}
+
+// =====================================================================================
+// NewSinceLastVisitNotice (rendered inside FeedView): the "N new since your last visit"
+// caption is this branch's headline output, and had zero coverage — a mutant returning null
+// unconditionally, forcing the count to 0, or dropping the isLoading gate all passed a full
+// green `pnpm check` (blocking finding #3). Fixtures below kill all three, plus the zero- and
+// first-visit states added in the same fix round.
+// =====================================================================================
+
+{
+  const newEntry: FeedEntry = {
+    pilot: makePilot({ userId: 1 }),
+    flight: makeFlight({ date: '2026-01-01' }),
+    hasTrack: true,
+    newness: 'new',
+    trackedAt: '20260101000000',
+  }
+
+  const loadedWithOneNew = renderToStaticMarkup(
+    createElement(FeedView, {
+      shownCount: 1,
+      followedCount: null,
+      isLoading: false,
+      entries: [newEntry],
+      failedPilots: [],
+      hasSeenBefore: true,
+    }),
+  )
+  assert(
+    loadedWithOneNew.includes('1 new since your last visit'),
+    'NewSinceLastVisitNotice: renders the caption with the real count once loading has settled and there IS a prior visit — kills both "returns null unconditionally" and "newCount forced to 0"',
+  )
+
+  const stillLoadingWithOneNew = renderToStaticMarkup(
+    createElement(FeedView, {
+      shownCount: 1,
+      followedCount: null,
+      isLoading: true,
+      entries: [newEntry],
+      failedPilots: [],
+      hasSeenBefore: true,
+    }),
+  )
+  assert(
+    !stillLoadingWithOneNew.includes('new since your last visit') && !stillLoadingWithOneNew.includes('first time'),
+    'NewSinceLastVisitNotice: renders nothing while still loading, even with a new entry ready to show — kills "isLoading gate deleted"',
+  )
+
+  const notNewEntry = { ...newEntry, newness: 'not-new' as const }
+  const loadedWithNothingNew = renderToStaticMarkup(
+    createElement(FeedView, {
+      shownCount: 1,
+      followedCount: null,
+      isLoading: false,
+      entries: [notNewEntry],
+      failedPilots: [],
+      hasSeenBefore: true,
+    }),
+  )
+  assert(
+    !loadedWithNothingNew.includes('new since your last visit'),
+    'NewSinceLastVisitNotice: a zero count renders nothing once there IS a prior visit — no permanent "0 new" furniture',
+  )
+
+  const firstVisit = renderToStaticMarkup(
+    createElement(FeedView, {
+      shownCount: 1,
+      followedCount: null,
+      isLoading: false,
+      entries: [newEntry],
+      failedPilots: [],
+      hasSeenBefore: false,
+    }),
+  )
+  assert(
+    firstVisit.includes('first time') && !firstVisit.includes('since your last visit'),
+    'NewSinceLastVisitNotice: a genuine first visit (no prior watermark for any pilot) says something honest, never claims a "last visit" that never happened',
   )
 }
 

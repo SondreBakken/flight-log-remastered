@@ -79,7 +79,7 @@ function isTakeoffRow(value: unknown): value is TakeoffRow {
 
 // Validated at the boundary, not cast — this crossed a network hop (our own route, but
 // still `unknown` on arrival), the same reasoning recent-flights/contract.ts's
-// isRecentFlightsSuccessBody uses. Checks EVERY row, not just the first: a malformed row
+// parseRecentFlightsSuccessBody uses. Checks EVERY row, not just the first: a malformed row
 // anywhere in 6012 is still a malformed response, and `.some`/`array[0]`-only checks are
 // exactly the "a check that never runs" shape that would let the rest silently through.
 export function isTakeoffRows(value: unknown): value is TakeoffRow[] {

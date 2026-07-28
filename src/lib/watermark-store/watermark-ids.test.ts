@@ -5,9 +5,22 @@ import {
   parseStoredWatermarks,
   removeWatermark,
   serializeWatermarks,
-  setWatermark,
   STORED_RAW_MAX_LENGTH,
 } from './watermark-ids'
+
+// A string past the length guard that also happens to be invalid JSON (or whose entries are
+// individually invalid for a reason OTHER than length) would be a false-positive fixture: it
+// fails to parse regardless of whether the length guard exists. Every entry here is a real
+// pilot id mapped to a real 14-digit timestamp — this payload is rejected ONLY because of its
+// length, so it actually exercises STORED_RAW_MAX_LENGTH rather than some other rejection path.
+function oversizedValidWatermarksPayload(): string {
+  const entries = Object.fromEntries(
+    Array.from({ length: 1_500 }, (_, index) => [100_000 + index, '20260101000000']),
+  )
+  const raw = JSON.stringify(entries)
+  if (raw.length <= STORED_RAW_MAX_LENGTH) throw new Error('fixture too small to exceed STORED_RAW_MAX_LENGTH')
+  return raw
+}
 
 describe('isValidTimestamp', () => {
   it('accepts a 14-digit YYYYMMDDHHMMSS string', () => {
@@ -43,17 +56,23 @@ describe('parseStoredWatermarks / serializeWatermarks', () => {
   it.each([
     ['a null raw value', null],
     ['invalid JSON', 'not json'],
-    ['a JSON array (this store is keyed by pilot id, not a list)', '[1,2,3]'],
     ['a bare JSON string', '"20260523164423"'],
     ['a bare JSON number', '42'],
   ])('rejects %s rather than crashing', (_label, raw) => {
     expect(parseStoredWatermarks(raw)).toEqual({ ok: false })
   })
 
-  it('rejects a payload past the length guard, even if it is otherwise valid JSON — the boundary is a corrupt/oversized value being REJECTED, not crashing the reader', () => {
-    const hostile = JSON.stringify({ 1: '2'.repeat(STORED_RAW_MAX_LENGTH) })
-    expect(hostile.length).toBeGreaterThan(STORED_RAW_MAX_LENGTH)
-    expect(parseStoredWatermarks(hostile)).toEqual({ ok: false })
+  it('rejects a JSON array specifically because it is an array, not because its "entries" happen to be invalid — pins Array.isArray(parsed), not the all-entries-invalid fallback', () => {
+    // Object.entries(['null-value', '20260523164423']) yields index-keyed entries: key '1' is a
+    // valid pilot id, and its value is a genuinely valid 14-digit timestamp. If the reader ever
+    // stopped checking Array.isArray and fell through to the same entry-by-entry validation an
+    // object payload gets, THIS array would wrongly parse to a successful, non-empty read
+    // instead of being rejected outright for being an array at all.
+    expect(parseStoredWatermarks('[null,"20260523164423"]')).toEqual({ ok: false })
+  })
+
+  it('rejects a payload past the length guard, even if it is otherwise entirely valid — every entry here is a real pilot id and a real 14-digit timestamp, so this can only fail on length', () => {
+    expect(parseStoredWatermarks(oversizedValidWatermarksPayload())).toEqual({ ok: false })
   })
 
   it('an entry with an invalid pilot id or malformed timestamp is dropped, but a valid entry alongside it still succeeds', () => {
@@ -69,18 +88,7 @@ describe('parseStoredWatermarks / serializeWatermarks', () => {
   })
 })
 
-describe('setWatermark / removeWatermark', () => {
-  it('setWatermark adds a pilot entry', () => {
-    const result = setWatermark(new Map(), 4549, '20260523164423')
-    expect(result).toEqual(new Map([[4549, '20260523164423']]))
-  })
-
-  it('setWatermark rejects an invalid pilot id or timestamp, leaving the map unchanged', () => {
-    const before = new Map([[4549, '20260523164423']])
-    expect(setWatermark(before, -1, '20260523164423')).toEqual(before)
-    expect(setWatermark(before, 4549, 'garbage')).toEqual(before)
-  })
-
+describe('removeWatermark', () => {
   it('removeWatermark drops a pilot entirely', () => {
     const before = new Map([
       [4549, '20260523164423'],
@@ -113,7 +121,10 @@ describe('advanceWatermark — the only place a watermark ever moves forward', (
     expect(result.get(4549)).toBe('20260523164423')
   })
 
-  it('leaves the watermark unchanged when the candidate exactly EQUALS the current value (RED if the comparison flips from > to >=): the ts-boundary rule this store guards is strict, so equal is not an improvement worth writing', () => {
+  // NOT a RED case for `>` vs `>=`: an equal candidate produces a byte-identical map either
+  // way (see advanceWatermark's own doc comment), so this cannot distinguish the two operators
+  // — it only pins that the resulting VALUE is correct, which a `>=` mutant would also satisfy.
+  it('leaves the watermark at the same value when the candidate exactly EQUALS the current one: the ts-boundary rule this store guards is strict, so equal is not treated as an improvement', () => {
     const before = new Map([[4549, '20260523164423']])
     const result = advanceWatermark(before, 4549, '20260523164423')
     expect(result.get(4549)).toBe('20260523164423')

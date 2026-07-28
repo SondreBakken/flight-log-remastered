@@ -2,35 +2,27 @@
 
 import { getFollowButtonPresentation, type FollowButtonVariant } from './presentation'
 import { useFollowPilot } from '@/lib/follow-store/use-follow-store'
-import type { PilotId } from '@/lib/follow-store/follow-ids'
-import { clearWatermark } from '@/lib/watermark-store/storage'
+import type { PilotId } from '@/lib/flightlog/types'
 
 type FollowButtonProps = {
   pilotId: PilotId
   variant: FollowButtonVariant
 }
 
+// Dropping a pilot's watermark on unfollow (issue #5) is composed into useFollowPilot's
+// `toggle` itself (see its own doc comment), not this component — that seam already knows
+// both `isFollowed` and `pilotId`, so every follow-toggling consumer gets the rule for free
+// rather than just this one button.
 export function FollowButton({ pilotId, variant }: FollowButtonProps) {
   const { isFollowed, hasHydrated, toggle } = useFollowPilot(pilotId)
   const presentation = getFollowButtonPresentation({ isFollowed, hasHydrated, variant })
-
-  // This is the ONE place a pilot is ever unfollowed through the UI, so it is also the one
-  // explicit call site for dropping their watermark (issue #5) — deliberately not folded
-  // into follow-store itself, which knows nothing about watermarks (see watermark-store's
-  // own module doc). Skipping this would let a later refollow compare that pilot's whole
-  // subsequent history against a stale pre-unfollow watermark instead of showing it all as
-  // new again, which is the honest behaviour for "I stopped, then started, following them".
-  function handleToggle(): void {
-    if (isFollowed) clearWatermark(pilotId)
-    toggle()
-  }
 
   return (
     <button
       aria-pressed={presentation.ariaPressed}
       className={presentation.className}
       disabled={presentation.disabled}
-      onClick={handleToggle}
+      onClick={toggle}
       type="button"
     >
       {presentation.label}

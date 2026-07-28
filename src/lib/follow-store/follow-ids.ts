@@ -1,21 +1,12 @@
-export type PilotId = number
+import { isValidPilotId, type PilotId } from '@/lib/flightlog/types'
+
+export type { PilotId }
 
 // A hostile or corrupted payload could be an arbitrarily long garbage string;
 // reject it by length before ever handing it to JSON.parse. Exported so storage.ts
 // can apply the same limit on write, and the check script can build a payload that
 // exercises it precisely.
 export const STORED_RAW_MAX_LENGTH = 20_000
-
-// Exported so the recent-flights route can validate its own :userId path param with the
-// same rule, rather than a second, looser copy (Number.isInteger, which — unlike
-// isSafeInteger — accepts a precision-lost value like 9007199254740993, silently
-// rounded to the fabricated 9007199254740992).
-export function isValidPilotId(value: unknown): value is PilotId {
-  // isSafeInteger, not isInteger: values past 2^53 (e.g. from `1e308` or an
-  // over-precision literal in the stored JSON) still pass isInteger after float
-  // coercion but are not real ids.
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-}
 
 // A raw stored value can fail to represent a followed-ids list at all: structurally (corrupted
 // JSON, wrong shape, over length) or by content (a non-empty array none of whose elements is a

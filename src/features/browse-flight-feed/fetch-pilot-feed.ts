@@ -1,5 +1,5 @@
-import { isRecentFlightsSuccessBody } from '@/app/api/pilots/[userId]/recent-flights/contract'
-import type { PilotFeedResult } from './feed'
+import { parseRecentFlightsSuccessBody } from '@/app/api/pilots/[userId]/recent-flights/contract'
+import type { FetchedPilotFeedResult } from './feed'
 
 // A pilot whose request never resolves (dead route, hung upstream) would otherwise occupy
 // its concurrency-pool worker forever, stalling the rest of the feed indefinitely — see
@@ -35,17 +35,18 @@ function abortSignalFor(signal: AbortSignal | undefined): AbortSignal {
 // feed.ts and never touches fetch itself. `signal`, when passed, lets the caller cancel an
 // in-flight request (e.g. the follow list changed and this fetch is now abandoned) on top
 // of the built-in timeout.
-export async function fetchPilotFeed(pilotId: number, signal?: AbortSignal): Promise<PilotFeedResult> {
+export async function fetchPilotFeed(pilotId: number, signal?: AbortSignal): Promise<FetchedPilotFeedResult> {
   try {
     const response = await fetch(`/api/pilots/${pilotId}/recent-flights`, { signal: abortSignalFor(signal) })
     const body: unknown = await response.json()
     if (!response.ok) {
       return { status: 'error', pilotId, message: messageFor(response.status, body) }
     }
-    if (!isRecentFlightsSuccessBody(body)) {
+    const parsed = parseRecentFlightsSuccessBody(body)
+    if (parsed === null) {
       return { status: 'error', pilotId, message: `pilot ${pilotId}: malformed response` }
     }
-    return { status: 'success', pilotId, pilot: body.pilot, flights: body.flights, trackedTrips: body.trackedTrips }
+    return { status: 'success', pilotId, pilot: parsed.pilot, flights: parsed.flights, trackedTrips: parsed.trackedTrips }
   } catch (error) {
     return { status: 'error', pilotId, message: browserFailureMessage(pilotId, error) }
   }

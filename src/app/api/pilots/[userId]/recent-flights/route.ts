@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import { getTrackedTripEntries } from '@/lib/flightlog/tracks'
 import { loadRecentFlightsForPilot } from '@/features/browse-flight-feed/feed'
-import { isValidPilotId } from '@/lib/follow-store/follow-ids'
+import { isValidPilotId } from '@/lib/flightlog/types'
 import type { RecentFlightsErrorBody, RecentFlightsSuccessBody } from './contract'
 
 type RouteParams = { params: Promise<{ userId: string }> }

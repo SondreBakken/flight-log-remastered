@@ -1,4 +1,4 @@
-import { isValidPilotId, type PilotId } from '@/lib/follow-store/follow-ids'
+import { isValidPilotId, type PilotId } from '@/lib/flightlog/types'
 
 // flightlog.org's own rqtid=21 `ts` field: a fixed-width YYYYMMDDHHMMSS string. Lexicographic
 // comparison is correct for that format (same-length zero-padded digit strings sort the same
@@ -53,16 +53,6 @@ export function serializeWatermarks(watermarks: ReadonlyMap<PilotId, Timestamp>)
   return JSON.stringify(Object.fromEntries(watermarks))
 }
 
-export function setWatermark(
-  watermarks: ReadonlyMap<PilotId, Timestamp>,
-  pilotId: PilotId,
-  ts: Timestamp,
-): Map<PilotId, Timestamp> {
-  const next = new Map(watermarks)
-  if (isValidPilotId(pilotId) && isValidTimestamp(ts)) next.set(pilotId, ts)
-  return next
-}
-
 export function removeWatermark(watermarks: ReadonlyMap<PilotId, Timestamp>, pilotId: PilotId): Map<PilotId, Timestamp> {
   const next = new Map(watermarks)
   next.delete(pilotId)
@@ -70,13 +60,19 @@ export function removeWatermark(watermarks: ReadonlyMap<PilotId, Timestamp>, pil
 }
 
 // The only place a stored watermark is ever moved forward. Strictly greater-than, not
-// greater-than-or-equal: reusing the newest `ts` seen (the natural candidate — see feed.ts's
-// maxTrackedTs) as-is is exactly the inclusive-boundary bug this store exists to avoid — flight
+// greater-than-or-equal: reusing the newest `ts` shown (see feed.ts's shownTrackedTsByPilot) as
+// the candidate is exactly the inclusive-boundary bug this store exists to avoid — flight
 // comparison against the watermark (also strict `>`, see feed.ts's classifyNewness) means a
 // flight whose `ts` equals the watermark is correctly "not new", but the watermark ITSELF must
 // still accept being set to that same value once; only a candidate that is not an improvement
 // over what's already stored is a no-op here. A candidate for a pilot with no prior watermark
 // always wins (`current === undefined`).
+//
+// Note the equal-candidate case (`candidateTs === current`) is a no-op EITHER way this
+// comparison is written (`>` or `>=`): the resulting map's contents are byte-identical, so no
+// test observing only the returned/stored value can ever distinguish the two operators here —
+// see watermark-ids.test.ts and check-watermark-store.mts for where that boundary actually is
+// observable (classifyNewness above the store, not this function).
 export function advanceWatermark(
   watermarks: ReadonlyMap<PilotId, Timestamp>,
   pilotId: PilotId,

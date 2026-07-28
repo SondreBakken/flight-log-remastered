@@ -6,11 +6,13 @@ import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 // Cell-scoped, not document-scoped: getByText anywhere in the document would still pass
 // if two field values swapped table cells. Indexing into row cells makes column order
 // part of what the test asserts.
-function renderRow(entry: FeedEntry) {
-  // Unmounts whatever a PRIOR renderRow call in the same test left behind — without this,
-  // the badge test below (which calls renderRow three times to compare newness states)
-  // would accumulate multiple <table> rows in the document, and screen.getByRole('row')
-  // would throw "multiple elements found" instead of returning the row just rendered.
+//
+// Named for BOTH things it does, not just the render: it also unmounts whatever a PRIOR call
+// in the same test left behind — without that, the badge test below (which calls this three
+// times to compare newness states) would accumulate multiple <table> rows in the document, and
+// screen.getByRole('row') would throw "multiple elements found" instead of returning the row
+// just rendered.
+function remountRow(entry: FeedEntry) {
   cleanup()
   render(
     <table>
@@ -39,11 +41,12 @@ const baseEntry: FeedEntry = {
   },
   hasTrack: true,
   newness: 'not-new',
+  trackedAt: '20260501000000',
 }
 
 describe('FeedEntryRow', () => {
   it('renders the date, pilot link, and formatted flight fields in column order, plus a track link when a track exists', () => {
-    const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = renderRow(baseEntry)
+    const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = remountRow(baseEntry)
 
     expect(dateCell.textContent).toBe('2026-05-01')
 
@@ -59,7 +62,7 @@ describe('FeedEntryRow', () => {
   })
 
   it('renders "none" instead of a track link when the flight has no track', () => {
-    const cells = renderRow({ ...baseEntry, hasTrack: false, newness: 'unknown' })
+    const cells = remountRow({ ...baseEntry, hasTrack: false, newness: 'unknown', trackedAt: null })
     const trackCell = cells[5]
 
     expect(within(trackCell).queryByRole('link', { name: 'View track' })).toBeNull()
@@ -67,13 +70,13 @@ describe('FeedEntryRow', () => {
   })
 
   it('shows a "New" badge only when newness is \'new\', never for \'not-new\' or \'unknown\' (issue #5)', () => {
-    const [newDateCell] = renderRow({ ...baseEntry, newness: 'new' })
+    const [newDateCell] = remountRow({ ...baseEntry, newness: 'new' })
     expect(within(newDateCell).queryByText('New')).not.toBeNull()
 
-    const [notNewDateCell] = renderRow({ ...baseEntry, newness: 'not-new' })
+    const [notNewDateCell] = remountRow({ ...baseEntry, newness: 'not-new' })
     expect(within(notNewDateCell).queryByText('New')).toBeNull()
 
-    const [unknownDateCell] = renderRow({ ...baseEntry, hasTrack: false, newness: 'unknown' })
+    const [unknownDateCell] = remountRow({ ...baseEntry, hasTrack: false, newness: 'unknown', trackedAt: null })
     expect(within(unknownDateCell).queryByText('New')).toBeNull()
   })
 })

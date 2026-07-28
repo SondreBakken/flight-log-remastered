@@ -105,14 +105,25 @@ describe('FollowButton', () => {
 
   it('does NOT touch the watermark on follow — only unfollowing clears it', async () => {
     seedFollowedIds([])
-    window.localStorage.setItem(WATERMARK_STORAGE_KEY, JSON.stringify({ 999: '20260101000000' }))
+    // Seeds a watermark for the PILOT BEING CLICKED, not just an unrelated one: an unconditional
+    // clearWatermark(pilotId) call (clearing on follow too, not just unfollow) would leave an
+    // unrelated pilot's watermark untouched either way, so asserting only that survives cannot
+    // tell "clears only on unfollow" apart from "always clears the pilot just clicked". Seeding
+    // 999 too proves the unrelated pilot really is unaffected by ANY call this click makes.
+    window.localStorage.setItem(
+      WATERMARK_STORAGE_KEY,
+      JSON.stringify({ [PILOT_ID]: '20260101000000', 999: '20260101000000' }),
+    )
     const FollowButton = await loadFreshFollowButton()
 
     const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
     const button = within(container).getByRole<HTMLButtonElement>('button')
 
-    fireEvent.click(button) // follows PILOT_ID — an unrelated pilot's watermark must survive
+    fireEvent.click(button) // follows PILOT_ID — following must not clear ITS OWN watermark either
 
-    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({ '999': '20260101000000' })
+    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({
+      [PILOT_ID]: '20260101000000',
+      '999': '20260101000000',
+    })
   })
 })

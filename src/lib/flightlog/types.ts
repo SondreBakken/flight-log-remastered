@@ -5,6 +5,19 @@ export type Pilot = {
   club: string | null
 }
 
+// A pilot's own id, shared by every store or route that validates one — follow-store (who is
+// followed), watermark-store (whose flights have been seen), and the recent-flights route
+// (the :userId path param). None of those own this primitive; it is a flightlog.org identifier
+// like `Pilot.userId` above, so it lives beside it rather than in whichever store happened to
+// need it first.
+export type PilotId = Pilot['userId']
+
+// isSafeInteger, not isInteger: values past 2^53 (e.g. from `1e308` or an over-precision
+// literal in stored JSON) still pass isInteger after float coercion but are not real ids.
+export function isValidPilotId(value: unknown): value is PilotId {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
 export type Flight = {
   tripId: number
   userId: number
