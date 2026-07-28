@@ -4,24 +4,37 @@ import { createReporter } from './lib/verify-report'
 // #9's end-to-end proof, superseding #38's row-count-only version: a real browser, navigating
 // to the prerendered takeoffs directory, actually issues a network request for the takeoffs
 // asset, renders the real fetched count, shows a visible truncation notice for the unfiltered
-// (6012-row) view, and narrows to a real match when the user types a folded, diacritic-free
-// query — not something baked into the initial HTML, and not a component that ignores its own
-// input. Extended by #12 to also prove: a real wind-direction selection narrows the real
-// dataset and round-trips through the address bar as a shareable ?wind= link (server-validated,
-// not just a client toggle), and a real, un-granted geolocation permission (Chromium
-// auto-denies rather than hanging on a dialog) leaves the directory just as usable as before,
-// never an error state. Run against `pnpm run build && pnpm run start` (the static artifact
-// this route serves only exists after a real build — see check-takeoffs-prerender.mts), never
-// against `pnpm dev`, which would re-run `getTakeoffs`/`getRegions` against flightlog.org live.
+// view, and narrows to a real match when the user types a folded, diacritic-free query — not
+// something baked into the initial HTML, and not a component that ignores its own input.
+// Extended by #12 to also prove: a real wind-direction selection narrows the real dataset and
+// round-trips through the address bar as a shareable ?wind= link (server-validated, not just a
+// client toggle), and a real, un-granted geolocation permission (Chromium auto-denies rather
+// than hanging on a dialog) leaves the directory just as usable as before, never an error
+// state. Run against `pnpm run build && pnpm run start` (the static artifact this route serves
+// only exists after a real build — see check-takeoffs-prerender.mts), never against `pnpm dev`,
+// which would re-run `getTakeoffs`/`getRegions` against flightlog.org live.
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs'
-const EXPECTED_ROW_COUNT = 6012 // fixtures/takeoffs-160.html, pinned by check:parsers too
-// Rows in fixtures/takeoffs-160.html where wind bit N (128, see lib/flightlog/wind.ts) is set —
-// computed directly against the fixture, independent of anything this script or the app
-// computes at runtime. An absolute pin, not a comparison between two live-computed numbers:
-// a filter that's broken THE SAME WAY on every code path (e.g. always returning some other
-// direction's matches) would still "agree with itself" under a two-paths comparison and pass;
-// only a number fixed outside the app can catch that.
-const EXPECTED_WIND_N_TOTAL = 1849
+
+// Both ranges below bound something this script reads off a REAL BUILD's LIVE fetch of
+// flightlog.org, not off fixtures/takeoffs-160.html directly — the fixture only records what
+// this looked like at curation time (6012 rows total, 1849 with wind bit N set). Norway's live
+// takeoff count only grows as pilots log new sites, so an exact pin against either number goes
+// stale the first time someone logs a takeoff after curation (#55) — see curated-countries.ts's
+// doc comment on expectedRowCountRange for the full frozen-vs-live reasoning, which applies
+// identically here.
+//
+// ROW_COUNT_RANGE deliberately matches check-takeoffs-prerender.mts's expectedRowCountRange for
+// country 160 — both bound the same real-world quantity (Norway's live takeoff count).
+const ROW_COUNT_RANGE = [5500, 9000] as const
+// WIND_N_RANGE is a band, not a wider exact pin, but it is still an ABSOLUTE pin, not a
+// comparison between two live-computed numbers (#49's own distinction, unchanged by #55): a
+// filter that's broken THE SAME WAY on every code path (e.g. always returning some other
+// direction's matches, or the whole unfiltered set) would still "agree with itself" under a
+// two-paths comparison and pass, landing nowhere near 1849 either way — only a band fixed
+// outside the app, wide enough for organic growth but nowhere near the unfiltered total, can
+// catch that. Scaled from the fixture's observed ~30.75% of rows carrying wind bit N, over the
+// same growth headroom ROW_COUNT_RANGE allows.
+const WIND_N_RANGE = [1600, 2600] as const
 const MAX_RENDERED_RESULTS = 200 // select-visible-takeoffs.ts's own cap
 
 const { report, finish } = createReporter()
@@ -97,13 +110,25 @@ if (settled) {
     takeoffRequests.length > 0,
     `the BROWSER itself issued a network request for the takeoffs asset (saw: ${takeoffRequests.join(', ') || 'none'}) — proves this is a real client-side fetch, not data already resident in the initial HTML`,
   )
+  // Extracted via regex, not a substring match against a fixed number (#55): the row count
+  // this page renders comes from a real build's live fetch of flightlog.org, which grows over
+  // time, so what this script can pin is "a real, sane number rendered," not "this exact digit
+  // string appears."
+  const renderedRowCountMatch = initialText.match(/(\d+) takeoffs/)
+  const renderedRowCount = renderedRowCountMatch ? Number(renderedRowCountMatch[1]) : null
   report(
-    initialText.includes(`${EXPECTED_ROW_COUNT} takeoffs`),
-    `renders the real fetched row count, ${EXPECTED_ROW_COUNT} (Norway's full fixture size), not a hardcoded placeholder (rendered: "${initialText.trim()}")`,
+    renderedRowCount !== null && renderedRowCount >= ROW_COUNT_RANGE[0] && renderedRowCount <= ROW_COUNT_RANGE[1],
+    `renders the real fetched row count within the expected ${ROW_COUNT_RANGE[0]}-${ROW_COUNT_RANGE[1]} band, not a hardcoded placeholder or a wildly wrong number (rendered: "${initialText.trim()}")`,
   )
+  // Self-consistency against renderedRowCount, not a second band check against the same
+  // literal: this assertion's job is "the truncation notice's own total agrees with the count
+  // rendered above," a failure mode (two UI elements disagreeing about the same live number)
+  // the band check above cannot see, since both would independently pass if only one drifted.
+  const truncationMatch = initialText.match(new RegExp(`Showing ${MAX_RENDERED_RESULTS} of (\\d+) matches`))
+  const truncationTotal = truncationMatch ? Number(truncationMatch[1]) : null
   report(
-    initialText.includes(`Showing ${MAX_RENDERED_RESULTS} of ${EXPECTED_ROW_COUNT} matches`),
-    `shows a VISIBLE truncation notice for the unfiltered ${EXPECTED_ROW_COUNT}-row view, capped to ${MAX_RENDERED_RESULTS} rendered rows (rendered: "${initialText.trim()}")`,
+    truncationTotal !== null && truncationTotal === renderedRowCount,
+    `shows a VISIBLE truncation notice for the unfiltered view, capped to ${MAX_RENDERED_RESULTS} rendered rows, whose total agrees with the row count rendered above (rendered: "${initialText.trim()}")`,
   )
 
   // Real Norwegian folding, live: "Bodo" (plain ASCII) finding "Bodø" through the actual
@@ -121,20 +146,30 @@ if (settled) {
   // "Bodø" never rendered at all (i.e. filtering silently stopped working outright), not just
   // when it rendered without the notice.
   if (filteredSettled) {
+    const filteredTotal = await readTotalMatchCount(page)
     report(
-      !filteredText.includes(`Showing ${MAX_RENDERED_RESULTS} of ${EXPECTED_ROW_COUNT} matches`),
-      'the truncation notice reflects the narrowed match count, not the original unfiltered total, once a query is typed',
+      filteredTotal !== renderedRowCount,
+      `the truncation notice reflects the narrowed match count (${filteredTotal}), not the original unfiltered total (${renderedRowCount}), once a query is typed`,
     )
   }
 
-  // #12: a real wind-direction selection, through the real <select>, against the real 6012-row
-  // Norway fixture — not a unit test calling selectVisibleTakeoffs directly. Reads the TOTAL
+  // #12: a real wind-direction selection, through the real <select>, against the real live
+  // Norway dataset — not a unit test calling selectVisibleTakeoffs directly. Reads the TOTAL
   // match count from the truncation notice, not the rendered <li> count: both the unfiltered
   // view and a single-direction filter comfortably exceed the 200-row cap, so the rendered
   // count alone would stay pinned at 200 either way and could never catch a broken filter.
-  // Cleared query first so this measures the wind filter alone, not query+wind together.
+  // Cleared query first so this measures the wind filter alone, not query+wind together. Waits
+  // for the total to return to renderedRowCount (established above, already in-band), not a
+  // hardcoded digit string (#55) — same live-total reasoning as everywhere else in this file.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill('')
-  await page.waitForFunction(() => document.body.textContent?.includes('Showing 200 of 6012 matches'), { timeout: 10000 })
+  await page.waitForFunction(
+    (expected) => {
+      const match = document.body.textContent?.match(/of (\d+) matches/)
+      return match !== null && Number(match[1]) === expected
+    },
+    renderedRowCount,
+    { timeout: 10000 },
+  )
   const beforeWindTotal = await readTotalMatchCount(page)
   await page.getByRole('combobox', { name: /wind direction/i }).selectOption('N')
   const windSettled = await page
@@ -158,9 +193,9 @@ if (settled) {
     )
 
     // Shareable link, proven end to end: navigating fresh to that exact URL renders N's own
-    // pinned total (EXPECTED_WIND_N_TOTAL) — not "whatever total the interactive selection
-    // above happened to produce", which only proves the two paths agree with EACH OTHER, not
-    // that either is correct (see EXPECTED_WIND_N_TOTAL's own doc comment).
+    // pinned band (WIND_N_RANGE) — not "whatever total the interactive selection above happened
+    // to produce", which only proves the two paths agree with EACH OTHER, not that either is
+    // correct (see WIND_N_RANGE's own doc comment on why this stays an absolute pin, per #49).
     //
     // Settling on ANY `<li>` in the page (the original condition here) is vacuous: the site
     // nav (see src/components/site-nav) renders its own `<li>` items from the very first
@@ -173,11 +208,11 @@ if (settled) {
     sharedUrl.searchParams.set('wind', 'N')
     await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
 
-    // Waits only for A total to render, never for it to equal EXPECTED_WIND_N_TOTAL — folding
-    // the equality check into the wait would turn a wrong total into an indistinguishable
-    // 20-second timeout that reports only the number it expected, never what actually
-    // rendered. "The shared link never loaded" and "the shared link loaded the wrong total"
-    // are different failures; the assertion below reports the second one by name.
+    // Waits only for A total to render, never for it to fall in WIND_N_RANGE — folding the
+    // band check into the wait would turn a wrong total into an indistinguishable 20-second
+    // timeout that reports only the band it expected, never what actually rendered. "The
+    // shared link never loaded" and "the shared link loaded the wrong total" are different
+    // failures; the assertion below reports the second one by name.
     const sharedContentRendered = await page
       .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), { timeout: 20000 })
       .then(() => true)
@@ -189,8 +224,8 @@ if (settled) {
     if (sharedContentRendered) {
       const sharedTotal = await readTotalMatchCount(page)
       report(
-        sharedTotal === EXPECTED_WIND_N_TOTAL,
-        `opening the shared ${sharedUrl} link directly reaches N's pinned total of ${EXPECTED_WIND_N_TOTAL} (rendered: ${sharedTotal})`,
+        sharedTotal !== null && sharedTotal >= WIND_N_RANGE[0] && sharedTotal <= WIND_N_RANGE[1],
+        `opening the shared ${sharedUrl} link directly reaches N's pinned band of ${WIND_N_RANGE[0]}-${WIND_N_RANGE[1]} (rendered: ${sharedTotal})`,
       )
 
       // Distinct from the total-match assertion above, and allowed to diverge from it in

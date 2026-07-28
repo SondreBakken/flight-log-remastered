@@ -25,7 +25,7 @@ const manifest = readPrerenderManifest()
 const takeoffRouteKeys = routesForSrcRoute(manifest, SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${takeoffRouteKeys.join(', ') || '(none)'}`)
 
-for (const { countryId, expectedRowCount, expectedPayloadBytes } of CURATED_TAKEOFF_COUNTRIES) {
+for (const { countryId, expectedRowCountRange, expectedPayloadBytes } of CURATED_TAKEOFF_COUNTRIES) {
   const routeKey = `/api/countries/${countryId}/takeoffs`
   const entry = manifest.routes[routeKey]
 
@@ -75,12 +75,19 @@ for (const { countryId, expectedRowCount, expectedPayloadBytes } of CURATED_TAKE
   const wrongCountryRows = rows.filter((row) => row[5] !== countryId)
   assert(wrongCountryRows.length === 0, `${bodyPath}: every row's countryId field matches ${countryId} (found ${wrongCountryRows.length} row(s) that don't)`)
 
-  // Exact, not `> 0`: a curated country can legitimately have zero takeoffs (check:parsers
-  // pins this for Bouvet Island), so `> 0` would fail a real, correct build for such a
-  // country. expectedRowCount is curated-countries.ts's own record of what this exact
-  // fixture produced — see its doc comment for why an exact match, not a range, is the
-  // right check here.
-  assert(rows.length === expectedRowCount, `${bodyPath}: row count matches the curated expectation for country ${countryId} (expected ${expectedRowCount}, got ${rows.length})`)
+  // A floor and a ceiling, not `=== expectedRowCount` (#55): `rows` comes from a REAL BUILD's
+  // LIVE fetch of flightlog.org, which grows over time as pilots log new takeoffs — an exact
+  // pin here goes stale the moment someone logs one, on a schedule this repo doesn't control.
+  // curated-countries.ts's own doc comment on expectedRowCountRange has the full frozen-vs-live
+  // reasoning; the short version is that this band still fails hard for a parser or route
+  // returning something wildly wrong (near-zero, or some unrelated multiple), just not for
+  // ordinary organic growth. Not `> 0` either: that would also accept the "some unrelated
+  // multiple" and "most rows silently dropped" failures this band exists to catch.
+  const [minRows, maxRows] = expectedRowCountRange
+  assert(
+    rows.length >= minRows && rows.length <= maxRows,
+    `${bodyPath}: row count falls within the expected ${minRows}-${maxRows} band for country ${countryId} (got ${rows.length})`,
+  )
 }
 
 assertExactRouteSet(

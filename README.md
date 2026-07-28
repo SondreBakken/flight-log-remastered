@@ -37,6 +37,26 @@ passing, if the build is missing or stale — see `scripts/lib/prerender-manifes
 both). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
 your last build.
 
+**Frozen pins vs. live pins.** Several checks pin a number derived from `fixtures/takeoffs-160.html`
+at the time it was scraped. Whether that pin stays exact or needs to tolerate a range depends on
+what it's compared against, not on where the number came from. A pin between two things that both
+come from the same fixture (`check:parsers`' hardcoded row counts, for example) is stable forever:
+both sides are frozen at the same curation time, so they move together or not at all. A pin between
+something frozen at curation time and something read off a REAL BUILD's LIVE fetch of
+flightlog.org is a countdown instead: `check:takeoffs-prerender`, `verify-takeoffs.mts`, and
+`verify-sites-map.mts` all read numbers off that live fetch, and Norway's live takeoff count only
+grows as pilots log new sites, so an exact match there went stale the first time someone did
+(#55) — nothing was broken, the fixture-time number was just being asked to describe a moving
+target. Those three now pin floor/ceiling bands instead of exact counts: wide enough to tolerate
+years of ordinary organic growth, still narrow enough to fail hard for a parser or route returning
+something wildly wrong (near-zero, or some unrelated multiple). The wind-direction total in
+`verify-takeoffs.mts` (`WIND_N_RANGE`) is a band for the same reason, but it stays an *absolute*
+band, not a comparison between two numbers the app computes live against each other — #49
+measured that a relative version of that exact assertion passed while the wind filter under test
+was completely broken, so #55 widened the pin rather than relativizing it. See each constant's own
+doc comment (`curated-countries.ts`'s `expectedRowCountRange`, and the range constants at the top
+of `verify-takeoffs.mts` / `verify-sites-map.mts`) for the specific numbers and their reasoning.
+
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`, `verify-shot.mts`) are a different
 kind of check: they drive a real headless browser against a running app, so they are deliberately

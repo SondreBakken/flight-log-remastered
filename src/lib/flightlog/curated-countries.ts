@@ -8,13 +8,32 @@ import { parseCanonicalCountryId } from './country-id'
 // has measured. Adding a country is a one-line change to this array, once its payload has
 // actually been sized, not a new mechanism.
 //
-// `expectedRowCount` and `expectedPayloadBytes` are both observed for this exact fixture at
-// curation time (fixtures/takeoffs-<id>.html) — the single source of truth
-// check-takeoffs-prerender.mts asserts the prerendered artifact against, so a build silently
-// serving another country's rows, or a truncated/corrupted artifact, fails even if it happens
-// to parse as a well-formed array of the right length. Expected to need a one-line bump if
-// the fixture is ever regenerated against a since-changed upstream dataset — same as
-// check:parsers' own hardcoded row counts.
+// `expectedRowCountRange` and `expectedPayloadBytes` both bound check-takeoffs-prerender.mts's
+// assertion against the prerendered artifact — but they are not the same kind of pin, and that
+// difference is deliberate (#55).
+//
+// The artifact this check reads is populated by a REAL BUILD fetching flightlog.org LIVE, not
+// by fixtures/takeoffs-<id>.html — the fixture only exists to have *once* observed this
+// country's shape (field order, a plausible size, a plausible row count) at curation time.
+// A pin between two things that both come from the fixture (check:parsers' hardcoded row
+// counts, for example) is stable forever, because both sides move together or not at all. A
+// pin between something frozen at curation time and something fetched live on every build is a
+// countdown: Norway's live takeoff count only grows as pilots log new sites, so an exact
+// `expectedRowCount` pin here went stale the first time someone logged a takeoff after the
+// fixture was captured (#55) — nothing was broken, the check was just asserting a snapshot
+// against a moving target.
+//
+// `expectedRowCountRange` accepts that growth instead of fighting it: a floor and a ceiling,
+// not an exact match. Still an ABSOLUTE pin, not one live-computed value compared against
+// another — a parser regression that returns a handful of rows, or a route that starts
+// serving some unrelated multiple of the real count, lands miles outside this band; ordinary
+// people logging ordinary flights over ordinary time does not. Chosen wide enough that it
+// should not need touching for a long time: floor is the observed 6012 minus enough room to
+// still catch a parser silently dropping most rows, ceiling is enough headroom for years of
+// organic growth at Norway's observed pace (one new takeoff between #55 being filed and its
+// fix landing) while still catching a parser or route returning garbage at a wildly wrong
+// order of magnitude. `expectedPayloadBytes` is intentionally NOT widened to match — see its
+// own note below.
 //
 // `expectedPayloadBytes` is a coarse sanity band on the artifact's total serialised size, NOT
 // a field-shape guard: it exists to catch the artifact being grossly wrong (truncated,
@@ -27,9 +46,13 @@ import { parseCanonicalCountryId } from './country-id'
 // dropped from every row; this band is a backstop underneath those, not a replacement for
 // them. The range below (405,000-425,000, ~2% either side of the observed 413,728 bytes) is
 // tight enough that it also happens to reject every field-mutation measured against this
-// fixture so far, but that is incidental to its job, not the reason it exists.
-export const CURATED_TAKEOFF_COUNTRIES: readonly { countryId: number; expectedRowCount: number; expectedPayloadBytes: readonly [number, number] }[] = [
-  { countryId: 160, expectedRowCount: 6012, expectedPayloadBytes: [405_000, 425_000] }, // Norway, ~970 KB upstream (fixtures/takeoffs-160.html)
+// fixture so far, but that is incidental to its job, not the reason it exists. It crosses the
+// same frozen-vs-live boundary as the row count and will, eventually, need the same kind of
+// widening as Norway's live dataset grows past roughly 6175 rows (~163 rows' worth of bytes
+// above the ceiling) — out of scope for #55, which is about the pin that had already gone
+// stale, not the one still years from doing so.
+export const CURATED_TAKEOFF_COUNTRIES: readonly { countryId: number; expectedRowCountRange: readonly [number, number]; expectedPayloadBytes: readonly [number, number] }[] = [
+  { countryId: 160, expectedRowCountRange: [5500, 9000], expectedPayloadBytes: [405_000, 425_000] }, // Norway, ~970 KB upstream (fixtures/takeoffs-160.html)
 ]
 
 // `readonly number[]`, not a `readonly [160]` tuple: every caller either maps over this or

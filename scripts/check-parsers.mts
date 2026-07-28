@@ -115,6 +115,12 @@ const zeroMatchSearch = parsePilotSearch(readFileSync('fixtures/pilot-search-zer
 console.log(`pilot-search-zero.html: results=${zeroMatchSearch.length}`)
 assert(zeroMatchSearch.length === 0, `pilot-search-zero.html: genuinely zero matches (got ${zeroMatchSearch.length})`)
 
+// Exact equality, deliberately unchanged by #55: both sides here are frozen. `takeoffs` comes
+// from parsing THIS fixture file, and 6012 is what that exact, immutable file has always parsed
+// to — a fixture-vs-fixture pin like this can't go stale on flightlog.org's schedule, only on a
+// deliberate fixture regeneration (see the README's "Fixtures" section), unlike
+// check-takeoffs-prerender.mts's row-count band, which compares this same fixture-time number
+// against a REAL BUILD's LIVE fetch and had to widen into a range for exactly that reason.
 const takeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-160.html', 'utf8'), 160)
 const jordeTakeoff = takeoffs.find((t) => t.takeoffId === 6246)
 console.log(`takeoffs-160.html: takeoffs=${takeoffs.length} sample=${jordeTakeoff?.name}`)
