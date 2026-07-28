@@ -118,11 +118,13 @@ export type VisibleTakeoffs = {
   // placeholder position (see hasKnownLocation for the three shapes that takes) and are
   // therefore shown WITHOUT a distance while nearby sort is active — 0 whenever userLocation
   // is null, since nothing is being sorted by distance at all in that case. Same decision as
-  // windUnknownCount above, applied to the same shape of problem: 1948 of Norway's 6012
-  // takeoffs (32.4%) carry the full lat=0/lon=0 placeholder alone, nearly twice as common as
-  // missing wind, so pretending they have a real distance is not an edge case to skip — and
-  // hasKnownLocation catches 7 more beyond that, corrupted in a different shape but reporting
-  // the exact same wrong-distance failure.
+  // windUnknownCount above, applied to the same shape of problem: measured at curation time
+  // against Norway's fixture, roughly a third of takeoffs (1948 of then-6012) carried the full
+  // lat=0/lon=0 placeholder alone, nearly twice as common as missing wind — a live count, not a
+  // frozen one (#55), so treat that fraction as a curation-time snapshot, not a present-tense
+  // fact — so pretending they have a real distance is not an edge case to skip. hasKnownLocation
+  // catches 7 more beyond that, corrupted in a different shape but reporting the exact same
+  // wrong-distance failure.
   locationUnknownCount: number
 }
 

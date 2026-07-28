@@ -8,6 +8,8 @@ import {
   WIND_RAY_LAYER_ID,
 } from '../src/components/takeoffs-map/site-layer-ids'
 import { RAY_MIN_ZOOM } from '../src/components/takeoffs-map/build-takeoffs-geojson'
+import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
+import { formatRange, inRange } from './lib/range'
 import { createReporter } from './lib/verify-report'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
@@ -33,18 +35,31 @@ import { createReporter } from './lib/verify-report'
 // production, unconditionally, which is exactly the mode this route has to be tested under.
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs?__verifyMap'
 
-// Norway's full fixture (fixtures/takeoffs-160.html, same one check:takeoffs-prerender and
-// verify-takeoffs.mts pin): 6012 rows total. 1948 carry the full lat=0/lon=0 placeholder
-// (#12's hazard, reused here rather than rediscovered — see hasKnownLocation in
-// src/lib/flightlog/has-known-location.ts) plus 7 more with a DIFFERENT corruption shape D1 also excludes:
-// one axis reset to exactly 0 while the other still holds a real-looking value, or both axes
-// corrupted to a small non-zero remainder near Null Island (see hasKnownLocation's own doc
-// comment for the exact seven takeoff ids and coordinates). 1955 total. Exact counts, not a
-// loosened `> 0` or `<=`, so a feature-count assertion that quietly accepts an empty,
-// partially-empty, or still-corrupt source still fails clearly.
-const EXPECTED_TOTAL = 6012
-const EXPECTED_EXCLUDED = 1955
-const EXPECTED_PLOTTED = EXPECTED_TOTAL - EXPECTED_EXCLUDED
+// This page's data comes from a REAL BUILD's LIVE fetch of flightlog.org (same as
+// check-takeoffs-prerender.mts and verify-takeoffs.mts), not from fixtures/takeoffs-160.html
+// directly — see the README's "Frozen pins vs. live pins" section for the general rule; bands,
+// not exact counts, still wide enough to fail hard for an empty, near-empty, or still-corrupt
+// source (see hasKnownLocation in src/lib/flightlog/has-known-location.ts for what "corrupt"
+// means here).
+//
+// TOTAL_TAKEOFF_COUNT_RANGE is imported, shared verbatim with check-takeoffs-prerender.mts and
+// verify-takeoffs.mts — all three bound the same real-world quantity (Norway's live takeoff
+// count), so it is declared once (scripts/lib/curated-country-expectations.ts) rather than
+// copy-pasted three times with a comment asserting the copies agree (#55). Asserted below
+// against excludedCount + plottedCount, not plottedCount alone — that sum IS the total
+// (build-takeoffs-geojson.ts's own arithmetic: `excludedCount: takeoffs.length - located.length,
+// plottedCount: located.length`), so this is the only assertion in this file that reads the
+// total at all. Without it, excludedCount and plottedCount could each independently land in
+// their own band while implying an impossible total (e.g. excluded at its ceiling and plotted
+// at ITS ceiling summing past TOTAL_TAKEOFF_COUNT_RANGE's own ceiling) and nothing here would
+// notice. EXCLUDED_TAKEOFF_COUNT_RANGE is its own band, not derived from the total: corrupt-
+// coordinate takeoffs are a subset that can grow at a different rate than the whole (a
+// newly-logged takeoff is corrupt or it isn't, independent of how many other takeoffs got
+// logged alongside it), so pinning it to the fixture's observed 1955 ± comparable headroom is
+// the honest band, not one algebraically forced to agree with the total.
+const NORWAY_COUNTRY_ID = 160
+const TOTAL_TAKEOFF_COUNT_RANGE = TAKEOFF_ROW_COUNT_EXPECTATIONS.find((e) => e.countryId === NORWAY_COUNTRY_ID)!.rowCountRange
+const EXCLUDED_TAKEOFF_COUNT_RANGE = [1700, 2600] as const
 
 const { report, finish } = createReporter()
 
@@ -110,11 +125,25 @@ if (settled) {
   if (!mapData) {
     report(false, 'window.__takeoffsMapData is present after settling (it is the data the map was actually built from)')
   } else {
-    report(mapData.excludedCount === EXPECTED_EXCLUDED, `excludedCount is exactly ${EXPECTED_EXCLUDED} (got ${mapData.excludedCount})`)
-    report(mapData.plottedCount === EXPECTED_PLOTTED, `plottedCount is exactly ${EXPECTED_PLOTTED} (got ${mapData.plottedCount})`)
     report(
-      mapData.sites.features.length === EXPECTED_PLOTTED,
-      `the sites source carries exactly ${EXPECTED_PLOTTED} plotted features, not a loosened or partial count (got ${mapData.sites.features.length})`,
+      inRange(mapData.excludedCount, EXCLUDED_TAKEOFF_COUNT_RANGE),
+      `excludedCount falls within the expected ${formatRange(EXCLUDED_TAKEOFF_COUNT_RANGE)} band (got ${mapData.excludedCount})`,
+    )
+    // excludedCount + plottedCount, not plottedCount alone (see the constant's own doc comment
+    // above for why) — this is the only place in this script that reads the total.
+    const totalTakeoffCount = mapData.excludedCount + mapData.plottedCount
+    report(
+      inRange(totalTakeoffCount, TOTAL_TAKEOFF_COUNT_RANGE),
+      `excludedCount + plottedCount (${totalTakeoffCount}) falls within the expected ${formatRange(TOTAL_TAKEOFF_COUNT_RANGE)} band for Norway's live takeoff total (excluded ${mapData.excludedCount}, plotted ${mapData.plottedCount})`,
+    )
+    // Self-consistency, not a second absolute pin: the sites SOURCE and the plottedCount FIELD
+    // are two different readings of the same map-build output, taken at the same moment — this
+    // catches one disagreeing with the other (say, a source built from a stale or partial list
+    // while the count field reports the intended one), a failure shape the band checks above
+    // cannot see since both would still land inside the band independently.
+    report(
+      mapData.sites.features.length === mapData.plottedCount,
+      `the sites source carries exactly as many features as plottedCount reports, not a loosened or partial count (plottedCount ${mapData.plottedCount}, features ${mapData.sites.features.length})`,
     )
     // No placeholder, and no corrupt-coordinate row (see hasKnownLocation), ever reaches the
     // plotted set — checked directly against the live feature geometry, not just trusting
@@ -152,11 +181,15 @@ if (settled) {
     )
 
     // The excluded count is not just computed — it must be VISIBLE, per #12/#10's shared rule
-    // that excluding is fine, doing it silently is not.
+    // that excluding is fine, doing it silently is not. Checked against mapData's own numbers,
+    // not a second absolute pin: this assertion's job is "the legend isn't lying about internal
+    // state," which the band checks above already established is itself in a sane range — a
+    // legend rendering NEITHER pattern at all (an empty string search below) still fails, which
+    // is what actually enforces "not silent."
     const legendText = await page.evaluate(() => document.body.textContent ?? '')
     report(
-      legendText.includes(`${EXPECTED_EXCLUDED} excluded`) && legendText.includes(`${EXPECTED_PLOTTED} takeoffs plotted`),
-      `the excluded count is rendered as VISIBLE text on the page, not just tracked internally (looked for "${EXPECTED_PLOTTED} takeoffs plotted" and "${EXPECTED_EXCLUDED} excluded")`,
+      legendText.includes(`${mapData.excludedCount} excluded`) && legendText.includes(`${mapData.plottedCount} takeoffs plotted`),
+      `the excluded/plotted counts are rendered as VISIBLE text on the page, matching mapData exactly, not just tracked internally (looked for "${mapData.plottedCount} takeoffs plotted" and "${mapData.excludedCount} excluded")`,
     )
 
     // Both deliberate wind categories are real and present in the actual dataset — not a
@@ -196,9 +229,13 @@ if (settled) {
       siteLayers,
     )
     report(clustersAtOverview > 0, `clusters actually render at the whole-country overview zoom (got ${clustersAtOverview} cluster features)`)
+    // Against mapData.plottedCount (the live figure already validated as in-band above), not a
+    // second hardcoded pin — this assertion's job is a proportionality check (most sites
+    // cluster), which the live total is the correct denominator for regardless of exactly what
+    // it is.
     report(
-      unclusteredAtOverview < EXPECTED_PLOTTED / 2,
-      `most sites are bundled into clusters at the overview zoom, not rendered individually (${unclusteredAtOverview} unclustered features rendered, vs ${EXPECTED_PLOTTED} total plotted)`,
+      unclusteredAtOverview < mapData.plottedCount / 2,
+      `most sites are bundled into clusters at the overview zoom, not rendered individually (${unclusteredAtOverview} unclustered features rendered, vs ${mapData.plottedCount} total plotted)`,
     )
 
     // --- D4: a ray must hold a roughly constant screen size across the zoom band it's

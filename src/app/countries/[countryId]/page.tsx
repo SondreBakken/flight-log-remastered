@@ -9,7 +9,7 @@ import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
 type CountryParams = Promise<{ countryId: string }>
 
 // #40: prerenders the curated set (currently just Norway, the only club list this app has
-// measured — see CURATED_CLUB_COUNTRIES's own doc comment) at build time, so `getClubs`'s
+// measured — see CURATED_CLUB_COUNTRY_IDS's own doc comment) at build time, so `getClubs`'s
 // 'days' cacheLife actually gets to do its job for the country pilots hit most, rather than
 // re-running on every request the way it does on serverless when nothing ELSE keeps an
 // instance warm (see getClubs's own doc comment). Unlike the sibling takeoffs route/page,

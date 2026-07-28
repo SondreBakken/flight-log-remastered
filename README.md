@@ -37,6 +37,48 @@ passing, if the build is missing or stale — see `scripts/lib/prerender-manifes
 both). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
 your last build.
 
+**Frozen pins vs. live pins.** Several checks pin a number derived from `fixtures/takeoffs-160.html`
+at the time it was scraped. Whether that pin stays exact or needs to tolerate a range depends on
+what it's compared against, not on where the number came from. A pin between two things that both
+come from the same fixture (`check:parsers`' hardcoded row counts, for example) is stable forever:
+both sides are frozen at the same curation time, so they move together or not at all. A pin between
+something frozen at curation time and something read off a REAL BUILD's LIVE fetch of
+flightlog.org is a countdown instead, and it goes stale the moment the live number it's compared
+against changes, on flightlog.org's own schedule, not one this repo controls. Four checks cross
+that boundary today:
+
+- `check:takeoffs-prerender` pins Norway's live takeoff count and its serialised artifact shape,
+  both as bands (#55), not exact counts. `rowCountRange`'s floor sits close under the observed
+  count, specifically so it still catches a parser silently dropping most rows; its ceiling stays
+  loose, because its job is catching a route returning some wildly wrong multiple, not bounding
+  ordinary growth. `bytesPerRowRange` bounds serialised bytes PER ROW rather than total artifact
+  bytes, which makes it growth-invariant instead of a second countdown stacked on the first one
+  (an earlier version of this band, on total bytes, was found to expire around 6167 rows despite
+  a comment claiming it was "years" from doing so). See `scripts/lib/curated-country-expectations.ts`
+  for the exact numbers and reasoning behind each.
+- `verify-takeoffs.mts` shares that same row-count band (imported, not copy-pasted three times),
+  plus a wind-direction check that carries #49's original guarantee without a hand-measured band
+  at all: it opens the shareable `?wind=` link for three real octants (N, a near neighbour, and a
+  far one) and asserts their totals differ from each other. A filter broken the same way on every
+  request (exactly #49's own mutation, and #55's own regression test) cannot fake three different
+  octants producing three different totals, the way it could fake landing inside an absolute band
+  picked around one octant's own count.
+- `verify-sites-map.mts` shares the same row-count band, asserted against the map's own
+  excludedCount + plottedCount SUM (not against plottedCount alone derived by interval
+  subtraction, which used to let individually-impossible excluded/plotted combinations pass),
+  plus its own excluded-count band.
+- `check:clubs-prerender` pins Norway's live CLUB count exactly (91), not as a band. That is a
+  deliberate choice, not an oversight left over from before #55: a club is an organisation
+  actually forming or dissolving, an event rare enough that a one-line bump when it happens is
+  cheaper than the band engineering the other three checks needed. It is still, by the same rule
+  as the other three, pinned against a live number, and will go stale the day that number
+  changes; it is simply expected to change far less often. See
+  `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
+
+See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
+for the specific numbers and the mutation testing that verified each band and the wind-direction
+difference property.
+
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`, `verify-shot.mts`) are a different
 kind of check: they drive a real headless browser against a running app, so they are deliberately
