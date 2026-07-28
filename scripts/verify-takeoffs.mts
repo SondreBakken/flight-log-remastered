@@ -149,30 +149,57 @@ if (settled) {
       `updates the address bar to a shareable ?wind=N (url: ${page.url()})`,
     )
 
-    // Shareable link, proven end to end: navigating fresh to that exact URL (server-validated
-    // via parseWindFilterParam, see page.tsx) reproduces the same filtered total an
-    // interactive selection just produced, not a different or unfiltered one.
+    // Shareable link, proven end to end: navigating fresh to that exact URL reproduces the
+    // same filtered total an interactive selection just produced, not a different or
+    // unfiltered one — this is the thing a user actually cares about, since it's the real
+    // data the shared link delivers, not any one control's cosmetic state.
+    //
+    // Settling on ANY `<li>` in the page (the original condition here) is vacuous: the site
+    // nav (see src/components/site-nav) renders its own `<li>` items from the very first
+    // paint, long before the takeoffs fetch even starts, let alone before the wind filter has
+    // applied — so that wait resolved almost instantly regardless of whether this feature
+    // works at all, then read the DOM before the real content existed. Confirmed empirically:
+    // against a real build, the old condition settled instantly and the checks below it then
+    // raced the takeoffs fetch, reading "no total yet" as a hard FAIL; against dev the same
+    // race existed but extra framework overhead (on-demand compilation, HMR bootstrap) made
+    // the real fetch+filter usually — not reliably — win the race by the time the checks ran,
+    // so the exact same bug read as a false PASS there. Nothing about the underlying feature
+    // differed between the two modes; only how much slack the vacuous wait happened to leave
+    // before the real work finished. Waiting for the total match count to actually reach
+    // `afterWindTotal` (the number an interactive selection just produced) instead settles on
+    // the real signal — it cannot resolve until the fresh navigation has actually fetched,
+    // filtered, and rendered the shared link's data, so it can't produce a false pass either.
     const sharedUrl = new URL(url)
     sharedUrl.searchParams.set('wind', 'N')
     await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
     const sharedSettled = await page
-      .waitForFunction(() => document.querySelectorAll('li').length > 0, { timeout: 20000 })
+      .waitForFunction(
+        (expectedTotal) => {
+          const match = document.body.textContent?.match(/of (\d+) matches/)
+          return match !== null && match !== undefined && Number(match[1]) === expectedTotal
+        },
+        afterWindTotal,
+        { timeout: 20000 },
+      )
       .then(() => true)
       .catch(() => false)
-    report(sharedSettled, `opening the shared ${sharedUrl} link directly settles to a non-empty list within the timeout`)
+    report(
+      sharedSettled,
+      `opening the shared ${sharedUrl} link directly reaches the same filtered total (${afterWindTotal}) an interactive selection just produced, within the timeout`,
+    )
     if (sharedSettled) {
+      // Distinct from the total-match assertion above, and allowed to diverge from it in
+      // principle (a user only ever sees the rendered rows, not this control's own value) —
+      // but pinned here too because it IS user-visible, and because it's now backed by a real
+      // mechanism (see index.tsx's WIND_SELECT_SYNC_SCRIPT) rather than an assumption that
+      // React's hydration would sort it out on its own, which it does not: a controlled
+      // <select> whose client-computed value differs from what the server rendered is never
+      // resynced by hydration alone (no warning, no correction — confirmed empirically against
+      // both dev and a real build, independent of the settle-condition bug above).
       const sharedSelectValue = await page.evaluate(
         () => (document.querySelector('select[aria-label="Wind direction"]') as HTMLSelectElement | null)?.value,
       )
       report(sharedSelectValue === 'N', `the wind <select> is pre-seeded to N from the URL, not left at "Any wind" (got: ${sharedSelectValue})`)
-      const sharedTotal = await page.evaluate(() => {
-        const match = document.body.textContent?.match(/of (\d+) matches/)
-        return match ? Number(match[1]) : null
-      })
-      report(
-        sharedTotal === afterWindTotal,
-        `the shared link's total match count (${sharedTotal}) matches what interactively selecting N just produced (${afterWindTotal})`,
-      )
     }
   }
 
@@ -181,7 +208,11 @@ if (settled) {
   // dialog, which exercises the same PERMISSION_DENIED branch a real user's "Block" click
   // would. The directory must stay visibly usable, not fall into an error state.
   const beforeNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)
-  await page.getByRole('checkbox', { name: /nearby/i }).check()
+  // The checkbox's real accessible name is "Sort by distance from me" (see index.tsx) — it has
+  // never contained the word "nearby", so this locator has never actually matched anything;
+  // every run of this script has crashed here with an uncaught locator timeout, pre-existing
+  // and unrelated to the wind-filter fix above. Matching on the text the label actually renders.
+  await page.getByRole('checkbox', { name: /distance/i }).check()
   const deniedSettled = await page
     .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), { timeout: 10000 })
     .then(() => true)

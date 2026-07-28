@@ -75,6 +75,35 @@ function readWindFilterFromUrl(): WindFilter {
   return parseWindFilterParam(new URL(window.location.href).searchParams.get('wind') ?? undefined)
 }
 
+// readWindFilterFromUrl above gets REACT's own state right on a fresh, shared-link load, and
+// that's what the actual filtering (selectVisibleTakeoffs) reads — but React's hydration does
+// NOT resync a controlled <select>'s DOM value to that client-computed state just because it
+// differs from what the server rendered (server always renders "all", since `window` doesn't
+// exist there): no hydration warning, no correction, the select just silently keeps showing
+// "Any wind" while the list underneath is already correctly filtered. This is a documented
+// Next.js pattern, not a one-off bug — see node_modules/next/dist/docs/01-app/02-guides/
+// preventing-flash-before-hydration.md, "Syncing with React state": an inline script, reading
+// the SAME source as the lazy useState initialiser, corrects the DOM synchronously during HTML
+// parsing, before React ever touches it — so by the time hydration runs, the two already agree
+// and there's nothing left to fix.
+const WIND_SELECT_ID = 'wind-filter-select'
+const VALID_OCTANTS_JSON = JSON.stringify(OCTANTS_CLOCKWISE)
+const WIND_SELECT_SYNC_SCRIPT = `{var m=/[?&]wind=([^&]*)/.exec(location.search);var v=m&&decodeURIComponent(m[1]);var opts=${VALID_OCTANTS_JSON};var el=document.getElementById(${JSON.stringify(WIND_SELECT_ID)});if(el&&v&&opts.indexOf(v)!==-1)el.value=v}`
+
+// Same shape as the docs' own InlineScript helper: `text/javascript` server-side so the browser
+// actually runs it while parsing, `text/plain` client-side so it's inert on a soft navigation
+// (where TakeoffDirectory's own client-side render already has the right value) — the type
+// mismatch between the two is exactly what suppressHydrationWarning is for here.
+function InlineScript({ html }: { html: string }) {
+  return (
+    <script
+      type={typeof window === 'undefined' ? 'text/javascript' : 'text/plain'}
+      suppressHydrationWarning
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
+
 // #9's directory, replacing #38's proof-of-mechanism preview — that component's own comment
 // said as much: "the moment this grows an input with live filtering it is #9". #12 adds wind
 // direction and nearby-me on top of the same pipeline. Filtering runs entirely against
@@ -289,6 +318,7 @@ function SearchControls({
           ))}
         </select>
         <select
+          id={WIND_SELECT_ID}
           value={windFilter}
           onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
@@ -301,6 +331,7 @@ function SearchControls({
             </option>
           ))}
         </select>
+        <InlineScript html={WIND_SELECT_SYNC_SCRIPT} />
       </div>
       <div className="flex items-center gap-2 text-sm">
         <label className="flex items-center gap-2">
