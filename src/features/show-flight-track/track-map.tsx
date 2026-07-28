@@ -8,12 +8,13 @@ import {
   type ExpressionSpecification,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import type { TrackPoint } from '@/lib/flightlog/types'
+import type { ScoringGeometry, TrackPoint } from '@/lib/flightlog/types'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
 import { formatAltitude } from './format-altitude'
-import { TRACK_LINE_COLOR } from './colors'
+import { SCORING_LINE_COLOR, TRACK_LINE_COLOR } from './colors'
+import { turnpointLetter } from './scoring-overlay'
 import { nearestIndexByLocation } from './track-hover'
 
 declare global {
@@ -27,6 +28,7 @@ type TrackMapProps = {
   points: TrackPoint[]
   hoveredIndex: number | null
   onHoverIndex: (index: number | null) => void
+  scoringGeometry: ScoringGeometry | null
   className?: string
 }
 
@@ -41,23 +43,43 @@ type TrackLineData = {
 
 const TRACK_SOURCE_ID = 'flight-track'
 const TRACK_LAYER_ID = 'flight-track-line'
+const SCORING_SOURCE_ID = 'scoring-overlay'
+const SCORING_LAYER_ID = 'scoring-overlay-line'
 const DEFAULT_SIZE_CLASSES = 'h-[70vh] w-full'
 
 function toLngLat(point: TrackPoint): [number, number] {
   return [point.lon, point.lat]
 }
 
-function trackLineData(points: TrackPoint[]): TrackLineData {
+function lineData(coordinates: [number, number][]): TrackLineData {
   return {
     type: 'FeatureCollection',
     features: [
       {
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: points.map(toLngLat) },
+        geometry: { type: 'LineString', coordinates },
         properties: {},
       },
     ],
   }
+}
+
+function trackLineData(points: TrackPoint[]): TrackLineData {
+  return lineData(points.map(toLngLat))
+}
+
+// A small circular badge carrying the turnpoint's own letter (A-E, matching the KML
+// turnpoint table — see scoring-overlay.ts's turnpointLetter). MapLibre's Marker only
+// positions a DOM element it's handed; it has no built-in labelled-pin primitive, which is
+// why every other marker in this file (start/end/hover) is a plain colour dot and this is
+// the first one that needs its own element rather than just a `color` option.
+function createTurnpointElement(letter: string): HTMLDivElement {
+  const element = document.createElement('div')
+  element.textContent = letter
+  element.className =
+    'flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold text-white shadow'
+  element.style.backgroundColor = SCORING_LINE_COLOR
+  return element
 }
 
 function trackBounds(points: TrackPoint[]): LngLatBounds {
@@ -87,10 +109,11 @@ function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
-export function TrackMap({ points, hoveredIndex, onHoverIndex, className }: TrackMapProps) {
+export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, className }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const hoverMarkerRef = useRef<Marker | null>(null)
+  const turnpointMarkersRef = useRef<Marker[]>([])
   const gradient = buildAltitudeGradient(points)
 
   useEffect(() => {
@@ -209,6 +232,61 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, className }: Trac
     hoverMarker.getElement().setAttribute('data-seconds', point ? String(point.secondsFromStart) : '')
     if (point) hoverMarker.setLngLat(toLngLat(point))
   }, [hoveredIndex, points])
+
+  // Kept separate from the map-creation effect above rather than folded into it: that effect
+  // tears down and recreates the whole map (controls, hover listeners, camera position) on
+  // every dependency change, which would make toggling the scoring overlay reset the user's
+  // pan/zoom. This effect instead only ever adds/replaces/removes one source, one layer and a
+  // handful of markers on an already-live map — the same "sync onto the existing map" shape
+  // the hoveredIndex effect above uses for the hover marker.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const syncScoringOverlay = () => {
+      turnpointMarkersRef.current.forEach((marker) => marker.remove())
+      turnpointMarkersRef.current = []
+      if (map.getLayer(SCORING_LAYER_ID)) map.removeLayer(SCORING_LAYER_ID)
+      if (map.getSource(SCORING_SOURCE_ID)) map.removeSource(SCORING_SOURCE_ID)
+
+      if (!scoringGeometry) return
+
+      // turnpointIndices are positions in this same `points` array (see types.ts's
+      // ScoringGeometry doc comment) — resolved directly, no matching needed.
+      const turnpoints = scoringGeometry.turnpointIndices.map((index) => points[index])
+
+      map.addSource(SCORING_SOURCE_ID, { type: 'geojson', data: lineData(turnpoints.map(toLngLat)) })
+      map.addLayer({
+        id: SCORING_LAYER_ID,
+        type: 'line',
+        source: SCORING_SOURCE_ID,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': SCORING_LINE_COLOR, 'line-width': 3, 'line-dasharray': [2, 1.5] },
+      })
+
+      turnpointMarkersRef.current = turnpoints.map((point, index) => {
+        const marker = new Marker({ element: createTurnpointElement(turnpointLetter(index)) })
+          .setLngLat(toLngLat(point))
+          .addTo(map)
+        marker.getElement().setAttribute('data-testid', 'turnpoint-marker')
+        marker.getElement().setAttribute('data-letter', turnpointLetter(index))
+        return marker
+      })
+    }
+
+    if (map.isStyleLoaded()) syncScoringOverlay()
+    else map.once('style.load', syncScoringOverlay)
+
+    return () => {
+      // `once` self-removes after firing, but never fires at all if this effect's cleanup
+      // runs first (unmounting, or scoringGeometry/points changing again, while the style is
+      // still loading) — `off` is what stops that listener outliving the run that added it,
+      // mirroring the addTrackLayer effect above's own `style.load` subscription.
+      map.off('style.load', syncScoringOverlay)
+      turnpointMarkersRef.current.forEach((marker) => marker.remove())
+      turnpointMarkersRef.current = []
+    }
+  }, [scoringGeometry, points])
 
   if (points.length === 0) {
     return (

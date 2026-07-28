@@ -1,12 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import type { TrackPoint } from '@/lib/flightlog/types'
+import type { ScoringGeometryKind, Track, TrackPoint } from '@/lib/flightlog/types'
 import { Barogram } from './barogram'
+import { resolveDefaultScoringKind, selectedScoringGeometry } from './scoring-overlay'
+import { ScoringOverlaySelect } from './scoring-overlay-select'
 import { TrackMap } from './track-map'
 
 type TrackHoverViewProps = {
   points: TrackPoint[]
+  scoring: Track['scoring']
 }
 
 // The map and the chart are two independent client components that need to react to the
@@ -20,12 +23,21 @@ type TrackHoverViewProps = {
 // The shared value is an INDEX into `points`, not a derived property like elapsed seconds:
 // see track-hover.ts's module doc comment for why elapsed seconds cannot serve as this
 // identity (its fallback tail is not unique), and why an index into this same array can.
-export function TrackHoverView({ points }: TrackHoverViewProps) {
+export function TrackHoverView({ points, scoring }: TrackHoverViewProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const [selectedKind, setSelectedKind] = useState<ScoringGeometryKind | null>(() =>
+    resolveDefaultScoringKind(scoring),
+  )
 
   return (
     <>
-      <TrackMap points={points} hoveredIndex={hoveredIndex} onHoverIndex={setHoveredIndex} />
+      <ScoringOverlaySelect scoring={scoring} selectedKind={selectedKind} onSelectKind={setSelectedKind} />
+      <TrackMap
+        points={points}
+        hoveredIndex={hoveredIndex}
+        onHoverIndex={setHoveredIndex}
+        scoringGeometry={selectedScoringGeometry(scoring, selectedKind)}
+      />
       <Barogram points={points} hoveredIndex={hoveredIndex} onHoverIndex={setHoveredIndex} />
     </>
   )

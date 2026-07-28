@@ -19,6 +19,7 @@ pnpm run check:clubs-prerender            # clubs page is prerendered for the cu
 pnpm run check:barogram                   # barogram downsampling and scaling math
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
+pnpm run check:scoring                    # scoring-overlay geometries against saved KML fixtures; SKIPs (exit 0) if fixtures/ is absent
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
@@ -44,7 +45,7 @@ come from the same fixture (`check:parsers`' hardcoded row counts, for example) 
 both sides are frozen at the same curation time, so they move together or not at all. A pin between
 something frozen at curation time and something read off a REAL BUILD's LIVE fetch of
 flightlog.org is a countdown instead, and it goes stale the moment the live number it's compared
-against changes, on flightlog.org's own schedule, not one this repo controls. Four checks cross
+against changes, on flightlog.org's own schedule, not one this repo controls. Five checks cross
 that boundary today:
 
 - `check:takeoffs-prerender` pins Norway's live takeoff count and its serialised artifact shape,
@@ -74,13 +75,22 @@ that boundary today:
   as the other three, pinned against a live number, and will go stale the day that number
   changes; it is simply expected to change far less often. See
   `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
+- `verify-scoring.mts` (#15) pins three numbers against a live KML fetch of trip 1001428: the
+  open-distance summary text (`48.95 km`), the turnpoint marker count for that geometry (`2`),
+  and the per-flight disabled/enabled state of each radio option across three real flights.
+  Unlike the other four, what it pins against is not a roster that grows or shrinks over time,
+  it is one specific historical flight's already-flown GPS track and flightlog.org's own
+  already-computed scoring geometry for it. Neither changes after the fact the way a takeoff or
+  club roster does, so this pin is closer to the frozen-vs-frozen case above than a countdown,
+  even though one side of it is still a live fetch.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
 difference property.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
-`verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`, `verify-shot.mts`) are a different
+`verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
+`verify-shot.mts`) are a different
 kind of check: they drive a real headless browser against a running app, so they are deliberately
 **not** part of `pnpm run check` or any other automated gate — there is nothing in this repo that
 starts a server, waits for it, and tears it down again. Run them by hand after touching the
@@ -103,6 +113,20 @@ test (see `src/lib/maplibre/map-debug.ts`). Run them against `pnpm run build && 
 anyway, by preference rather than necessity: dev is not forbidden, just the least likely place to
 reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
 maplibre-gl v6/Turbopack note below).
+
+`verify-scoring.mts` (#15) shares `verify-track-hover.mts`'s `?__verifyMap` gate to check the
+scoring overlay against three real flights, each exercising a different absence shape: 1001428
+(every geometry available, default selection is Open distance, its map source actually loads and
+renders 2 turnpoint markers), 991729 (the degenerate 5- and 4-point geometries render as disabled
+radio options, not silently selectable), and 235690 (the entirely-missing out-and-return placemark
+is likewise disabled). For 1001428 it also samples the capture's own pixels for the overlay's
+amber line colour (existence of a source/layer alone would still pass for a wholly wrong or
+empty geometry), and drives an actual toggle between two overlays to check that the map's own
+center/zoom stay put across it: the effect that syncs the overlay is kept separate from the
+map-creation effect specifically so switching overlays doesn't reset a user's pan/zoom, and
+nothing exercised that path before. Run against `pnpm run build && pnpm run start`, same reason
+as `verify-track-gradient.mts`: the overlay's map source is exactly the kind of thing the
+maplibre-gl v6/Turbopack bug would silently fail to load.
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls
@@ -165,6 +189,18 @@ mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
+# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15):
+# 233524 is the only sampled flight with real (non-degenerate) triangles; 235690 is missing 3
+# scoring placemarks entirely; 991729 and 883027 are short flights with degenerate 5pt/4pt
+# geometries; 742436 and 795416 are long XC flights. Any trip id with a GPS track works for
+# rqtid=19 — these particular ids just happen to already exercise every absence/degenerate shape
+# check:scoring pins against.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=233524" -o fixtures/track-233524.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=235690" -o fixtures/track-235690.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=991729" -o fixtures/track-991729.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=883027" -o fixtures/track-883027.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=742436" -o fixtures/track-742436.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=795416" -o fixtures/track-795416.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=160" -o fixtures/clubs-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=29" -o fixtures/clubs-29.html
