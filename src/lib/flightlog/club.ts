@@ -12,7 +12,7 @@ const CLUB_DETAIL = 26
 // country", confirmed by every sampled club fixture's own breadcrumb.
 const CLUBS_IN_COUNTRY = 25
 
-// Not named `Club` — that name is already `types.ts`'s clubId/name/flightCount summary row
+// Not named `Club` — that name is already `types.ts`'s clubId/name/memberCount summary row
 // from the clubs-LIST endpoint (`a=25`), imported all over the clubs-list feature; reusing it
 // here for a structurally unrelated shape would be a same-name, different-meaning collision.
 export type ClubWithRoster = {

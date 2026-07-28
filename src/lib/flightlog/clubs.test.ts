@@ -26,7 +26,7 @@ const mockedCacheTag = vi.mocked(cacheTag)
 describe('getClubs', () => {
   it('requests a=25 for the given country with the country-index-page referer, caches for days under a per-country tag, and returns the parsed result', async () => {
     mockedFetch.mockResolvedValue('<html>norway stub</html>')
-    mockedParseClubs.mockReturnValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+    mockedParseClubs.mockReturnValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }])
 
     const clubs = await getClubs(160)
 
@@ -34,7 +34,7 @@ describe('getClubs', () => {
       referer: 'https://flightlog.org/fl.html?l=1&a=3',
     })
     expect(mockedParseClubs).toHaveBeenCalledWith('<html>norway stub</html>', 160)
-    expect(clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+    expect(clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }])
     expect(mockedCacheLife).toHaveBeenCalledWith('days')
     expect(mockedCacheTag).toHaveBeenCalledWith('country-160')
   })

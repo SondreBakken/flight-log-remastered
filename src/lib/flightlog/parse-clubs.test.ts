@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { parseClubs } from './parse-clubs'
 
 // Trimmed from the real `a=25&country_id=160` response, with real quirks preserved: the
-// malformed trailing `</a>` after the flight-count cell (needs cheerio, not a strict
+// malformed trailing `</a>` after the member-count cell (needs cheerio, not a strict
 // parser), non-ASCII in a name (Ålesund), an HTML entity in a name (Alta Hang &amp;
-// Paragliderklubb), and a genuine zero-flight club (Salangen). Three rows are constructed
+// Paragliderklubb), and a genuine zero-member club (Salangen). Three rows are constructed
 // rather than lifted verbatim: a duplicate `club_id=53` row, a honeypot-shaped row placed
 // *inside* the results table (real traps only ever appear in the shared nav chrome above
 // it — this proves the parser rejects one by its markers even when structural position
@@ -35,15 +35,15 @@ const EMPTY_COUNTRY_HTML = `<html><body>
 </body></html>`
 
 describe('parseClubs', () => {
-  it('reads club id, name and flight count; excludes an in-table honeypot; ignores a preceding non-club anchor; dedupes a repeated club id', () => {
+  it('reads club id, name and member count; excludes an in-table honeypot; ignores a preceding non-club anchor; dedupes a repeated club id', () => {
     const clubs = parseClubs(CLUBS_HTML, 160)
 
     expect(clubs).toEqual([
-      { clubId: 53, name: 'Albatross Aero Klubb', flightCount: 1 },
-      { clubId: 31, name: 'Ålesund Paragliderklubb', flightCount: 77 },
-      { clubId: 42, name: 'Alta Hang & Paragliderklubb', flightCount: 8 },
-      { clubId: 6, name: 'Salangen Paragliderklubb', flightCount: 0 },
-      { clubId: 77, name: 'Bergen Paragliderklubb', flightCount: 15 },
+      { clubId: 53, name: 'Albatross Aero Klubb', memberCount: 1 },
+      { clubId: 31, name: 'Ålesund Paragliderklubb', memberCount: 77 },
+      { clubId: 42, name: 'Alta Hang & Paragliderklubb', memberCount: 8 },
+      { clubId: 6, name: 'Salangen Paragliderklubb', memberCount: 0 },
+      { clubId: 77, name: 'Bergen Paragliderklubb', memberCount: 15 },
     ])
   })
 
@@ -77,7 +77,7 @@ describe('parseClubs', () => {
     expect(() => parseClubs(wrongActionHtml, 160)).toThrow()
   })
 
-  it('throws rather than silently dropping a row when an extra cell shifts the flight-count column', () => {
+  it('throws rather than silently dropping a row when an extra cell shifts the member-count column', () => {
     const shiftedCellHtml = `<html><body><div style='padding:0px 10px'><table cellspacing='1' cellpadding='3' bgcolor='black'>
     <tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=53'>Albatross Aero Klubb</a></td><td bgcolor='white'>extra</td><td bgcolor='white'>1</a></td></tr>
     </table></div></body></html>`
@@ -85,11 +85,11 @@ describe('parseClubs', () => {
     expect(() => parseClubs(shiftedCellHtml, 160)).toThrow()
   })
 
-  it('throws rather than misreading a comma-formatted flight count as a decimal', () => {
-    const commaFlightCountHtml = `<html><body><div style='padding:0px 10px'><table cellspacing='1' cellpadding='3' bgcolor='black'>
+  it('throws rather than misreading a comma-formatted member count as a decimal', () => {
+    const commaMemberCountHtml = `<html><body><div style='padding:0px 10px'><table cellspacing='1' cellpadding='3' bgcolor='black'>
     <tr><td bgcolor='white'><a href='https://flightlog.org/fl.html?l=1&country_id=160&a=26&club_id=53'>Albatross Aero Klubb</a></td><td bgcolor='white'>1,234</td></tr>
     </table></div></body></html>`
 
-    expect(() => parseClubs(commaFlightCountHtml, 160)).toThrow()
+    expect(() => parseClubs(commaMemberCountHtml, 160)).toThrow()
   })
 })

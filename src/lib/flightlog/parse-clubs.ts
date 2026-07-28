@@ -29,7 +29,7 @@ function textOrNull(value: string): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-// Flight count is a plain integer cell, not a distance measurement — no comma-as-decimal
+// Member count is a plain integer cell, not a distance measurement — no comma-as-decimal
 // handling belongs here (that logic exists in parse-flights.ts because distances actually
 // use it; borrowing it here silently turned "1,234" into 1.234). Reject anything that is
 // not a bare run of digits rather than guessing what a separator meant.
@@ -44,7 +44,7 @@ function findClubAnchor(row: Nodes): Nodes {
   return row.find('a[href*="club_id="]').not(HONEYPOT_SELECTOR).first()
 }
 
-// The flight-count cell has no matching open tag for its trailing </a> — real malformed
+// The member-count cell has no matching open tag for its trailing </a> — real malformed
 // markup on this page, same family of defect parse-flights.ts already works around.
 function toClub(row: Nodes): Club | null {
   const anchor = findClubAnchor(row)
@@ -55,10 +55,10 @@ function toClub(row: Nodes): Club | null {
 
   const clubId = readClubId(href)
   const name = textOrNull(anchor.text())
-  const flightCount = readInteger(row.children('td').eq(1).text())
-  if (clubId === null || name === null || flightCount === null) return null
+  const memberCount = readInteger(row.children('td').eq(1).text())
+  if (clubId === null || name === null || memberCount === null) return null
 
-  return { clubId, name, flightCount }
+  return { clubId, name, memberCount }
 }
 
 function dedupeByClubId(clubs: Club[]): Club[] {

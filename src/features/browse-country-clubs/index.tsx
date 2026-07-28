@@ -38,7 +38,7 @@ export default function CountryClubs({ countryId, countryName, clubs }: CountryC
 }
 
 // #7: clubs were plain text here, with no way to reach a club's own page at all. Each row's
-// link carries its own `club.clubId`, pinned to the SAME club whose name and flight count sit
+// link carries its own `club.clubId`, pinned to the SAME club whose name and member count sit
 // in the same table row — not, say, the row's array index — so a reordered or filtered list
 // can never send a click to the wrong club (the class of bug #11's own review caught in a
 // sibling table before this one existed).
@@ -49,7 +49,7 @@ function ClubTable({ countryId, clubs }: { countryId: number; clubs: Club[] }) {
         <thead>
           <tr className="border-b border-black/10 text-left dark:border-white/15">
             <th className="py-2 pr-4 font-medium">Club</th>
-            <th className="py-2 pr-4 text-right font-medium">Flights</th>
+            <th className="py-2 pr-4 text-right font-medium">Members</th>
           </tr>
         </thead>
         <tbody>
@@ -60,7 +60,7 @@ function ClubTable({ countryId, clubs }: { countryId: number; clubs: Club[] }) {
                   {club.name}
                 </Link>
               </td>
-              <td className="py-2 pr-4 text-right">{club.flightCount}</td>
+              <td className="py-2 pr-4 text-right">{club.memberCount}</td>
             </tr>
           ))}
         </tbody>

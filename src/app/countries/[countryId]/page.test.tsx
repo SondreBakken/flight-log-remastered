@@ -74,13 +74,13 @@ describe('Clubs route guard', () => {
         { countryId: 160, name: 'Norway' },
         { countryId: 203, name: 'Sweden' },
       ])
-      mockedGetClubs.mockResolvedValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+      mockedGetClubs.mockResolvedValue([{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }])
 
       const element = await Clubs({ params: Promise.resolve({ countryId }) })
 
       expect(mockedGetClubs).toHaveBeenCalledWith(expectedId)
       expect(element.props.countryName).toBe(expectedName)
-      expect(element.props.clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }])
+      expect(element.props.clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }])
     },
   )
 })
