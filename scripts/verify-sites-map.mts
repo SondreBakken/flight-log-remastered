@@ -8,6 +8,7 @@ import {
   WIND_RAY_LAYER_ID,
 } from '../src/components/takeoffs-map/site-layer-ids'
 import { RAY_MIN_ZOOM } from '../src/components/takeoffs-map/build-takeoffs-geojson'
+import { createReporter } from './lib/verify-report'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
 // literally happened here (a clean build once coexisted with a completely blank one, see
@@ -45,11 +46,7 @@ const EXPECTED_TOTAL = 6012
 const EXPECTED_EXCLUDED = 1955
 const EXPECTED_PLOTTED = EXPECTED_TOTAL - EXPECTED_EXCLUDED
 
-let overallOk = true
-function report(ok: boolean, label: string): void {
-  console.log(`${ok ? 'ok' : 'FAIL'} - ${label}`)
-  if (!ok) overallOk = false
-}
+const { report, finish } = createReporter()
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
@@ -264,8 +261,4 @@ report(consoleErrors.length === 0, `no console errors, including MapLibre's own 
 
 await browser.close()
 
-if (!overallOk) {
-  console.error('FAIL - sites map browser assertion did not pass')
-  process.exit(1)
-}
-console.log('PASS - sites map browser assertion passed')
+finish('sites map browser assertion')

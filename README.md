@@ -33,7 +33,7 @@ pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof sh
 exceptions**: `check:takeoffs-prerender` and `check:clubs-prerender` both read
 `.next/prerender-manifest.json` and need a local `pnpm run build` to exist and be currently up to
 date with the working tree first (each compares mtimes and FAILs, rather than silently skipping or
-passing, if the build is missing or stale — see `scripts/lib/prerender-manifest-check.mts`, shared by
+passing, if the build is missing or stale — see `scripts/lib/prerender-manifest-check.ts`, shared by
 both). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
 your last build.
 
@@ -44,17 +44,17 @@ kind of check: they drive a real headless browser against a running app, so they
 starts a server, waits for it, and tears it down again. Run them by hand after touching the
 relevant feature. `verify-map.mts` and `verify-feed.mts` are the only two that run against
 `pnpm dev` (e.g. `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and
-`verify-sites-map.mts` must run
-against `pnpm run build && pnpm run start`, never `pnpm dev`. Dev can still serve the page, just
-differently: it would re-run `getTakeoffs`/`getRegions` against flightlog.org live instead of
-exercising the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which
-only exists after a real build. That difference is not just about data freshness: a vacuous settle
-condition in `verify-takeoffs.mts` once read FAIL against a build and PASS against dev, purely from
-timing slack. Dev's extra framework overhead happened to leave enough time for the real fetch and
-filter to finish before the assertions ran, so the same underlying bug passed there and failed
-against a build. Running against a build is what makes a PASS trustworthy, not a guarantee that dev
-cannot serve the route at all. `verify-track-gradient.mts` and `verify-track-hover.mts` (#47) are
-different: the `window.__flightTrackMap` handle they depend on is gated behind the `?__verifyMap`
+`verify-sites-map.mts` must run against `pnpm run build && pnpm run start`, never `pnpm dev`. Dev
+can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
+flightlog.org live instead of exercising the prerendered static takeoffs artifact
+`check:takeoffs-prerender` proves exists, which only exists after a real build. That difference is
+not just about data freshness: a vacuous settle condition in `verify-takeoffs.mts` once read FAIL
+against a build and PASS against dev, purely from timing slack. Dev's extra framework overhead
+happened to leave enough time for the real fetch and filter to finish before the assertions ran,
+so the same underlying bug passed there and failed against a build. Running against a build is
+what makes a PASS trustworthy, not a guarantee that dev cannot serve the route at all.
+`verify-track-gradient.mts` and `verify-track-hover.mts` (#47) are different: the
+`window.__flightTrackMap` handle they depend on is gated behind the `?__verifyMap`
 query param rather than `NODE_ENV` *precisely so it works against either mode* — a `NODE_ENV` gate
 would have been dead-code-eliminated out of exactly the production build these scripts exist to
 test (see `src/lib/maplibre/map-debug.ts`). Run them against `pnpm run build && pnpm run start`
@@ -64,23 +64,41 @@ maplibre-gl v6/Turbopack note below).
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls
-(`scripts/lib/screenshot.ts`) and then looking at the pixels the resulting PNG actually contains.
+(`scripts/lib/screenshot.ts`) and then looking at the pixels and dimensions of the PNG that
+actually results. This is the canonical account of the bug it exists for; `screenshot.ts` and
+`verify-shot.mts` each carry only a pointer back here plus reasoning specific to that file.
+
 `shot.mts` once passed `fullPage: true` straight to Playwright's `screenshot()`, which silently
 discards the WebGL drawing buffer on a page holding a MapLibre canvas — the canvas came back solid
 white while DOM overlays (markers, controls, the barogram) kept rendering, so a broken capture read
-as a partly working map. Nothing checked the PNG's actual pixels, so it shipped and sat unnoticed.
-The fix resizes the viewport to the page's real height and takes a plain, non-`fullPage` screenshot
-of that instead (see `scripts/lib/screenshot.ts`'s own doc comment for why `preserveDrawingBuffer`
-was considered and rejected). `verify-shot.mts` samples the flight track map's canvas region against
-its own live `window.__flightTrackMap` ground truth (same `?__verifyMap` gate as
-`verify-track-gradient.mts`), checking both that the region isn't near-uniform (catches a blank
-capture) and that the live altitude-gradient's own colour stops actually appear in it (catches the
-`fullPage` bug's opposite-shaped cousin too — tiles rendering while the vector geometry silently
-doesn't, the same failure SHAPE as the maplibre v6/Turbopack bug below, just triggered differently).
-It only covers the flight track map (#11's takeoffs map has its own `verify-sites-map.mts`, which
-asserts on live MapLibre state directly and never calls `page.screenshot()`, so it was never exposed
-to this bug). Run against `pnpm run build && pnpm run start`, same reason as
-`verify-track-gradient.mts`.
+as a partly working map rather than an obviously empty one. Nothing checked the PNG's actual pixels,
+so it shipped and sat unnoticed. The first fix tried was to drop `fullPage` and resize the viewport
+to the page's real (pre-resize) height instead, then take a plain screenshot — but on a page whose
+height is itself a function of viewport height (the flight map is `h-[70vh]`), resizing the viewport
+grows the page further, past the size that resize just measured, and a plain screenshot is bounded by
+the viewport it's taken at: the barogram at the bottom of the page came back cut off mid-chart.
+Re-adding `fullPage: true` ON TOP OF the resize — the combination that looked, before it was
+measured, like it would just reintroduce the original bug — turns out to have neither problem:
+the resize is what keeps the WebGL canvas painted (proven repeatedly against the real flight page),
+and `fullPage`'s own stitching is what then picks up the further growth the resize itself causes.
+That is the fix `screenshot.ts` ships. It has a limit worth knowing: Chromium's screenshot capture
+has a hard ceiling somewhere between roughly 350,000 and 400,000px of page height (measured against
+both a manual resize and `fullPage`'s own internal stitching alike — this is not something the
+resize introduces), far beyond any page in this app, which tops out in the low thousands.
+
+`verify-shot.mts` samples the flight track map's canvas region against its own live
+`window.__flightTrackMap` ground truth (same `?__verifyMap` gate as `verify-track-gradient.mts`),
+checking that the captured PNG's height covers the real document height, that the canvas region
+isn't near-uniform (catches a blank capture), and that the live altitude-gradient's own colour
+stops actually appear in it (catches the `fullPage` bug's opposite-shaped cousin too — tiles
+rendering while the vector geometry silently doesn't, the same failure SHAPE as the maplibre
+v6/Turbopack bug below, just triggered differently). It only covers the flight track map: #11's
+takeoffs map has its own `verify-sites-map.mts`, which asserts on live MapLibre state directly and
+never calls `page.screenshot()`, so it was never exposed to this bug in the first place — and
+`shot.mts` itself has no way to reach that map to begin with (it's behind a "Map" toggle click the
+script never performs, and the takeoffs directory page is exactly one viewport tall, so the resize
+this fix depends on is a no-op there). Run against `pnpm run build && pnpm run start`, same reason
+as `verify-track-gradient.mts`.
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches

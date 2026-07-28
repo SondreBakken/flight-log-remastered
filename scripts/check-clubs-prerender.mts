@@ -12,7 +12,7 @@ import {
 // /countries/[countryId] (the clubs page) is prerendered for the curated set at BUILD time,
 // not merely that generateStaticParams + 'use cache' look like they should do that. This
 // script pins the claim against Next's own build output rather than trusting the source — see
-// scripts/lib/prerender-manifest-check.mts for why an absent-or-stale `.next` FAILs loudly
+// scripts/lib/prerender-manifest-check.ts for why an absent-or-stale `.next` FAILs loudly
 // here rather than silently skipping, and for the freshness guard itself, both shared
 // verbatim with check-takeoffs-prerender.mts rather than repeated per script.
 //

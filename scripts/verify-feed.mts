@@ -1,4 +1,5 @@
 import { chromium, type Page } from 'playwright'
+import { createReporter } from './lib/verify-report'
 
 // Real pilot ids from the flightlog.org fixture set (see README): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
@@ -21,11 +22,7 @@ const PILOT_WITHOUT_KNOWN_TRACK = 12677
 const FAILING_PILOT_ID = 555555
 const FAILING_PILOT_MESSAGE = 'could not load recent flights for pilot 555555 (simulated for this check)'
 
-let overallOk = true
-function report(ok: boolean, label: string): void {
-  console.log(`${ok ? 'ok' : 'FAIL'} - ${label}`)
-  if (!ok) overallOk = false
-}
+const { report, finish } = createReporter()
 
 // Replaces the previous `.catch(() => {})` swallowing: a timed-out wait is now itself a
 // reported failure instead of silently letting the assertions after it run against
@@ -221,11 +218,10 @@ if (failureScenarioReady) {
 await page.unroute(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`)
 
 console.log('final logs:', logs.length ? logs : 'none')
+// Plain `fullPage: true`, not scripts/lib/screenshot.ts's capture: this page has no WebGL
+// canvas, so it was never exposed to #21's drawing-buffer bug (see README) and doesn't need
+// the resize-then-fullPage fix. Noted so a future reader doesn't have to re-derive that.
 await page.screenshot({ path: out, fullPage: true })
 await browser.close()
 
-if (!overallOk) {
-  console.error('FAIL - flight feed browser assertion did not pass')
-  process.exit(1)
-}
-console.log('PASS - flight feed browser assertion passed')
+finish('flight feed browser assertion')
