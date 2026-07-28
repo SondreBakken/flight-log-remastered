@@ -11,3 +11,7 @@ export const DEFAULT_PILOT_ID = Number(process.env.FLIGHTLOG_PILOT_ID ?? FALLBAC
 export function flightlogFlightUrl(tripId: number): string {
   return `https://flightlog.org/fl.html?l=1&a=34&trip_id=${tripId}`
 }
+
+export function flightlogTakeoffUrl(countryId: number, takeoffId: number): string {
+  return `https://flightlog.org/fl.html?l=1&a=22&country_id=${countryId}&start_id=${takeoffId}`
+}

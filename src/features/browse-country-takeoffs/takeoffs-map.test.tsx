@@ -14,10 +14,21 @@ import type { TakeoffsMapData } from './build-takeoffs-geojson'
 
 describe('buildSitePopupContent', () => {
   it('renders the takeoff name and wind summary as visible text', () => {
-    const content = buildSitePopupContent('Bergen', 'Works in N, S')
+    const content = buildSitePopupContent('Bergen', 'Works in N, S', '/countries/160/takeoffs/179')
 
     expect(content.textContent).toContain('Bergen')
     expect(content.textContent).toContain('Works in N, S')
+  })
+
+  // #11: the name is now a real link into the takeoff's own detail page — a plain `<a>`, not
+  // `next/link` (see this function's own doc comment on why), so the href alone is what proves
+  // the link actually goes to the detail route rather than merely rendering the right text.
+  it('links the name to the takeoff detail route', () => {
+    const content = buildSitePopupContent('Bergen', 'Works in N, S', '/countries/160/takeoffs/179')
+
+    const link = content.querySelector('a')
+    expect(link?.getAttribute('href')).toBe('/countries/160/takeoffs/179')
+    expect(link?.textContent).toBe('Bergen')
   })
 
   // D2: "popup textContent changed to innerHTML" is one of the six mutations that leaves
@@ -28,14 +39,14 @@ describe('buildSitePopupContent', () => {
   // correctly for this exact input) is what actually distinguishes textContent from innerHTML.
   it('never parses a takeoff name as markup, even if it contains an HTML-looking string', () => {
     const maliciousName = '<img src=x onerror="window.__pwned = true">'
-    const content = buildSitePopupContent(maliciousName, 'No wind direction recorded')
+    const content = buildSitePopupContent(maliciousName, 'No wind direction recorded', '/countries/160/takeoffs/179')
 
     expect(content.querySelector('img')).toBeNull()
     expect(content.textContent).toContain(maliciousName)
   })
 
   it('never parses a wind summary as markup either', () => {
-    const content = buildSitePopupContent('Site', '<script>window.__pwned = true</script>')
+    const content = buildSitePopupContent('Site', '<script>window.__pwned = true</script>', '/countries/160/takeoffs/179')
 
     expect(content.querySelector('script')).toBeNull()
   })

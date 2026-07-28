@@ -299,7 +299,8 @@ resolved with an **anonymous** session (below) — pilot search needs no auth. R
 | 5 | Help | — | — |
 | 20 | Takeoffs, variant listing | — | — |
 | 21 | Takeoffs in a country | `country_id` | `gm`, `last_days` |
-| 22, 23 | **Takeoff detail** (coords, description, site records) | `country_id`, `start_id` | — |
+| 22 | **Takeoff detail** (description, site records — coords come from `rqtid=11`, see below) | `country_id`, `start_id` | — |
+| 23 | Takeoffs, generic index — **not** a detail page (see below) | — | — |
 | 24 | Pilots/Clubs, variant index | — | — |
 | 25 | Clubs in a country | `country_id` | — |
 | 26, 27 | **Club detail + member roster** | `country_id`, `club_id` | — |
@@ -486,6 +487,81 @@ honeypot copy, same as every other page) around one results block:
 Takeoff detail (`a=22`) carries coordinates three ways: DMS in the body, UTM/WGS84, and decimal
 degrees embedded in an outbound weather-API link (`Lat=61.89222222&Lon=9.14222222`). For bulk
 work prefer `rqtid=11`, which gives decimal directly.
+
+### Takeoff detail (`a=22`) and flights at a takeoff (`a=42`) — #11
+
+```
+GET /fl.html?l=1&a=22&country_id=160&start_id=179
+GET /fl.html?l=1&a=42&country_id=160&start_id=179
+```
+
+**Correction to this doc's own earlier claim that `22, 23` are both takeoff detail pages.**
+`a=23` (any `country_id`/`start_id`) renders the generic "Takeoffs per country" index instead —
+confirmed live (`fixtures/a23-179-detail.html`, `country_id=160&start_id=179`): the response
+shares `a=22`'s page shell and even its `<title>`, but the body is the same country-list table
+`a=2`/the takeoff search page renders, both params silently ignored. `a=23` is a real page (not
+the ambiguous 302), just not a detail page — this app never fetches it.
+
+- **Results table.** `a=22`'s label/value fields live in
+  `table[cellspacing='1'][cellpadding='3'][bgcolor='black']` — the exact same selector
+  `a=25` (clubs) and `a=23` (takeoffs index) both use, confirmed live across all three. Not
+  unique by itself; see "field labels as the positive signal" below.
+- **Rows, in document order:** `region` (absent, not empty, when flightlog.org never assigned
+  one — same regionId-0 case `rqtid=11` already documents), `Altitude` (free text, e.g. `401
+  meters asl Top to bottom 398 meters`, not a bare number), `Link to more info` (an outbound
+  URL, absent when none is set), a Holfuy weather-station map link and an embedded iframe
+  widget (both `colspan='2'`, present only for takeoffs flightlog.org has wired one up for, no
+  label to key on), `Description` (free HTML — a wind-compass image, sometimes a start-photo
+  thumbnail, then `<br>`-separated text), `Coordinates` (DMS/UTM — not used, see the note
+  above), `weather` (an outbound NOAA link — not used), `Siterecord` (see below), `created` and
+  `Updated` (`YYYY-MM-DD HH:MM:SS`, optionally followed by an editor's name; `created` carries
+  a `0000-00-00 00:00:00` placeholder for "never recorded").
+- **Field labels as the positive signal.** `region`/`Altitude`/`Description`/`Siterecord`/
+  `created`/`Updated` are the label text of `a=22`'s own rows; `a=23`'s rows are
+  `<a>Country</a>`/count pairs and `a=25`'s are `<a>Club</a>`/count pairs — neither carries any
+  of these labels. A parser fed either by mistake sees the identical table selector but none of
+  the expected labels, and throws rather than returning an empty-looking detail object.
+- **`Siterecord`** — the best PG, HG and HG2 distance ever flown from this takeoff, e.g. `PG:
+  <a href='…a=34&trip_id=803981'>Mikael Benjamin Ulstrup, 196.9 Km</a>&nbsp;&nbsp;HG: …`. The
+  class label (`PG`/`HG`/`HG2`) is a bare text node immediately before its anchor, not an
+  attribute. Each anchor's `href` carries a `trip_id` but **no `user_id`** — unlike `a=42`'s own
+  flight rows (below), a site record's pilot name cannot be a follow target from this response
+  alone.
+- **Nonexistent `start_id`.** Same `200 OK`, same table, same six required labels present —
+  confirmed live (`fixtures/a22-nonexistent-detail.html`, a `start_id` far outside any real
+  Norway id) — but every value is blank and the breadcrumb (`Home -> Takeoffs -> <Country> -> `)
+  has only three `<span style='font-style:italic;'>` entries instead of four: no fourth span
+  for the takeoff's own name at all. That missing fourth span is the one signal that reliably
+  tells a bad id apart from a real, sparsely-populated takeoff (`fixtures/a22-119-detail.html`
+  has almost every optional row absent too, but still carries its own name). Row emptiness
+  alone cannot make this distinction — a real takeoff with a genuinely empty `Siterecord` cell
+  looks identical to a nonexistent one in that one cell.
+- **`a=42` (flights at a takeoff)** shares this same "identical empty shell either way" trap.
+  `GET a=42&country_id=160&start_id=<bad id>` (`fixtures/a42-nonexistent-flights.html`) and a
+  real takeoff with zero flights so far this year (`fixtures/a42-119-flights.html`) render the
+  exact same results table
+  (`table[cellspacing='1'][cellpadding='2'][bgcolor='#22aa00']`), the exact same pagination
+  rows pointing at the same opaque `offset=1000`, and zero flight rows either way. The one
+  difference is the page's own `<h3>Flights - <name></h3>` — empty for the bad id, populated
+  for the real one — mirroring `a=22`'s breadcrumb signal exactly. A caller that needs "no such
+  takeoff" apart from "real takeoff, quiet year" has to use `a=22`'s own name for that, the same
+  way `a=25`/clubs' own doc note says a caller needing "no such country" apart from "real
+  country, zero clubs" has to cross-reference `rqtid=9`.
+- **No `a=22` coordinate fallback.** Both corruption shapes `rqtid=11` documents above (the
+  full Null Island placeholder, and a lat/lon axis swap) were checked against `a=22` for the
+  same takeoff (`start_id=8478`, "Veines (Kongsfjord)", `lat=0`/`lon=70.73` in `rqtid=11`):
+  `a=22`'s own `Coordinates` row is present but shows the SAME underlying corrupt value (DMS
+  for a `lat` of `0`), not a separate, independently-correct reading. There is no second source
+  of truth here to fall back to — a takeoff excluded by `hasKnownLocation` stays excluded, full
+  stop.
+- **No within-year pagination followed either.** The `offset=1000` link at both the top and
+  bottom of `a=42`'s results table appears identically on an empty-this-year response and a
+  63-flight one (`fixtures/a42-179-flights.html`) — its unit is not row count and is not
+  otherwise documented anywhere on the site. This app requests the bare, no-`offset` response
+  for the current year only and does not chase it further, the same reasoning that already
+  ruled out chasing `a=42`'s `year=` param across multiple years.
+- **`a=93`** (a flight-stats tab both `a=22` and `a=42`'s breadcrumbs link to) — not
+  investigated.
 
 Param vocabulary: `l` (1=en,2=no,3=sv,4=is,5=fr,6=fi,7=de), `a`, `rqtid`, `user_id`, `trip_id`,
 `country_id`, `region_id`, `subregion_id`, `start_id`, `club_id`, `comp_id`, `year`, `offset`,

@@ -6,6 +6,8 @@ import { parseClubs } from '../src/lib/flightlog/parse-clubs'
 import { parsePilotSearch } from '../src/lib/flightlog/parse-pilot-search'
 import { parseTakeoffs } from '../src/lib/flightlog/parse-takeoffs'
 import { parseRegions } from '../src/lib/flightlog/parse-regions'
+import { parseTakeoffDetail } from '../src/lib/flightlog/parse-takeoff-detail'
+import { parseTakeoffFlights } from '../src/lib/flightlog/parse-takeoff-flights'
 import { encodeTakeoffRow, isTakeoffRows } from '../src/app/api/countries/[countryId]/takeoffs/contract'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
@@ -29,6 +31,13 @@ const requiredFixtures = [
   'fixtures/takeoffs-29.html',
   'fixtures/regions-160.html',
   'fixtures/regions-29.html',
+  'fixtures/a22-179-detail.html',
+  'fixtures/a22-119-detail.html',
+  'fixtures/a22-8478-detail.html',
+  'fixtures/a22-nonexistent-detail.html',
+  'fixtures/a42-179-flights.html',
+  'fixtures/a42-119-flights.html',
+  'fixtures/a42-nonexistent-flights.html',
 ]
 const missing = requiredFixtures.filter((f) => !existsSync(f))
 if (missing.length > 0) {
@@ -153,6 +162,48 @@ assert(
 const emptyRegions = parseRegions(readFileSync('fixtures/regions-29.html', 'utf8'), 29)
 console.log(`regions-29.html (Bouvet Island): regions=${emptyRegions.length}`)
 assert(emptyRegions.length === 0, `regions-29.html (Bouvet Island): genuinely zero regions (got ${emptyRegions.length})`)
+
+const solbergasenDetail = parseTakeoffDetail(readFileSync('fixtures/a22-179-detail.html', 'utf8'), 179)
+console.log(
+  `a22-179-detail.html: name=${solbergasenDetail?.name} siteRecords=${solbergasenDetail?.siteRecords.length} createdAt=${solbergasenDetail?.createdAt}`,
+)
+assert(solbergasenDetail?.name === 'Drammen, Solbergåsen', `a22-179-detail.html: resolves the expected name (got ${solbergasenDetail?.name ?? 'MISSING'})`)
+assert(solbergasenDetail?.siteRecords.length === 3, `a22-179-detail.html: parses all 3 site records (got ${solbergasenDetail?.siteRecords.length})`)
+assert(solbergasenDetail?.createdAt === null, `a22-179-detail.html: normalises the 0000-00-00 placeholder created date to null (got ${solbergasenDetail?.createdAt})`)
+
+const hafstadfjelletDetail = parseTakeoffDetail(readFileSync('fixtures/a22-119-detail.html', 'utf8'), 119)
+console.log(`a22-119-detail.html: name=${hafstadfjelletDetail?.name} siteRecords=${hafstadfjelletDetail?.siteRecords.length}`)
+assert(hafstadfjelletDetail?.siteRecords.length === 0, `a22-119-detail.html: genuinely zero site records (got ${hafstadfjelletDetail?.siteRecords.length})`)
+
+const veinesDetail = parseTakeoffDetail(readFileSync('fixtures/a22-8478-detail.html', 'utf8'), 8478)
+console.log(`a22-8478-detail.html: name=${veinesDetail?.name}`)
+assert(veinesDetail?.name === 'Veines (Kongsfjord)', `a22-8478-detail.html: resolves the expected name (got ${veinesDetail?.name ?? 'MISSING'})`)
+
+// The failure mode this repo has hit four times, guarded directly: a nonexistent start_id
+// renders the identical table shell a real takeoff does — this must resolve to null (see
+// parseTakeoffDetail's own doc comment), never an empty-but-present object and never a throw.
+const nonexistentDetail = parseTakeoffDetail(readFileSync('fixtures/a22-nonexistent-detail.html', 'utf8'), 999999999)
+console.log(`a22-nonexistent-detail.html: detail=${nonexistentDetail === null ? 'null' : 'NOT NULL'}`)
+assert(nonexistentDetail === null, `a22-nonexistent-detail.html: resolves to null, not a throw or an empty-but-present object (got ${JSON.stringify(nonexistentDetail)})`)
+
+const solbergasenFlights = parseTakeoffFlights(readFileSync('fixtures/a42-179-flights.html', 'utf8'))
+const missingUserOrTrip = solbergasenFlights.filter((f) => !Number.isInteger(f.userId) || !Number.isInteger(f.tripId))
+console.log(`a42-179-flights.html: flights=${solbergasenFlights.length} missingUserOrTrip=${missingUserOrTrip.length}`)
+assert(solbergasenFlights.length === 63, `a42-179-flights.html (Drammen, Solbergåsen): parses all 63 flights (got ${solbergasenFlights.length})`)
+assert(missingUserOrTrip.length === 0, `a42-179-flights.html: every flight carries both user_id and trip_id (got ${missingUserOrTrip.length} missing)`)
+
+// Same "row emptiness alone cannot tell them apart" pair as parseTakeoffDetail above, from the
+// OTHER endpoint: a real takeoff with zero flights this year (119) and a nonexistent start_id
+// both render zero flight rows here — this parser is not the one that tells them apart (see
+// its own doc comment), so both are asserted to return the same, genuinely empty array rather
+// than either one throwing.
+const quietTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-119-flights.html', 'utf8'))
+console.log(`a42-119-flights.html (real takeoff, quiet year): flights=${quietTakeoffFlights.length}`)
+assert(quietTakeoffFlights.length === 0, `a42-119-flights.html: genuinely zero flights this year (got ${quietTakeoffFlights.length})`)
+
+const nonexistentTakeoffFlights = parseTakeoffFlights(readFileSync('fixtures/a42-nonexistent-flights.html', 'utf8'))
+console.log(`a42-nonexistent-flights.html: flights=${nonexistentTakeoffFlights.length}`)
+assert(nonexistentTakeoffFlights.length === 0, `a42-nonexistent-flights.html: zero flights (got ${nonexistentTakeoffFlights.length})`)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)

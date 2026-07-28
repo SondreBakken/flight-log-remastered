@@ -96,6 +96,13 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=11&country_
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=160" -o fixtures/regions-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=10&country_id=29" -o fixtures/regions-29.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=8" -o fixtures/takeoff-schema.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=179" -o fixtures/a22-179-detail.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=119" -o fixtures/a22-119-detail.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=8478" -o fixtures/a22-8478-detail.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=22&country_id=160&start_id=999999999" -o fixtures/a22-nonexistent-detail.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=179" -o fixtures/a42-179-flights.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=119" -o fixtures/a42-119-flights.html
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=999999999" -o fixtures/a42-nonexistent-flights.html
 ```
 
 Routes:
@@ -107,6 +114,11 @@ Routes:
 - `/flights/[tripId]` track on a map plus flight statistics
 - `/countries` every country, linking into its club list
 - `/countries/[countryId]` clubs in that country, with each club's total flight count
+- `/countries/[countryId]/takeoffs` searchable/filterable takeoff directory for a curated
+  country (list and map views), linking each takeoff into its own detail page
+- `/countries/[countryId]/takeoffs/[takeoffId]` a single takeoff: description, region,
+  altitude, PG/HG/HG2 site records, a map (when the country's coordinate dataset has one), and
+  this year's flights from it, each with a follow button and a link to its track
 
 ## How it talks to flightlog.org
 
@@ -122,6 +134,8 @@ There is no documented API. Two undocumented surfaces are used, both reachable a
 | Clubs in a country | `fl.html?l=1&a=25&country_id=N` | HTML, scraped |
 | Regions in a country | `fl.html?rqtid=10&country_id=N` | HTML table, scraped |
 | Takeoffs in a country | `fl.html?rqtid=11&country_id=N` | HTML table, scraped |
+| Takeoff detail | `fl.html?l=1&a=22&country_id=N&start_id=M` | HTML, scraped |
+| Flights at a takeoff (current year only) | `fl.html?l=1&a=42&country_id=N&start_id=M` | HTML, scraped |
 
 `rqtid=21` and `rqtid=22` return self-describing JSON and appear to exist for GpsDump's sync. They are
 the only real API-shaped thing on the site.

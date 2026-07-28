@@ -55,6 +55,7 @@ declare global {
 
 type TakeoffsMapProps = {
   takeoffs: TakeoffDirectoryEntry[]
+  countryId: number
   className?: string
 }
 
@@ -95,17 +96,22 @@ function pointCoordinates(feature: MapGeoJSONFeature): [number, number] {
 // name is upstream flightlog.org content, not something this app controls the shape of.
 // Exported so this stays pinned by a direct unit test (no MapLibre/WebGL context needed to
 // call it — it's plain DOM) rather than only ever exercised through a live map click.
-export function buildSitePopupContent(name: string, windSummary: string): HTMLElement {
+//
+// `detailHref` is a plain `<a>`, not a `next/link` `<Link>` — this element is built imperatively
+// for MapLibre's `Popup.setDOMContent`, entirely outside React's own tree, so there is no
+// component instance for `next/link` to attach client-side routing to here. A plain anchor
+// still navigates correctly; it just costs a full page load rather than a client transition,
+// the same tradeoff any content built outside React already has on this page.
+export function buildSitePopupContent(name: string, windSummary: string, detailHref: string): HTMLElement {
   const container = document.createElement('div')
   container.className = 'flex flex-col gap-0.5 text-sm'
-  const title = document.createElement('strong')
+  const title = document.createElement('a')
+  title.href = detailHref
+  title.className = 'font-semibold underline underline-offset-2'
   title.textContent = name
   const wind = document.createElement('span')
   wind.className = 'opacity-70'
   wind.textContent = windSummary
-  // #11 (a site detail page) doesn't exist yet — #9 and #4 already established the rule for
-  // this exact situation (see index.tsx's own comment): show what a click would need, never a
-  // link to a route that 404s.
   container.append(title, wind)
   return container
 }
@@ -188,7 +194,7 @@ function wireClusterExpansion(map: MapLibreMap): void {
   })
 }
 
-function wireSitePopups(map: MapLibreMap): void {
+function wireSitePopups(map: MapLibreMap, countryId: number): void {
   const siteLayers = [UNCLUSTERED_NONE_LAYER_ID, UNCLUSTERED_ALL_LAYER_ID, UNCLUSTERED_SOME_LAYER_ID]
   for (const layerId of siteLayers) {
     map.on('click', layerId, (event) => {
@@ -197,7 +203,9 @@ function wireSitePopups(map: MapLibreMap): void {
       const coordinates = pointCoordinates(feature)
       const name = String(feature.properties?.name ?? '')
       const windSummary = String(feature.properties?.windSummary ?? '')
-      new Popup().setLngLat(coordinates).setDOMContent(buildSitePopupContent(name, windSummary)).addTo(map)
+      const takeoffId = Number(feature.properties?.takeoffId)
+      const detailHref = `/countries/${countryId}/takeoffs/${takeoffId}`
+      new Popup().setLngLat(coordinates).setDOMContent(buildSitePopupContent(name, windSummary, detailHref)).addTo(map)
     })
   }
 }
@@ -244,7 +252,7 @@ function wireRayRescaling(map: MapLibreMap, rays: TakeoffsMapData['rays']): void
 // already-fetched dataset as a prop — see index.tsx, which holds the one fetch this feature
 // makes (via useTakeoffs) and passes it to both the list and this map, so switching views
 // never triggers a second network request.
-export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
+export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const mapData = useMemo(() => buildTakeoffsMapData(takeoffs), [takeoffs])
@@ -282,7 +290,7 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
     const addLayers = () => {
       addSitesAndClusters(map, mapData)
       wireClusterExpansion(map)
-      wireSitePopups(map)
+      wireSitePopups(map, countryId)
       wireHoverCursor(map)
       wireRayRescaling(map, mapData.rays)
     }
@@ -301,7 +309,7 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
         window.__takeoffsMapData = undefined
       }
     }
-  }, [mapData])
+  }, [mapData, countryId])
 
   if (mapData.plottedCount === 0) {
     return (

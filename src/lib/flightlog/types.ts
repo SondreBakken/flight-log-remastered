@@ -96,3 +96,51 @@ export type PilotSearchResult = {
   name: string
   country: string
 }
+
+// a=22's "Siterecord" row: the best PG, HG and HG2 distance ever flown from this takeoff.
+// Its link carries a `trip_id` but no `user_id` (unlike a=42's flight rows), so a pilot name
+// here is text, not a follow target — see parse-takeoff-detail.ts's own doc comment.
+export type SiteRecordClass = 'PG' | 'HG' | 'HG2'
+
+export type SiteRecord = {
+  recordClass: SiteRecordClass
+  pilotName: string
+  distanceKm: number
+  tripId: number
+}
+
+// #11's takeoff detail page, from `a=22&country_id=N&start_id=M`. `description` is upstream
+// free HTML rendered as plain text (see parse-takeoff-detail.ts for why), `region`/`altitude`/
+// `linkUrl`/`createdAt`/`updatedAt` are all optional — flightlog.org renders each of them only
+// when the takeoff record actually has a value, and `createdAt` in particular carries a
+// `0000-00-00 00:00:00` placeholder for "never recorded", normalised to null here rather than
+// rendered as a fake date.
+export type TakeoffDetail = {
+  takeoffId: number
+  name: string
+  region: string | null
+  altitude: string | null
+  description: string
+  linkUrl: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  siteRecords: SiteRecord[]
+}
+
+// A single row from a=42 (flights at a takeoff), current year only — see takeoff-flights.ts
+// for why this app never chases `a=42`'s own year/offset pagination further. `date` and
+// `timeOfDay` are both carried even though #11's own field list only calls out "time of day":
+// the table groups flights under a date header per day, so dropping the date here would make
+// a whole year's worth of flights unreadable as anything but a flat list of times.
+export type TakeoffFlight = {
+  tripId: number
+  userId: number
+  pilotName: string
+  club: string | null
+  glider: string | null
+  duration: string | null
+  distanceKm: number | null
+  note: string | null
+  date: string | null
+  timeOfDay: string | null
+}
