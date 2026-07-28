@@ -26,7 +26,7 @@ function toStats(track: Track): Stat[] {
 export default function FlightTrack({ track }: FlightTrackProps) {
   return (
     <div className="flex flex-col gap-6">
-      <TrackHoverView points={track.points} />
+      <TrackHoverView points={track.points} scoring={track.scoring} />
       <StatGrid stats={toStats(track)} />
     </div>
   )

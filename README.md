@@ -81,7 +81,8 @@ for the specific numbers and the mutation testing that verified each band and th
 difference property.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
-`verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`, `verify-shot.mts`) are a different
+`verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
+`verify-shot.mts`) are a different
 kind of check: they drive a real headless browser against a running app, so they are deliberately
 **not** part of `pnpm run check` or any other automated gate — there is nothing in this repo that
 starts a server, waits for it, and tears it down again. Run them by hand after touching the
@@ -104,6 +105,15 @@ test (see `src/lib/maplibre/map-debug.ts`). Run them against `pnpm run build && 
 anyway, by preference rather than necessity: dev is not forbidden, just the least likely place to
 reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
 maplibre-gl v6/Turbopack note below).
+
+`verify-scoring.mts` (#15) shares `verify-track-hover.mts`'s `?__verifyMap` gate to check the
+scoring overlay against three real flights, each exercising a different absence shape: 1001428
+(every geometry available, default selection is Open distance, its map source actually loads and
+renders 2 turnpoint markers), 991729 (the degenerate 5- and 4-point geometries render as disabled
+radio options, not silently selectable), and 235690 (the entirely-missing out-and-return placemark
+is likewise disabled). Run against `pnpm run build && pnpm run start`, same reason as
+`verify-track-gradient.mts` — the overlay's map source is exactly the kind of thing the
+maplibre-gl v6/Turbopack bug would silently fail to load.
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls
