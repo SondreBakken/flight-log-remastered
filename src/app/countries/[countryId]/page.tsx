@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation'
 import CountryClubs from '@/features/browse-country-clubs'
 import { getClubs } from '@/lib/flightlog/clubs'
 import { getCountries } from '@/lib/flightlog/countries'
-import { CURATED_CLUB_COUNTRY_IDS, parseCanonicalCountryId } from '@/lib/flightlog/curated-countries'
+import { parseCanonicalCountryId } from '@/lib/flightlog/country-id'
+import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
 
 type CountryParams = Promise<{ countryId: string }>
 

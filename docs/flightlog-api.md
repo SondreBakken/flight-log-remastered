@@ -94,8 +94,15 @@ with no dynamic APIs in the tree above it, so `next build` prerenders it as full
 (confirmed: `pnpm run build` marks the route `○ (Static)`). That means this specific `rqtid=9`
 request is made *at build time*, not at request time — a flightlog.org outage or a WAF block
 during a build fails the build itself, and therefore the deploy, not merely a page a user happens
-to hit while the site is down. `/countries/[countryId]` (`a=25`, clubs) is a Partial Prerender
-instead, so it does not carry this risk the same way.
+to hit while the site is down.
+
+`/countries/[countryId]` (`a=25`, clubs) is a Partial Prerender, but as of #40 its
+`generateStaticParams` fully resolves a curated set of ids (currently just `country_id=160`,
+Norway — see `CURATED_CLUB_COUNTRIES` in `src/lib/flightlog/curated-countries.ts`) at build time
+too. For each curated id, both the `a=25` clubs request and its own `rqtid=9` country-name lookup
+run during `next build`, carrying the exact same build-fails-therefore-deploy-fails risk as
+`/countries` above. Only an *uncurated* id keeps the original per-request PPR hole, resolved on
+first request with no build-time risk.
 
 ### rqtid=10 (regions in a country) and rqtid=11 (takeoffs in a country)
 

@@ -1,3 +1,5 @@
+import { parseCanonicalCountryId } from './country-id'
+
 // The only flightlog.org countries this app has measured and chosen to prerender a
 // takeoffs dataset for (see #38's decision comment on the issue, and the takeoffs API
 // route's own doc comment for the mechanism this backs). `countries.ts` already documents
@@ -35,30 +37,11 @@ export const CURATED_TAKEOFF_COUNTRIES: readonly { countryId: number; expectedRo
 // and the tuple form fights `.includes(id: number)` for no real gain.
 export const CURATED_TAKEOFF_COUNTRY_IDS: readonly number[] = CURATED_TAKEOFF_COUNTRIES.map((c) => c.countryId)
 
-// `Number(raw)` alone accepts far more spellings than the URL segments this app itself ever
-// produces: hex (`0xA0`), octal/binary (`0o240`/`0b10100000`), exponential (`1.6e2`), a
-// leading `+`, surrounding whitespace, and a trailing `.` all normalise to 160 under `Number`
-// but are none of them the string `generateStaticParams` enumerated or any real link in this
-// app emits. Each distinct spelling is also a distinct URL and therefore a distinct CDN cache
-// key, so accepting them all turns a prerendered route back into an anonymous trigger for the
-// very request-time fetch prerendering exists to avoid — see the takeoffs API route's own doc
-// comment. Requiring a canonical decimal string BEFORE calling `Number` closes that: only the
+// The id-format guard itself (`parseCanonicalCountryId`) lives in `./country-id` — it has no
+// curation opinion, so curation depends on format here, not the other way round. Only the
 // exact spelling `generateStaticParams` produces (`String(countryId)`, e.g. `"160"`) is
-// accepted for a curated id, and — see `parseCanonicalCountryId` below — no alias spelling is
+// accepted for a curated id; see that module's own doc comment for why no alias spelling is
 // accepted for ANY id, curated or not.
-const CANONICAL_DECIMAL_ID = /^(0|[1-9]\d*)$/
-
-// The format half of the id guard, with no curation opinion: accepts the canonical decimal
-// spelling of any non-negative integer, curated or not. Split out from `parseCuratedCountryId`
-// for the clubs page (`/countries/[countryId]`), which — unlike the takeoffs route and page —
-// must keep rendering for every real country id, since `/countries` links to all ~240 of them,
-// not just the curated set. That page still needs the alias rejection above (a `160.0` or
-// `0xA0` clubs URL is exactly the same duplicate-cache-key problem this function exists to
-// close for the takeoffs route), just without also rejecting a well-formed, uncurated id.
-export function parseCanonicalCountryId(raw: string): number | null {
-  return CANONICAL_DECIMAL_ID.test(raw) ? Number(raw) : null
-}
-
 export function parseCuratedCountryId(raw: string): number | null {
   const id = parseCanonicalCountryId(raw)
   return id !== null && CURATED_TAKEOFF_COUNTRY_IDS.includes(id) ? id : null
@@ -78,14 +61,30 @@ export function parseCuratedCountryId(raw: string): number | null {
 // 91 clubs) is a ~22 KB upstream response — small enough, and small enough as parsed data
 // (~6 KB), that this build was always going to embed it directly in the page's own static
 // output the way the takeoffs page already does for region names, rather than spinning up a
-// second fetched-JSON-asset architecture the way #38 did for takeoffs' 970 KB. That size
-// difference is exactly why this array carries no `expectedPayloadBytes` band the way
-// CURATED_TAKEOFF_COUNTRIES does: there is no separate JSON artifact on disk to size a band
-// against — the artifact here is a full rendered HTML page (hashed asset chunk names and all),
-// and check-clubs-prerender.mts instead asserts on rendered content (the club count text and
-// row count), the same way it would need to regardless of size.
-export const CURATED_CLUB_COUNTRIES: readonly { countryId: number; expectedRowCount: number }[] = [
-  { countryId: 160, expectedRowCount: 91 }, // Norway — see fixtures/clubs-160.html, docs/flightlog-api.md
+// second fetched-JSON-asset architecture the way #38 did for takeoffs' 970 KB. There is no
+// separate JSON artifact on disk to size an `expectedPayloadBytes`-shaped band against — the
+// artifact here is a full rendered HTML page (hashed asset chunk names and all) — so
+// check-clubs-prerender.mts instead asserts on rendered content: the resolved country name
+// (`expectedCountryName`, carried per entry rather than hardcoded, since a second curated
+// country would otherwise have the first one's name asserted against its own HTML), the club
+// count text, and the actual number of rendered club rows (`expectedRowCount`). It does still
+// print the artifact's raw HTML byte count for a human skimming the check's output, and
+// `expectedHtmlBytes` turns that into an actual assertion, the same coarse-sanity-band role
+// `expectedPayloadBytes` plays above — not a field-shape guard, just wide enough to catch the
+// artifact being grossly wrong (truncated, swapped for unrelated content) while tolerating the
+// page shell's own hashed chunk names and whitespace moving between Next.js versions.
+export const CURATED_CLUB_COUNTRIES: readonly {
+  countryId: number
+  expectedCountryName: string
+  expectedRowCount: number
+  expectedHtmlBytes: readonly [number, number]
+}[] = [
+  // see fixtures/clubs-160.html, docs/flightlog-api.md. expectedHtmlBytes is a wide band
+  // (roughly ±25% of the observed 53,192 bytes) rather than a tight one like
+  // expectedPayloadBytes above: this artifact is a full rendered HTML page shell, including
+  // hashed asset chunk names that shift on every dependency or Next.js bump, not a stable
+  // JSON payload — the content assertions below are what actually pin correctness.
+  { countryId: 160, expectedCountryName: 'Norway', expectedRowCount: 91, expectedHtmlBytes: [40_000, 66_000] },
 ]
 
 export const CURATED_CLUB_COUNTRY_IDS: readonly number[] = CURATED_CLUB_COUNTRIES.map((c) => c.countryId)

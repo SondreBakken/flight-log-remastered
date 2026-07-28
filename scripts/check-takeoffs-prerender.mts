@@ -1,94 +1,28 @@
-import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { CURATED_TAKEOFF_COUNTRIES, CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
 import { isTakeoffRows, type TakeoffRow } from '../src/app/api/countries/[countryId]/takeoffs/contract'
+import {
+  assertExactRouteSet,
+  createChecker,
+  readPrerenderManifest,
+  requireFreshPrerenderManifest,
+  routesForSrcRoute,
+} from './lib/prerender-manifest-check'
 
 // #38's central claim is that this route is prerendered at BUILD time, not merely that
 // `generateStaticParams` + `use cache` look like they should do that — see route.ts's own
 // doc comment for why that distinction matters on serverless. This script is what actually
-// pins the claim: it reads Next's own build output rather than trusting the source.
-//
-// That output has no causal link to the working tree on its own — `.next/` does not record a
-// source hash, and nothing compares it to the files that produced it. Demonstrated: editing
-// route.ts to add a line that doesn't even compile under Cache Components still leaves a
-// perfectly readable, all-green prerender-manifest.json on disk from whatever build ran
-// before the edit. `.next` absent (a clean checkout — nothing has ever built) and `.next`
-// present but STALE (source edited since the last successful build, or the last build
-// failed and deleted prerender-manifest.json — see next below) are made indistinguishable
-// on purpose here: both FAIL loudly rather than silently pass or silently skip. Unlike
-// check:parsers' fixtures/ (which requires a manual scrape this repo cannot automate),
-// producing `.next` is a one-command `pnpm run build` with no manual step, so there is no
-// legitimate reason for this check to pass — or even run — without one.
-let failures = 0
-function assert(condition: boolean, label: string): void {
-  console.log(`${condition ? 'ok' : 'FAIL'} - ${label}`)
-  if (!condition) failures++
-}
-function fail(message: string): never {
-  console.error(`FAIL - check:takeoffs-prerender: ${message}`)
-  process.exit(1)
-}
-
-const PRERENDER_MANIFEST_PATH = '.next/prerender-manifest.json'
-if (!existsSync(PRERENDER_MANIFEST_PATH)) {
-  fail(
-    `${PRERENDER_MANIFEST_PATH} not found. This is gitignored Next.js build output; it does not exist ` +
-      'without a local `pnpm run build`. Run `pnpm run build`, then re-run this check — it does not ' +
-      'skip, because unlike fixtures/ a build is fully automatable and there is nothing legitimate to ' +
-      'defer to a human here. (A build that FAILED also deletes this file, so this same message covers ' +
-      'that case — re-run `pnpm run build` and read its own output.)',
-  )
-}
-
-// Every file that can change what next build produces for this route — walked wholesale
-// rather than hand-picked (route.ts, contract.ts, curated-countries.ts, takeoffs.ts,
-// parse-takeoffs.ts, http.ts, next.config.ts, ...) because an incomplete hand-picked list is
-// exactly how a real dependency (say a shared cache helper) could silently fall outside it.
-// Conservative on purpose: an unrelated source edit forces a re-run of `pnpm run build` this
-// check didn't strictly need, but that costs a rebuild, not a false "ok" on stale output.
-function newestSourceMtimeMs(): number {
-  const roots = ['src', 'next.config.ts', 'tsconfig.json', 'package.json']
-  let newest = 0
-  for (const root of roots) {
-    if (!existsSync(root)) continue
-    const stat = statSync(root)
-    if (stat.isFile()) {
-      newest = Math.max(newest, stat.mtimeMs)
-      continue
-    }
-    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile()) continue
-      newest = Math.max(newest, statSync(join(entry.parentPath ?? root, entry.name)).mtimeMs)
-    }
-  }
-  return newest
-}
-
-const manifestMtimeMs = statSync(PRERENDER_MANIFEST_PATH).mtimeMs
-const sourceMtimeMs = newestSourceMtimeMs()
-if (sourceMtimeMs > manifestMtimeMs) {
-  fail(
-    `source under src/ (or next.config.ts/tsconfig.json/package.json) was modified after ` +
-      `${PRERENDER_MANIFEST_PATH} was written — the build on disk predates the working tree and proves ` +
-      'nothing about it. This is exactly the gap that let `force-dynamic` added to the route (a line ' +
-      "that doesn't even compile under Cache Components) still read as a green, STATIC prerender: the " +
-      'manifest from the PREVIOUS build was still sitting on disk, untouched. Run `pnpm run build` again, ' +
-      'then re-run this check.',
-  )
-}
+// pins the claim: it reads Next's own build output rather than trusting the source. See
+// scripts/lib/prerender-manifest-check.mts for why an absent-or-stale `.next` FAILs loudly
+// here rather than silently skipping — that reasoning, and the freshness guard itself, are
+// shared with check-clubs-prerender.mts verbatim, not repeated per script.
+const { assert, fail, summarize } = createChecker('check:takeoffs-prerender')
+requireFreshPrerenderManifest(fail)
 
 const SRC_ROUTE = '/api/countries/[countryId]/takeoffs'
 
-type PrerenderManifest = {
-  routes: Record<string, { renderingMode?: string; srcRoute?: string }>
-}
-
-const manifest = JSON.parse(readFileSync(PRERENDER_MANIFEST_PATH, 'utf8')) as PrerenderManifest
-
-// Every route this app prerendered under the takeoffs API's own srcRoute — computed from
-// the manifest itself, not from CURATED_TAKEOFF_COUNTRY_IDS, so the "nothing beyond the
-// curated set" assertion below can't pass by construction.
-const takeoffRouteKeys = Object.keys(manifest.routes).filter((key) => manifest.routes[key].srcRoute === SRC_ROUTE)
+const manifest = readPrerenderManifest()
+const takeoffRouteKeys = routesForSrcRoute(manifest, SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${takeoffRouteKeys.join(', ') || '(none)'}`)
 
 for (const { countryId, expectedRowCount, expectedPayloadBytes } of CURATED_TAKEOFF_COUNTRIES) {
@@ -149,13 +83,10 @@ for (const { countryId, expectedRowCount, expectedPayloadBytes } of CURATED_TAKE
   assert(rows.length === expectedRowCount, `${bodyPath}: row count matches the curated expectation for country ${countryId} (expected ${expectedRowCount}, got ${rows.length})`)
 }
 
-// Confirms the curated set really is curated — nothing beyond it got prerendered as a side
-// effect of, say, generateStaticParams silently returning more than intended.
-const expectedRouteKeys = CURATED_TAKEOFF_COUNTRY_IDS.map((countryId) => `/api/countries/${countryId}/takeoffs`).sort()
-assert(
-  JSON.stringify([...takeoffRouteKeys].sort()) === JSON.stringify(expectedRouteKeys),
-  `prerender-manifest.json: prerenders exactly the curated set (${expectedRouteKeys.join(', ')}), nothing more`,
+assertExactRouteSet(
+  assert,
+  takeoffRouteKeys,
+  CURATED_TAKEOFF_COUNTRY_IDS.map((countryId) => `/api/countries/${countryId}/takeoffs`),
 )
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
-if (failures > 0) process.exit(1)
+summarize()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CURATED_CLUB_COUNTRY_IDS, CURATED_TAKEOFF_COUNTRY_IDS, parseCanonicalCountryId, parseCuratedCountryId } from './curated-countries'
+import { CURATED_CLUB_COUNTRY_IDS, CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from './curated-countries'
 
 describe('parseCuratedCountryId', () => {
   it('accepts the exact canonical decimal spelling generateStaticParams produces', () => {
@@ -25,32 +25,6 @@ describe('parseCuratedCountryId', () => {
 
   it.each(['abc', '', '-160', '01', '160abc'])('rejects the malformed id %j', (malformed) => {
     expect(parseCuratedCountryId(malformed)).toBeNull()
-  })
-})
-
-describe('parseCanonicalCountryId', () => {
-  it('accepts a canonical decimal id whether or not it is curated', () => {
-    expect(parseCanonicalCountryId('160')).toBe(160)
-    expect(parseCanonicalCountryId('203')).toBe(203) // Sweden — not in any curated set
-    expect(CURATED_TAKEOFF_COUNTRY_IDS).not.toContain(203)
-  })
-
-  it('accepts the canonical spelling of zero (curation and the id<=0 guard are the caller\'s job, not this parser\'s)', () => {
-    expect(parseCanonicalCountryId('0')).toBe(0)
-  })
-
-  // Same alias set parseCuratedCountryId rejects — the format check is shared, so an alias
-  // must be rejected here independent of curation membership.
-  it.each(['0xA0', '0Xa0', '160.0', '1.6e2', '+160', ' 160 ', '160.', '\n160\t'])(
-    'rejects the alias %j even though Number() would normalise it to 160',
-    (alias) => {
-      expect(Number(alias)).toBe(160)
-      expect(parseCanonicalCountryId(alias)).toBeNull()
-    },
-  )
-
-  it.each(['abc', '', '-160', '01', '160abc'])('rejects the malformed id %j', (malformed) => {
-    expect(parseCanonicalCountryId(malformed)).toBeNull()
   })
 })
 

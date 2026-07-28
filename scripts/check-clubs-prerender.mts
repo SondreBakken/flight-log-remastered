@@ -1,75 +1,40 @@
-import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 import { CURATED_CLUB_COUNTRIES, CURATED_CLUB_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import {
+  assertExactRouteSet,
+  createChecker,
+  readPrerenderManifest,
+  requireFreshPrerenderManifest,
+  routesForSrcRoute,
+} from './lib/prerender-manifest-check'
 
 // #40's central claim, mirroring check-takeoffs-prerender.mts's for its sibling route: that
 // /countries/[countryId] (the clubs page) is prerendered for the curated set at BUILD time,
 // not merely that generateStaticParams + 'use cache' look like they should do that. This
-// script pins the claim against Next's own build output rather than trusting the source —
-// see that file's own doc comment for why an empty .next (absent OR stale) fails loudly
-// rather than silently skipping, and why the freshness guard below is a conservative,
-// wholesale walk of everything that can change what `next build` produces.
-let failures = 0
-function assert(condition: boolean, label: string): void {
-  console.log(`${condition ? 'ok' : 'FAIL'} - ${label}`)
-  if (!condition) failures++
-}
-function fail(message: string): never {
-  console.error(`FAIL - check:clubs-prerender: ${message}`)
-  process.exit(1)
-}
-
-const PRERENDER_MANIFEST_PATH = '.next/prerender-manifest.json'
-if (!existsSync(PRERENDER_MANIFEST_PATH)) {
-  fail(
-    `${PRERENDER_MANIFEST_PATH} not found. This is gitignored Next.js build output; it does not exist ` +
-      'without a local `pnpm run build`. Run `pnpm run build`, then re-run this check.',
-  )
-}
-
-function newestSourceMtimeMs(): number {
-  const roots = ['src', 'next.config.ts', 'tsconfig.json', 'package.json']
-  let newest = 0
-  for (const root of roots) {
-    if (!existsSync(root)) continue
-    const stat = statSync(root)
-    if (stat.isFile()) {
-      newest = Math.max(newest, stat.mtimeMs)
-      continue
-    }
-    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile()) continue
-      newest = Math.max(newest, statSync(join(entry.parentPath ?? root, entry.name)).mtimeMs)
-    }
-  }
-  return newest
-}
-
-const manifestMtimeMs = statSync(PRERENDER_MANIFEST_PATH).mtimeMs
-const sourceMtimeMs = newestSourceMtimeMs()
-if (sourceMtimeMs > manifestMtimeMs) {
-  fail(
-    `source under src/ (or next.config.ts/tsconfig.json/package.json) was modified after ` +
-      `${PRERENDER_MANIFEST_PATH} was written — the build on disk predates the working tree and proves ` +
-      'nothing about it. Run `pnpm run build` again, then re-run this check.',
-  )
-}
+// script pins the claim against Next's own build output rather than trusting the source — see
+// scripts/lib/prerender-manifest-check.mts for why an absent-or-stale `.next` FAILs loudly
+// here rather than silently skipping, and for the freshness guard itself, both shared
+// verbatim with check-takeoffs-prerender.mts rather than repeated per script.
+//
+// Unlike the takeoffs API ROUTE (route.ts's own doc comment: an emptied
+// CURATED_TAKEOFF_COUNTRY_IDS built successfully with zero instances prerendered, silently,
+// contrary to what the Cache Components docs say should happen), an emptied
+// CURATED_CLUB_COUNTRY_IDS here fails `next build` outright with EmptyGenerateStaticParamsError
+// — confirmed against this exact route, and against the takeoffs PAGE (as opposed to its
+// sibling route.ts) too, so the route.ts behaviour looks specific to Route Handlers, not a
+// general Cache Components exemption. This script is therefore a second line of defence for
+// the clubs route, not the only one the way check-takeoffs-prerender.mts's own doc comment
+// argues for its route.
+const { assert, fail, summarize } = createChecker('check:clubs-prerender')
+requireFreshPrerenderManifest(fail)
 
 const SRC_ROUTE = '/countries/[countryId]'
 
-type PrerenderManifest = {
-  routes: Record<string, { renderingMode?: string; srcRoute?: string }>
-}
-
-const manifest = JSON.parse(readFileSync(PRERENDER_MANIFEST_PATH, 'utf8')) as PrerenderManifest
-
-// Every route this app prerendered under the clubs page's own srcRoute — computed from the
-// manifest itself, not from CURATED_CLUB_COUNTRY_IDS, so "nothing beyond the curated set"
-// below can't pass by construction.
-const clubRouteKeys = Object.keys(manifest.routes).filter((key) => manifest.routes[key].srcRoute === SRC_ROUTE)
+const manifest = readPrerenderManifest()
+const clubRouteKeys = routesForSrcRoute(manifest, SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${clubRouteKeys.join(', ') || '(none)'}`)
 
-for (const { countryId, expectedRowCount } of CURATED_CLUB_COUNTRIES) {
+for (const { countryId, expectedCountryName, expectedRowCount, expectedHtmlBytes } of CURATED_CLUB_COUNTRIES) {
   const routeKey = `/countries/${countryId}`
   const entry = manifest.routes[routeKey]
 
@@ -87,9 +52,10 @@ for (const { countryId, expectedRowCount } of CURATED_CLUB_COUNTRIES) {
   const htmlPath = `.next/server/app/countries/${countryId}.html`
   const metaPath = `.next/server/app/countries/${countryId}.meta`
   const rscPath = `.next/server/app/countries/${countryId}.rsc`
-  assert(existsSync(htmlPath), `${htmlPath}: exists on disk (the actual static artifact a request is served from)`)
-  assert(existsSync(rscPath), `${rscPath}: exists on disk (the RSC payload a client navigation is served from)`)
-  if (!existsSync(htmlPath) || !existsSync(metaPath) || !existsSync(rscPath)) continue
+  const htmlExists = assert(existsSync(htmlPath), `${htmlPath}: exists on disk (the actual static artifact a request is served from)`)
+  const metaExists = assert(existsSync(metaPath), `${metaPath}: exists on disk (carries the 'postponed' key that distinguishes a resolved page from a deferred shell)`)
+  const rscExists = assert(existsSync(rscPath), `${rscPath}: exists on disk (the RSC payload a client navigation is served from)`)
+  if (!htmlExists || !metaExists || !rscExists) continue
 
   // A `postponed` key means Next captured this artifact as a PPR shell with an unresolved
   // hole (exactly what /countries/[countryId] produces for EVERY id today, curated or not,
@@ -101,32 +67,37 @@ for (const { countryId, expectedRowCount } of CURATED_CLUB_COUNTRIES) {
   assert(!('postponed' in meta), `${metaPath}: has no 'postponed' key — the club list was resolved at build time, not left as a per-request hole`)
 
   const html = readFileSync(htmlPath, 'utf8')
-  console.log(`${htmlPath}: ${html.length} bytes on disk`)
+  const [minBytes, maxBytes] = expectedHtmlBytes
+  assert(
+    html.length >= minBytes && html.length <= maxBytes,
+    `${htmlPath}: artifact size (${html.length} bytes) falls within the expected ${minBytes}-${maxBytes} byte band for country ${countryId}`,
+  )
 
   // The static shell's own Suspense fallback (ClubsSkeleton) legitimately appears in this
   // HTML too — that is normal React SSR streaming output (the fallback paints first, then a
   // same-document script swaps in the resolved boundary), present even on a page that
   // resolved fully at build time, so its presence proves nothing either way. The actual
   // "this is the resolved club list, not just the fallback" signal is the RESOLVED content
-  // sitting alongside it: the real country name, and the exact club count rendered as plain
-  // text by CountryClubs (`{clubs.length} clubs`, with React's hydration-safe text-separator
-  // comment between the number and the literal). Content-aware, not just "the file exists" —
-  // the same reasoning as check-takeoffs-prerender.mts's row-count assertion, and, like that
-  // file's expectedRowCount, pinned against the live build (not the offline fixture
-  // check:parsers uses), so this may need a one-line bump if flightlog.org's Norway club
-  // count drifts from the fixture-time value of 91.
-  assert(html.includes('>Norway</h1>'), `${htmlPath}: renders the resolved country name "Norway", not just the fallback shell`)
+  // sitting alongside it: the real country name (per curated entry, not hardcoded — a second
+  // curated country would otherwise have the first one's name asserted against its own HTML),
+  // and the exact club count rendered as plain text by CountryClubs (`{clubs.length} clubs`,
+  // with React's hydration-safe text-separator comment between the number and the literal),
+  // plus the actual number of rendered `<tr>` club rows — content-aware, not just "the file
+  // exists", the same reasoning as check-takeoffs-prerender.mts's row-count assertion, and,
+  // like that file's expectedRowCount, pinned against the live build (not the offline fixture
+  // check:parsers uses), so these may need a one-line bump if flightlog.org's data drifts from
+  // the fixture-time values.
+  assert(html.includes(`>${expectedCountryName}</h1>`), `${htmlPath}: renders the resolved country name "${expectedCountryName}", not just the fallback shell`)
   const clubCountPattern = new RegExp(`<p class="text-sm opacity-70">${expectedRowCount}(?:<!--\\s*-->)?\\s*clubs</p>`)
   assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)
+  const rowMatches = html.match(/<tr class="border-b border-black\/5 dark:border-white\/10">/g) ?? []
+  assert(rowMatches.length === expectedRowCount, `${htmlPath}: renders ${expectedRowCount} club table rows (found ${rowMatches.length})`)
 }
 
-// Confirms the curated set really is curated — nothing beyond it got prerendered as a side
-// effect of, say, generateStaticParams silently returning more than intended.
-const expectedRouteKeys = CURATED_CLUB_COUNTRY_IDS.map((countryId) => `/countries/${countryId}`).sort()
-assert(
-  JSON.stringify([...clubRouteKeys].sort()) === JSON.stringify(expectedRouteKeys),
-  `prerender-manifest.json: prerenders exactly the curated set (${expectedRouteKeys.join(', ')}), nothing more`,
+assertExactRouteSet(
+  assert,
+  clubRouteKeys,
+  CURATED_CLUB_COUNTRY_IDS.map((countryId) => `/countries/${countryId}`),
 )
 
-console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
-if (failures > 0) process.exit(1)
+summarize()
