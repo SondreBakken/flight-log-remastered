@@ -20,7 +20,9 @@ function readDate(cellText: string): string | null {
   return cellText.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null
 }
 
-// A row can aggregate several flights from the same day, rendered as "00:10 / 2".
+// A row can aggregate several flights from the same day, rendered as "00:10 / 2" — the
+// duration read here is that row's GROUP TOTAL, not a per-flight duration (#68; see Flight's
+// own doc comment in types.ts).
 function readDuration(cellText: string): string | null {
   return cellText.match(/\d{1,2}:\d{2}/)?.[0] ?? null
 }
