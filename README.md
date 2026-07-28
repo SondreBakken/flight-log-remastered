@@ -45,7 +45,7 @@ come from the same fixture (`check:parsers`' hardcoded row counts, for example) 
 both sides are frozen at the same curation time, so they move together or not at all. A pin between
 something frozen at curation time and something read off a REAL BUILD's LIVE fetch of
 flightlog.org is a countdown instead, and it goes stale the moment the live number it's compared
-against changes, on flightlog.org's own schedule, not one this repo controls. Four checks cross
+against changes, on flightlog.org's own schedule, not one this repo controls. Five checks cross
 that boundary today:
 
 - `check:takeoffs-prerender` pins Norway's live takeoff count and its serialised artifact shape,
@@ -75,6 +75,14 @@ that boundary today:
   as the other three, pinned against a live number, and will go stale the day that number
   changes; it is simply expected to change far less often. See
   `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
+- `verify-scoring.mts` (#15) pins three numbers against a live KML fetch of trip 1001428: the
+  open-distance summary text (`48.95 km`), the turnpoint marker count for that geometry (`2`),
+  and the per-flight disabled/enabled state of each radio option across three real flights.
+  Unlike the other four, what it pins against is not a roster that grows or shrinks over time,
+  it is one specific historical flight's already-flown GPS track and flightlog.org's own
+  already-computed scoring geometry for it. Neither changes after the fact the way a takeoff or
+  club roster does, so this pin is closer to the frozen-vs-frozen case above than a countdown,
+  even though one side of it is still a live fetch.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
@@ -111,8 +119,13 @@ scoring overlay against three real flights, each exercising a different absence 
 (every geometry available, default selection is Open distance, its map source actually loads and
 renders 2 turnpoint markers), 991729 (the degenerate 5- and 4-point geometries render as disabled
 radio options, not silently selectable), and 235690 (the entirely-missing out-and-return placemark
-is likewise disabled). Run against `pnpm run build && pnpm run start`, same reason as
-`verify-track-gradient.mts` — the overlay's map source is exactly the kind of thing the
+is likewise disabled). For 1001428 it also samples the capture's own pixels for the overlay's
+amber line colour (existence of a source/layer alone would still pass for a wholly wrong or
+empty geometry), and drives an actual toggle between two overlays to check that the map's own
+center/zoom stay put across it: the effect that syncs the overlay is kept separate from the
+map-creation effect specifically so switching overlays doesn't reset a user's pan/zoom, and
+nothing exercised that path before. Run against `pnpm run build && pnpm run start`, same reason
+as `verify-track-gradient.mts`: the overlay's map source is exactly the kind of thing the
 maplibre-gl v6/Turbopack bug would silently fail to load.
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
