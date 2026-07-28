@@ -1,13 +1,14 @@
 import { chromium } from 'playwright'
+import { captureUrlScreenshot } from './lib/screenshot'
+
+// Captures the full page, not just the viewport, by resizing the viewport to the page's
+// real height rather than passing `fullPage: true` to Playwright's screenshot() — on a
+// page holding a MapLibre WebGL canvas, `fullPage` silently discards the drawing buffer
+// and the canvas comes back blank while DOM overlays keep rendering (#21). See
+// scripts/lib/screenshot.ts for the full reasoning and scripts/verify-shot.mts for the
+// pixel-level regression check against this exact capture path.
 const [url, out] = process.argv.slice(2)
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
-const bad: string[] = []
-page.on('response', r => { if (r.status() >= 400 && r.url().startsWith('http://localhost')) bad.push(`${r.status()} ${r.url()}`) })
-page.on('pageerror', e => bad.push('pageerror: ' + e.message))
-await page.goto(url, { waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.maplibregl-canvas', { timeout: 8000 }).catch(() => {})
-await page.waitForTimeout(5000)
-await page.screenshot({ path: out, fullPage: true })
-console.log(out, '| problems:', bad.length ? bad : 'none')
+const { badResponses } = await captureUrlScreenshot(browser, url, out)
+console.log(out, '| problems:', badResponses.length ? badResponses : 'none')
 await browser.close()

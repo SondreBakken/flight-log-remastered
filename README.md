@@ -26,6 +26,7 @@ pnpm run check:request-gate               # outbound request gate: concurrency c
 pnpm test                                 # Vitest: components, jsdom + React Testing Library
 pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
+pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof shot.mts's capture isn't blank (#21); see note below
 ```
 
 `pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with two
@@ -37,12 +38,13 @@ both). Run `pnpm run build` before `pnpm run check` if you've touched anything u
 your last build.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
-`verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`) are a different kind of check: they
-drive a real headless browser against a running app, so they are deliberately **not** part of
-`pnpm run check` or any other automated gate — there is nothing in this repo that starts a server,
-waits for it, and tears it down again. Run them by hand after touching the relevant feature.
-`verify-map.mts` and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g.
-`pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and `verify-sites-map.mts` must run
+`verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`, `verify-shot.mts`) are a different
+kind of check: they drive a real headless browser against a running app, so they are deliberately
+**not** part of `pnpm run check` or any other automated gate — there is nothing in this repo that
+starts a server, waits for it, and tears it down again. Run them by hand after touching the
+relevant feature. `verify-map.mts` and `verify-feed.mts` are the only two that run against
+`pnpm dev` (e.g. `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and
+`verify-sites-map.mts` must run
 against `pnpm run build && pnpm run start`, never `pnpm dev`. Dev can still serve the page, just
 differently: it would re-run `getTakeoffs`/`getRegions` against flightlog.org live instead of
 exercising the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which
@@ -59,6 +61,26 @@ test (see `src/lib/maplibre/map-debug.ts`). Run them against `pnpm run build && 
 anyway, by preference rather than necessity: dev is not forbidden, just the least likely place to
 reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
 maplibre-gl v6/Turbopack note below).
+
+`verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
+itself, by driving the exact capture function that script's CLI calls
+(`scripts/lib/screenshot.ts`) and then looking at the pixels the resulting PNG actually contains.
+`shot.mts` once passed `fullPage: true` straight to Playwright's `screenshot()`, which silently
+discards the WebGL drawing buffer on a page holding a MapLibre canvas — the canvas came back solid
+white while DOM overlays (markers, controls, the barogram) kept rendering, so a broken capture read
+as a partly working map. Nothing checked the PNG's actual pixels, so it shipped and sat unnoticed.
+The fix resizes the viewport to the page's real height and takes a plain, non-`fullPage` screenshot
+of that instead (see `scripts/lib/screenshot.ts`'s own doc comment for why `preserveDrawingBuffer`
+was considered and rejected). `verify-shot.mts` samples the flight track map's canvas region against
+its own live `window.__flightTrackMap` ground truth (same `?__verifyMap` gate as
+`verify-track-gradient.mts`), checking both that the region isn't near-uniform (catches a blank
+capture) and that the live altitude-gradient's own colour stops actually appear in it (catches the
+`fullPage` bug's opposite-shaped cousin too — tiles rendering while the vector geometry silently
+doesn't, the same failure SHAPE as the maplibre v6/Turbopack bug below, just triggered differently).
+It only covers the flight track map (#11's takeoffs map has its own `verify-sites-map.mts`, which
+asserts on live MapLibre state directly and never calls `page.screenshot()`, so it was never exposed
+to this bug). Run against `pnpm run build && pnpm run start`, same reason as
+`verify-track-gradient.mts`.
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches
