@@ -9,6 +9,7 @@ vi.mock('@/lib/flightlog/regions', () => ({ getRegions: vi.fn() }))
 
 import { getCountries } from '@/lib/flightlog/countries'
 import { getRegions } from '@/lib/flightlog/regions'
+import TakeoffDirectory from '@/features/browse-country-takeoffs'
 import TakeoffsPage from './page'
 
 const mockedGetCountries = vi.mocked(getCountries)
@@ -38,7 +39,10 @@ describe('TakeoffsPage route guard', () => {
     },
   )
 
-  it('fetches countries and regions and renders the directory with the parsed id, the resolved country name, and region names (not bare ids)', async () => {
+  // No `searchParams` param at all any more — see page.tsx's own comment on why: the wind
+  // filter's initial value is now read client-side, inside TakeoffDirectory, specifically so
+  // this page never needs a Suspense boundary or a dynamic hole for it.
+  it('fetches countries and regions and forwards the parsed id, the resolved country name, and region names (not bare ids) directly to the directory', async () => {
     mockedGetCountries.mockResolvedValue([
       { countryId: 160, name: 'Norway' },
       { countryId: 203, name: 'Sweden' },
@@ -51,6 +55,7 @@ describe('TakeoffsPage route guard', () => {
     const element = await TakeoffsPage({ params: Promise.resolve({ countryId: '160' }) })
 
     expect(mockedGetRegions).toHaveBeenCalledWith(160)
+    expect(element.type).toBe(TakeoffDirectory)
     expect(element.props.countryId).toBe(160)
     expect(element.props.countryName).toBe('Norway')
     expect(element.props.regions).toEqual([

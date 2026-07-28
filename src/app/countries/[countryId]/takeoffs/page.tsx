@@ -31,6 +31,17 @@ export async function generateStaticParams(): Promise<{ countryId: string }[]> {
 // one fewer loading/error state to build and test, for a payload embedding was always going
 // to win on. getRegions already had the `use cache`/cacheTag machinery from #8; this is
 // its first caller, not a new mechanism.
+//
+// No `searchParams` read here, and deliberately no `<Suspense>` boundary either: #12's
+// `?wind=` used to be parsed server-side, seeded into TakeoffDirectory as an initial value —
+// but that pulled searchParams (and therefore Cache Components' Suspense-boundary requirement)
+// around the ENTIRE client directory, turning what should have been one <select>'s default
+// into a per-request hole covering the whole page (measured: 8470 characters of postponed
+// shell, against 0 for this page with the dependency removed). TakeoffDirectory already
+// fetches its own takeoff data client-side, so the filtered list was never actually part of
+// the static shell either way; it now reads `?wind=` itself, client-side, on first render (see
+// its own readWindFilterFromUrl), which costs nothing here and keeps this whole page a plain,
+// build-time-prerenderable static route for the curated set above.
 export default async function TakeoffsPage({ params }: { params: TakeoffsParams }) {
   const { countryId } = await params
   const id = parseCuratedCountryId(countryId)

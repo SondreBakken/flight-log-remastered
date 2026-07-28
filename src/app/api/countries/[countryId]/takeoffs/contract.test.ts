@@ -111,4 +111,14 @@ describe('isTakeoffRows', () => {
     expect(isTakeoffRows([[1, 'a', 2, 3, 256, 5, 6, 7, 8, 9]])).toBe(false) // wind > 255
     expect(isTakeoffRows([[1, 'a', 2, 3, -1, 5, 6, 7, 8, 9]])).toBe(false) // wind < 0
   })
+
+  // wind ends up in windIncludesDirection (see lib/flightlog/wind.ts's assertOctant/
+  // assertWindByte), which requires an INTEGER in [0, 255] and throws a RangeError on
+  // anything else. Before #12 this never mattered — wind never left decoding — but now a
+  // non-integer wind that this check waved through as "in range" would reach that throwing
+  // assert from inside a client render, not fail here at the wire boundary where a bad
+  // payload belongs.
+  it('rejects a non-integer wind, even though it falls within the 0-255 range', () => {
+    expect(isTakeoffRows([[1, 'a', 2, 3, 4.5, 5, 6, 7, 8, 9]])).toBe(false)
+  })
 })

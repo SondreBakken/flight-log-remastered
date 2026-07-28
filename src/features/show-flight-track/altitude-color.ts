@@ -1,4 +1,5 @@
 import type { TrackPoint } from '@/lib/flightlog/types'
+import { haversineDistanceMetres } from '@/lib/geo/distance'
 import { altitudeExtent, downsampleByMinMax } from './barogram-math'
 import { TRACK_LINE_COLOR } from './colors'
 
@@ -67,21 +68,6 @@ export function altitudeToColor(altitude: number, minAltitude: number, maxAltitu
 
 export function altitudeColorRampCss(): string {
   return `linear-gradient(to right, ${toCssColor(LOW_ALTITUDE_COLOR)}, ${toCssColor(MID_ALTITUDE_COLOR)}, ${toCssColor(HIGH_ALTITUDE_COLOR)})`
-}
-
-const EARTH_RADIUS_METRES = 6_371_000
-
-function toRadians(degrees: number): number {
-  return (degrees * Math.PI) / 180
-}
-
-function haversineDistanceMetres(a: TrackPoint, b: TrackPoint): number {
-  const dLat = toRadians(b.lat - a.lat)
-  const dLon = toRadians(b.lon - a.lon)
-  const lat1 = toRadians(a.lat)
-  const lat2 = toRadians(b.lat)
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-  return 2 * EARTH_RADIUS_METRES * Math.asin(Math.min(1, Math.sqrt(h)))
 }
 
 // Cumulative distance fractions approximate MapLibre's own `line-progress`, which is

@@ -27,7 +27,10 @@ export type CompassOctant = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW'
 // decodeWindDirections returns clockwise order because that's the order the site's own alt
 // text happens to read as, not because the site's internal iteration was proven semantic
 // rather than positional.
-const OCTANTS_CLOCKWISE: readonly CompassOctant[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+// Exported so #12's wind filter can enumerate the selectable directions (a UI <select>'s
+// options) and validate a URL query parameter against them, without a second, hand-copied
+// literal that could drift from this one.
+export const OCTANTS_CLOCKWISE: readonly CompassOctant[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
 
 // bit(direction) = 7 - clockwiseIndex(direction). Derived from OCTANTS_CLOCKWISE rather than
 // written out as a second literal, so the two orderings can't drift apart.
@@ -51,6 +54,14 @@ function assertOctant(octant: CompassOctant): void {
   if (!VALID_OCTANTS.has(octant)) {
     throw new RangeError(`octant must be one of ${OCTANTS_CLOCKWISE.join(', ')}, got ${JSON.stringify(octant)}`)
   }
+}
+
+// A non-throwing counterpart to assertOctant, for the one caller that expects arbitrary
+// runtime strings routinely — #12's `?wind=` URL query parameter — and needs to fall back to
+// "no filter" on anything invalid rather than crash the page on a malformed or hand-edited
+// link.
+export function isCompassOctant(value: string): value is CompassOctant {
+  return VALID_OCTANTS.has(value)
 }
 
 export function windIncludesDirection(wind: number, octant: CompassOctant): boolean {
