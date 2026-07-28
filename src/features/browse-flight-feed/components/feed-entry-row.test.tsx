@@ -62,21 +62,24 @@ describe('FeedEntryRow', () => {
   })
 
   it('renders "none" instead of a track link when the flight has no track', () => {
-    const cells = remountRow({ ...baseEntry, hasTrack: false, newness: 'unknown', trackedAt: null })
+    const cells = remountRow({ ...baseEntry, hasTrack: false, newness: 'not-new', trackedAt: null })
     const trackCell = cells[5]
 
     expect(within(trackCell).queryByRole('link', { name: 'View track' })).toBeNull()
     expect(trackCell.textContent).toBe('none')
   })
 
-  it('shows a "New" badge only when newness is \'new\', never for \'not-new\' or \'unknown\' (issue #5)', () => {
+  it('shows a "New" badge only when newness is \'new\', never for \'not-new\' (issue #5, extended to untracked flights by #62)', () => {
     const [newDateCell] = remountRow({ ...baseEntry, newness: 'new' })
     expect(within(newDateCell).queryByText('New')).not.toBeNull()
 
     const [notNewDateCell] = remountRow({ ...baseEntry, newness: 'not-new' })
     expect(within(notNewDateCell).queryByText('New')).toBeNull()
 
-    const [unknownDateCell] = remountRow({ ...baseEntry, hasTrack: false, newness: 'unknown', trackedAt: null })
-    expect(within(unknownDateCell).queryByText('New')).toBeNull()
+    const [untrackedNotNewDateCell] = remountRow({ ...baseEntry, hasTrack: false, newness: 'not-new', trackedAt: null })
+    expect(within(untrackedNotNewDateCell).queryByText('New')).toBeNull()
+
+    const [untrackedNewDateCell] = remountRow({ ...baseEntry, hasTrack: false, newness: 'new', trackedAt: null })
+    expect(within(untrackedNewDateCell).queryByText('New')).not.toBeNull()
   })
 })

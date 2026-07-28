@@ -5,10 +5,14 @@ import type { Pilot } from '@/lib/flightlog/types'
 import type { usePilotFeedResults as UsePilotFeedResults, FlightFeedResults } from './use-flight-feed'
 
 // This file exercises the actual WIRING in usePilotFeedResults — not just the pure pieces
-// (feed.ts's classifyNewness, watermark-store's advanceWatermark) that feed.test.ts and
-// watermark-ids.test.ts already cover in isolation. Those pure-function tests cannot catch a
-// regression where the hook reads or writes the watermark at the wrong point, or forgets to
-// advance it at all.
+// (feed.ts's classifyTrackedNewness/classifyUntrackedNewness, watermark-store's
+// advanceWatermark, seen-trip-store's replaceSeenTripIds) that feed.test.ts, watermark-ids.
+// test.ts, and seen-trip-ids.test.ts already cover in isolation. Those pure-function tests
+// cannot catch a regression where the hook reads or writes either store at the wrong point, or
+// forgets to update it at all. The watermark describe block below covers tracked flights (#5);
+// the seen-trip-store describe block covers untracked flights (#62) with the same shape of
+// proof, since the same trap (advancing/recording over fetched-but-unrendered data) applies to
+// both stores identically.
 //
 // Inspecting localStorage after the hook's effect runs proves recordSeen was called with SOME
 // value, but it CANNOT prove the read/write ORDERING was correct: swapping so the watermark
@@ -211,5 +215,173 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(window.localStorage.getItem(WATERMARK_KEY)).toBeNull()
+  })
+})
+
+const SEEN_TRIP_KEY = 'flight-log:seen-untracked-trips'
+
+function untrackedFlightBody(tripId: number): RecentFlightsSuccessBody {
+  return {
+    pilot,
+    flights: [
+      {
+        tripId,
+        userId: PILOT_ID,
+        date: '2026-05-23',
+        country: null,
+        takeoff: 'Voss',
+        glider: null,
+        duration: '1:30',
+        flightCount: 1,
+        distanceKm: 20,
+        openDistanceKm: null,
+        note: null,
+      },
+    ],
+    trackedTrips: [], // no track uploaded — this is what makes the flight untracked
+  }
+}
+
+describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (#62)', () => {
+  let originalFetch: typeof fetch
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('records an untracked flight as seen once it has rendered, without touching flightlog.org again', async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse(untrackedFlightBody(991729))) as unknown as typeof fetch
+    const useHook = await loadFreshUsePilotFeedResults()
+
+    render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
+
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem(SEEN_TRIP_KEY) ?? '{}')
+      expect(stored).toEqual({ [PILOT_ID]: [991729] })
+    })
+  })
+
+  it('classifies an untracked flight against the seen-trip set as it stood BEFORE this load replaces it, and only then records it — same ordering guarantee as the watermark (blocking finding #2, applied to #62)', async () => {
+    // A DIFFERENT trip id already recorded, seeded BEFORE the hook mounts — proves the fetched
+    // flight (991729) is genuinely absent from the pilot's remembered set at load time.
+    window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [PILOT_ID]: [1] }))
+    globalThis.fetch = vi.fn(async () => jsonResponse(untrackedFlightBody(991729))) as unknown as typeof fetch
+    const useHook = await loadFreshUsePilotFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+
+    // Assertion 1 — the untracked flight was never in the pilot's remembered set at load
+    // time, so it must classify 'new', not 'not-new'.
+    expect(latest?.entries[0]?.newness).toBe('new')
+
+    // Assertion 2 — the seen-trip set is replaced afterward to include it (see
+    // replaceSeenTripIds: still-in-scope previous ids ∪ this load's rendered ids), so the OLD
+    // id (1) survives too, since it stays within this pilot's fetched scope this load only by
+    // virtue of not being fetched at all here — it is dropped, which is correct: an id outside
+    // the current fetch will never be evaluated again, so it is pruned rather than kept forever.
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem(SEEN_TRIP_KEY) ?? '{}')
+      expect(stored).toEqual({ [PILOT_ID]: [991729] })
+    })
+  })
+
+  it('does NOT record an untracked flight that was fetched but truncated out of the merged feed by another pilot\'s newer flights — the same trap #5 found for watermarks (blocking finding #1), applied to seen-trip-store', async () => {
+    const busyPilotId = 61
+    const busyPilot: Pilot = { userId: busyPilotId, name: 'Busy Pilot', country: null, club: null }
+    const quietPilotId = 62
+    const quietPilot: Pilot = { userId: quietPilotId, name: 'Quiet Pilot', country: null, club: null }
+
+    const busyFlights = Array.from({ length: 30 }, (_, index) => ({
+      tripId: 1000 + index,
+      userId: busyPilotId,
+      date: `2026-06-${String(30 - (index % 28)).padStart(2, '0')}`,
+      country: null,
+      takeoff: null,
+      glider: null,
+      duration: '1:00',
+      flightCount: 1,
+      distanceKm: 10,
+      openDistanceKm: null,
+      note: null,
+    }))
+    const busyBody: RecentFlightsSuccessBody = {
+      pilot: busyPilot,
+      flights: busyFlights,
+      trackedTrips: busyFlights.map((f) => ({ tripId: f.tripId, updatedAt: '20260601000000' })),
+    }
+    // quietPilot's single flight is UNTRACKED (no trackedTrips entry) and far older than
+    // every one of busyPilot's 30 flights, so it gets truncated out of the merged feed
+    // entirely by FEED_SIZE.
+    const quietBody: RecentFlightsSuccessBody = {
+      pilot: quietPilot,
+      flights: [
+        {
+          tripId: 2000,
+          userId: quietPilotId,
+          date: '2020-01-01',
+          country: null,
+          takeoff: null,
+          glider: null,
+          duration: '1:00',
+          flightCount: 1,
+          distanceKm: 10,
+          openDistanceKm: null,
+          note: null,
+        },
+      ],
+      trackedTrips: [],
+    }
+
+    // Seed quietPilot with a STALE entry — a trip id (9999) that is NOT among their fetched
+    // flights this load (their only fetched flight is 2000). If the pilot is genuinely left
+    // untouched (they contribute zero rendered entries), this stale entry survives byte-for-
+    // byte, since nothing ever calls recordSeenUntracked for them. A mutant that iterates
+    // every FETCHED pilot instead of every SHOWN one would still call recordSeenUntracked for
+    // quietPilot (with fetchedTripIds={2000}, renderedTripIds={}) — replaceSeenTripIds would
+    // then prune 9999 away (it's not in the fetched scope) and persist an empty/deleted entry,
+    // which this test can observe as a CHANGE, unlike asserting only "no entry exists" from a
+    // pilot who had none to begin with.
+    window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [quietPilotId]: [9999] }))
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes(`/${busyPilotId}/`)) return jsonResponse(busyBody)
+      if (url.includes(`/${quietPilotId}/`)) return jsonResponse(quietBody)
+      throw new Error(`unexpected URL: ${url}`)
+    }) as unknown as typeof fetch
+    const useHook = await loadFreshUsePilotFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[busyPilotId, quietPilotId]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.entries.some((entry) => entry.pilot.userId === quietPilotId)).toBe(false)
+
+    // Give the recordSeenUntracked loop a chance to run (it fires in the same .finally() as
+    // the watermark advance, which the busy pilot's tracked flights DO trigger).
+    await waitFor(() => {
+      expect(window.localStorage.getItem('flight-log:track-watermarks')).not.toBeNull()
+    })
+    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_KEY) ?? '{}')[quietPilotId]).toEqual([9999])
+  })
+
+  it('does NOT wipe a pilot\'s seen-trip set when their fetch fails (the second trap #62 calls out — #5 already got this right for watermarks)', async () => {
+    window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [PILOT_ID]: [1, 2, 3] }))
+    globalThis.fetch = vi.fn(async () => new Response('boom', { status: 502 })) as unknown as typeof fetch
+    const useHook = await loadFreshUsePilotFeedResults()
+
+    render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_KEY) ?? '{}')).toEqual({ [PILOT_ID]: [1, 2, 3] })
   })
 })

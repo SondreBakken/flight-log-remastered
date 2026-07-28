@@ -3,13 +3,16 @@
 import { useEffect, useState } from 'react'
 import { runWithConcurrencyLimit, type Settled } from '@/lib/concurrency/with-limit'
 import { getWatermark, recordSeen } from '@/lib/watermark-store/storage'
+import { getSeenTripIds, recordSeenUntracked } from '@/lib/seen-trip-store/storage'
 import { fetchPilotFeed } from './fetch-pilot-feed'
 import {
-  anyPilotHasPriorWatermark,
+  anyPilotHasPriorVisit,
   buildFeedEntries,
   failedPilotResults,
   FEED_SIZE,
+  fetchedUntrackedTripIdsByPilot,
   shownTrackedTsByPilot,
+  shownUntrackedTripIdsByPilot,
   type FeedEntry,
   type FetchedPilotFeedResult,
   type PilotFeedFailure,
@@ -41,8 +44,8 @@ export type FlightFeedResults = {
   isLoading: boolean
   entries: FeedEntry[]
   failedPilots: PilotFeedFailure[]
-  // Whether any followed pilot had a watermark recorded before this load — see
-  // anyPilotHasPriorWatermark. Lets the caption distinguish a genuine first visit (nothing to
+  // Whether any followed pilot had a watermark OR a seen-trip entry recorded before this load
+  // — see anyPilotHasPriorVisit. Lets the caption distinguish a genuine first visit (nothing to
   // report "since your last visit" against) from an established one.
   hasSeenBefore: boolean
 }
@@ -79,13 +82,16 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
       (pilotId, outcome) => {
         if (cancelled) return
         const fetched = toFetchedResult(pilotId, outcome)
-        // Read (getWatermark), not write: the write side — advancing this pilot's stored
-        // watermark — happens once, below, only after every pilot has settled AND only for
-        // flights that actually end up rendered (see the .finally() block and blocking
-        // finding #1: advancing here, per pilot, over every flight FETCHED silently marked
-        // flights the user never saw as seen forever, with no undo).
+        // Read (getWatermark / getSeenTripIds), not write: the write side — advancing this
+        // pilot's stored watermark, and replacing their stored seen-trip set — happens once,
+        // below, only after every pilot has settled AND only for flights that actually end up
+        // rendered (see the .finally() block and blocking finding #1: advancing here, per
+        // pilot, over every flight FETCHED silently marked flights the user never saw as seen
+        // forever, with no undo — the same trap applies to the seen-trip store, see #62).
         const result: PilotFeedResult =
-          fetched.status === 'success' ? { ...fetched, watermarkAtLoad: getWatermark(pilotId) } : fetched
+          fetched.status === 'success'
+            ? { ...fetched, watermarkAtLoad: getWatermark(pilotId), seenUntrackedTripIdsAtLoad: getSeenTripIds(pilotId) }
+            : fetched
         collected.push(result)
         setResults((previous) => [...previous, result])
       },
@@ -100,13 +106,24 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
       .finally(() => {
         if (cancelled) return
         // "The user has seen this flight" can only honestly mean a flight that made it into
-        // the merged, FEED_SIZE-truncated feed actually rendered — see shownTrackedTsByPilot.
-        // Advancing once here (not per pilot, on each fetch settling) trades a slow pilot
-        // briefly holding up every watermark's advance for correctness: a watermark that
-        // silently swallows an unseen flight, with no undo, is worse than one that advances a
-        // moment later once the whole load has actually settled.
+        // the merged, FEED_SIZE-truncated feed actually rendered — see shownTrackedTsByPilot
+        // (tracked) and shownUntrackedTripIdsByPilot (untracked, #62). Advancing/replacing once
+        // here (not per pilot, on each fetch settling) trades a slow pilot briefly holding up
+        // every store's update for correctness: a store that silently swallows an unseen
+        // flight, with no undo, is worse than one that updates a moment later once the whole
+        // load has actually settled.
         const shownEntries = buildFeedEntries(collected, FEED_SIZE)
         for (const [pilotId, ts] of shownTrackedTsByPilot(shownEntries)) recordSeen(pilotId, ts)
+
+        // Only pilots present in shownUntracked (≥1 rendered untracked entry this load) are
+        // ever written — see fetchedUntrackedTripIdsByPilot/replaceSeenTripIds's doc comments
+        // for why a pilot contributing zero rendered entries must be left completely alone.
+        const fetchedUntracked = fetchedUntrackedTripIdsByPilot(collected)
+        const shownUntracked = shownUntrackedTripIdsByPilot(shownEntries)
+        for (const [pilotId, renderedTripIds] of shownUntracked) {
+          recordSeenUntracked(pilotId, fetchedUntracked.get(pilotId) ?? new Set(), renderedTripIds)
+        }
+
         setIsLoading(false)
       })
 
@@ -124,6 +141,6 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
     isLoading,
     entries: buildFeedEntries(results, FEED_SIZE),
     failedPilots: failedPilotResults(results),
-    hasSeenBefore: anyPilotHasPriorWatermark(results),
+    hasSeenBefore: anyPilotHasPriorVisit(results),
   }
 }

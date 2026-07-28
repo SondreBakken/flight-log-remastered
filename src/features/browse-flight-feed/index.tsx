@@ -106,21 +106,23 @@ export function FeedView({
   )
 }
 
-// A flight with no uploaded GPS track has no `ts` anywhere on flightlog.org, so it cannot be
-// checked for newness at all (see FlightNewness's doc comment in feed.ts) — "N new" without
-// qualification would silently claim every followed pilot's untracked flights were checked
-// too. Shown only once loading settles: a count that includes still-arriving pilots would
-// undercount and then jump, which reads as more confusing than informative mid-load.
+// Untracked flights are checked for newness too now (#62, via seen-trip-store), so "N new"
+// covers every followed pilot's flights, tracked or not — the caption used to carve out an
+// explicit "counted only among flights with a saved GPS track" caveat; that caveat is gone
+// because it would now be false. Shown only once loading settles: a count that includes
+// still-arriving pilots would undercount and then jump, which reads as more confusing than
+// informative mid-load.
 //
 // Two states this used to get wrong, both now handled explicitly rather than left as permanent
 // furniture: a genuine first-time visitor has no "last visit" to report a count against, however
-// many flights classifyNewness reads as 'new' by construction of its null-watermark case — see
-// hasSeenBefore/anyPilotHasPriorWatermark. And a count of zero isn't worth a permanent line of
-// UI once there IS a real last visit to compare against — it renders nothing rather than "0 new"
-// every time nothing changed. (`newCount` here is scoped to the top FEED_SIZE shown entries, per
-// countNewEntries's own doc comment, so pilots truncated out of the merge — see MAX_PILOTS_PER_FEED
-// — or their flights truncated out by FEED_SIZE, are not represented in it; the adjacent failed-
-// pilots notice partly mitigates the failed-to-load case, but truncation itself has no notice.)
+// many flights classifyTrackedNewness/classifyUntrackedNewness read as 'new' by construction of
+// their null-signal case — see hasSeenBefore/anyPilotHasPriorVisit. And a count of zero isn't
+// worth a permanent line of UI once there IS a real last visit to compare against — it renders
+// nothing rather than "0 new" every time nothing changed. (`newCount` here is scoped to the top
+// FEED_SIZE shown entries, per countNewEntries's own doc comment, so pilots truncated out of the
+// merge — see MAX_PILOTS_PER_FEED — or their flights truncated out by FEED_SIZE, are not
+// represented in it; the adjacent failed-pilots notice partly mitigates the failed-to-load case,
+// but truncation itself has no notice.)
 function NewSinceLastVisitNotice({
   isLoading,
   entries,
@@ -141,12 +143,7 @@ function NewSinceLastVisitNotice({
   }
   const newCount = countNewEntries(entries)
   if (newCount === 0) return null
-  return (
-    <p className="text-sm opacity-70">
-      {newCount} new since your last visit — counted only among flights with a saved GPS track;
-      flights without one aren&apos;t checked.
-    </p>
-  )
+  return <p className="text-sm opacity-70">{newCount} new since your last visit</p>
 }
 
 function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
