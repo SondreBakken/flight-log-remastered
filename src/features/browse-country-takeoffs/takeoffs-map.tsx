@@ -14,7 +14,29 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
-import { buildTakeoffsMapData, type TakeoffSiteFeature, type TakeoffsMapData } from './build-takeoffs-geojson'
+import {
+  buildTakeoffsMapData,
+  RAY_MIN_ZOOM,
+  rayLengthDegreesAtZoom,
+  rescaleRayLength,
+  type TakeoffSiteFeature,
+  type TakeoffsMapData,
+} from './build-takeoffs-geojson'
+import {
+  SITES_SOURCE_ID,
+  RAYS_SOURCE_ID,
+  CLUSTER_LAYER_ID,
+  UNCLUSTERED_NONE_LAYER_ID,
+  UNCLUSTERED_ALL_LAYER_ID,
+  UNCLUSTERED_SOME_LAYER_ID,
+  WIND_RAY_LAYER_ID,
+} from './site-layer-ids'
+
+// Re-exported so anything that already imports a layer id from this module (the map component
+// itself is the natural place to look for one) keeps working — the ids themselves moved to
+// site-layer-ids.ts so scripts/verify-sites-map.mts can import them too without pulling in
+// maplibre-gl or this file's CSS import (see that module's own doc comment).
+export { CLUSTER_LAYER_ID, UNCLUSTERED_NONE_LAYER_ID, UNCLUSTERED_ALL_LAYER_ID, UNCLUSTERED_SOME_LAYER_ID, WIND_RAY_LAYER_ID }
 
 declare global {
   interface Window {
@@ -35,23 +57,10 @@ type TakeoffsMapProps = {
   className?: string
 }
 
-const SITES_SOURCE_ID = 'takeoff-sites'
-const RAYS_SOURCE_ID = 'wind-rays'
-export const CLUSTER_LAYER_ID = 'takeoff-clusters'
-export const UNCLUSTERED_NONE_LAYER_ID = 'takeoff-site-none'
-export const UNCLUSTERED_ALL_LAYER_ID = 'takeoff-site-all'
-export const UNCLUSTERED_SOME_LAYER_ID = 'takeoff-site-some'
-export const WIND_RAY_LAYER_ID = 'wind-ray-lines'
-
 const DEFAULT_SIZE_CLASSES = 'h-[70vh] w-full'
-// Below this zoom, individual sites are still bundled into clusters, so a ray drawn at a
-// bundled site would sit on top of a cluster circle rather than next to the site it belongs
-// to — gating the whole layer to the zoom band where sites render individually keeps every
-// visible ray anchored to a marker that's actually on screen.
-const RAY_MIN_ZOOM = 9
 const UNCLUSTERED_FILTER: ExpressionSpecification = ['!', ['has', 'point_count']]
 
-function unclusteredCategoryFilter(category: string): ExpressionSpecification {
+export function unclusteredCategoryFilter(category: string): ExpressionSpecification {
   return ['all', UNCLUSTERED_FILTER, ['==', ['get', 'windCategory'], category]]
 }
 
@@ -66,8 +75,13 @@ function classes(...values: Array<string | undefined>): string {
 // start` — and `next start` always runs with NODE_ENV=production, unconditionally, regardless
 // of what the environment set beforehand. A NODE_ENV gate here would silently strip this hook
 // on exactly the build scripts/verify-sites-map.mts is required to run against. An explicit,
-// opt-in query param instead keeps the hook out of ordinary production traffic (nobody
-// navigates with `?__verifyMap` by accident) while still reaching real production output.
+// opt-in query param instead keeps the hook off ORDINARY production navigation — nobody lands
+// on `?__verifyMap` by accident. It does not keep it off production outright: anyone with the
+// URL (or who appends the param themselves) still enables it on real production output.
+// Severity of that gap is low, not zero: the data behind the handle is already public
+// (flightlog.org's own takeoffs list), and reaching it at all requires arbitrary script
+// execution on the page, which needing this specific query param doesn't meaningfully raise
+// or lower.
 function isMapDebugEnabled(): boolean {
   return typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('__verifyMap')
 }
@@ -96,7 +110,9 @@ function pointCoordinates(feature: MapGeoJSONFeature): [number, number] {
 
 // Escapes the popup content via real DOM nodes (textContent), not an HTML string — a takeoff
 // name is upstream flightlog.org content, not something this app controls the shape of.
-function buildSitePopupContent(name: string, windSummary: string): HTMLElement {
+// Exported so this stays pinned by a direct unit test (no MapLibre/WebGL context needed to
+// call it — it's plain DOM) rather than only ever exercised through a live map click.
+export function buildSitePopupContent(name: string, windSummary: string): HTMLElement {
   const container = document.createElement('div')
   container.className = 'flex flex-col gap-0.5 text-sm'
   const title = document.createElement('strong')
@@ -220,6 +236,24 @@ function wireHoverCursor(map: MapLibreMap): void {
   }
 }
 
+// D4: a fixed-degree ray grows 2x per zoom level on screen (64x across the 9-to-15 band it's
+// actually visible in — see rayLengthDegreesAtZoom's own doc comment), reading as a tiny mark
+// at RAY_MIN_ZOOM and a property boundary well past it. Recomputes every ray's endpoint at the
+// zoom-appropriate length on every 'zoomend' — 'zoomend', not the continuous 'zoom' event, so a
+// drag or pinch gesture triggers one setData once it settles rather than one per animation
+// frame. rescaleRayLength only touches ray endpoints (origin and octant carried through
+// unchanged), not buildTakeoffsMapData's full rebuild — the placeholder filter and wind
+// classification #10's own measurement pins at 1.75ms for the whole dataset never need to
+// re-run just because the zoom changed.
+function wireRayRescaling(map: MapLibreMap, rays: TakeoffsMapData['rays']): void {
+  const rescale = () => {
+    const source = map.getSource(RAYS_SOURCE_ID) as GeoJSONSource | undefined
+    source?.setData(rescaleRayLength(rays, rayLengthDegreesAtZoom(map.getZoom())))
+  }
+  rescale()
+  map.on('zoomend', rescale)
+}
+
 // #10's map view: clustered at low zoom (MapLibre's own built-in clustering, see
 // addSitesAndClusters), wind rendered per site (see build-takeoffs-geojson.ts for the three
 // deliberate categories), reusing the same OSM raster style and map-instance-on-window
@@ -260,6 +294,7 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
       wireClusterExpansion(map)
       wireSitePopups(map)
       wireHoverCursor(map)
+      wireRayRescaling(map, mapData.rays)
     }
 
     // Same reasoning as track-map.tsx: an inline style needs no fetch, so it can finish
@@ -300,7 +335,10 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
   )
 }
 
-function TakeoffsMapLegend({ mapData }: { mapData: TakeoffsMapData }) {
+// Exported so the excluded-count clause (#12/#10's shared "excluding is fine, doing it
+// silently is not" rule) is pinned by rendering this component directly, without mounting the
+// whole map (which needs a real GL context this test suite has none of).
+export function TakeoffsMapLegend({ mapData }: { mapData: TakeoffsMapData }) {
   return (
     <div className="flex flex-col gap-1 text-xs opacity-70">
       <p>

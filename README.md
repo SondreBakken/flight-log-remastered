@@ -37,13 +37,14 @@ both). Run `pnpm run build` before `pnpm run check` if you've touched anything u
 your last build.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
-`verify-feed.mts`, `verify-takeoffs.mts`) are a different kind of check: they drive a real headless
-browser against a running app, so they are deliberately **not** part of `pnpm run check` or any other
-automated gate — there is nothing in this repo that starts a server, waits for it, and tears it down
-again. Run them by hand after touching the relevant feature. Most run against `pnpm dev` (e.g. `pnpm
-exec tsx scripts/verify-track-hover.mts`); `verify-takeoffs.mts` is the one exception — it exercises
-the prerendered static artifact `check:takeoffs-prerender` proves exists, which only exists after
-`pnpm run build && pnpm run start`, so it must run against that, never against `pnpm dev`.
+`verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`) are a different kind of check: they
+drive a real headless browser against a running app, so they are deliberately **not** part of
+`pnpm run check` or any other automated gate — there is nothing in this repo that starts a server,
+waits for it, and tears it down again. Run them by hand after touching the relevant feature. Most run
+against `pnpm dev` (e.g. `pnpm exec tsx scripts/verify-track-hover.mts`); `verify-takeoffs.mts` and
+`verify-sites-map.mts` are the exceptions — both exercise the prerendered static takeoffs artifact
+`check:takeoffs-prerender` proves exists, which only exists after `pnpm run build && pnpm run start`,
+so they must run against that, never against `pnpm dev`.
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches

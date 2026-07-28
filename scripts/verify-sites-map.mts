@@ -1,16 +1,31 @@
 import { chromium } from 'playwright'
+import {
+  SITES_SOURCE_ID,
+  CLUSTER_LAYER_ID,
+  UNCLUSTERED_NONE_LAYER_ID,
+  UNCLUSTERED_ALL_LAYER_ID,
+  UNCLUSTERED_SOME_LAYER_ID,
+  WIND_RAY_LAYER_ID,
+} from '../src/features/browse-country-takeoffs/site-layer-ids'
+import { RAY_MIN_ZOOM } from '../src/features/browse-country-takeoffs/build-takeoffs-geojson'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
 // literally happened here (a clean build once coexisted with a completely blank one, see
 // verify-map.mts's own history). This drives a REAL browser against the prerendered takeoffs
-// route, clicks the actual "Map" toggle (so the map only exists once real hydration + a real
-// click handler ran — the list view is what's in the static shell, not the map, which closes
-// the #9-shaped "settle condition satisfied before hydration" trap), and asserts on live
-// MapLibre state via window.__takeoffsMap/__takeoffsMapData (see takeoffs-map.tsx's own doc
-// comment on why that handle exists — there's no test runner in this repo driving a real GL
-// context). Run against `pnpm run build && pnpm run start`, never `pnpm dev` — same reason
-// verify-takeoffs.mts gives: the takeoffs dataset this page fetches only exists as a
-// prerendered artifact after a real build.
+// route and asserts on live MapLibre state via window.__takeoffsMap/__takeoffsMapData (see
+// takeoffs-map.tsx's own doc comment on why that handle exists — there's no test runner in
+// this repo driving a real GL context). Run against `pnpm run build && pnpm run start`, never
+// `pnpm dev` — same reason verify-takeoffs.mts gives: the takeoffs dataset this page fetches
+// only exists as a prerendered artifact after a real build.
+//
+// The "Map" button clicked below already exists in the PRERENDERED HTML — the static shell
+// renders the list view, but the toggle button itself is part of it, not something React adds
+// later. So this click can land before hydration finishes; what actually makes it register is
+// React's event replay catching up to it once hydration completes, not a wait for some
+// "hydrated" state this script never explicitly checks for. The settle condition below (the
+// map instance existing AND its source finished loading) is what actually rules out a false
+// positive off the static shell, not the click itself.
+//
 // `?__verifyMap` opts into takeoffs-map.tsx's window.__takeoffsMap/__takeoffsMapData debug
 // handles — see that file's own doc comment on isMapDebugEnabled for why this is a runtime
 // query param, not the NODE_ENV gate track-map.tsx uses: `next start` always runs in
@@ -18,12 +33,16 @@ import { chromium } from 'playwright'
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs?__verifyMap'
 
 // Norway's full fixture (fixtures/takeoffs-160.html, same one check:takeoffs-prerender and
-// verify-takeoffs.mts pin): 6012 rows total, 1948 carrying the lat=0/lon=0 placeholder (#12's
-// hazard, reused here rather than rediscovered — see hasKnownLocation in
-// select-visible-takeoffs.ts). Exact counts, not a loosened `> 0` or `<=`, so a feature-count
-// assertion that quietly accepts an empty or partially-empty source still fails clearly.
+// verify-takeoffs.mts pin): 6012 rows total. 1948 carry the full lat=0/lon=0 placeholder
+// (#12's hazard, reused here rather than rediscovered — see hasKnownLocation in
+// select-visible-takeoffs.ts) plus 7 more with a DIFFERENT corruption shape D1 also excludes:
+// one axis reset to exactly 0 while the other still holds a real-looking value, or both axes
+// corrupted to a small non-zero remainder near Null Island (see hasKnownLocation's own doc
+// comment for the exact seven takeoff ids and coordinates). 1955 total. Exact counts, not a
+// loosened `> 0` or `<=`, so a feature-count assertion that quietly accepts an empty,
+// partially-empty, or still-corrupt source still fails clearly.
 const EXPECTED_TOTAL = 6012
-const EXPECTED_EXCLUDED = 1948
+const EXPECTED_EXCLUDED = 1955
 const EXPECTED_PLOTTED = EXPECTED_TOTAL - EXPECTED_EXCLUDED
 
 let overallOk = true
@@ -36,15 +55,21 @@ const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
 const badResponses: string[] = []
 const pageErrors: string[] = []
+// MapLibre routes its own 'error' events (source/tile/style failures — the exact class of
+// silent GeoJSON-never-loaded failure this whole script exists for, see takeoffs-map.tsx's own
+// `map.on('error', ...)` handler) through console.error, not pageerror. Without this, that
+// channel is invisible to this script even though the app code already logs to it.
+const consoleErrors: string[] = []
 page.on('response', (r) => {
   if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`)
 })
 page.on('pageerror', (e) => pageErrors.push(e.message))
+page.on('console', (m) => {
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
-// The map view is behind a real click on real hydrated React — until this succeeds, nothing
-// below can be a false positive off the static shell (which renders the list view only).
 const mapButton = page.getByRole('button', { name: 'Map' })
 await mapButton.waitFor({ state: 'visible', timeout: 20000 })
 await mapButton.click()
@@ -57,7 +82,8 @@ await page.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() =>
 // failure #10's own issue calls out for maplibre-gl v6/Turbopack).
 const settled = await page
   .waitForFunction(
-    () => window.__takeoffsMap !== undefined && window.__takeoffsMap.isSourceLoaded('takeoff-sites') === true,
+    (sourceId) => window.__takeoffsMap !== undefined && window.__takeoffsMap.isSourceLoaded(sourceId) === true,
+    SITES_SOURCE_ID,
     { timeout: 20000 },
   )
   .then(() => true)
@@ -75,10 +101,40 @@ if (settled) {
       mapData.sites.features.length === EXPECTED_PLOTTED,
       `the sites source carries exactly ${EXPECTED_PLOTTED} plotted features, not a loosened or partial count (got ${mapData.sites.features.length})`,
     )
-    // No placeholder ever reaches the plotted set, checked directly against the live feature
-    // geometry — not just trusting plottedCount's arithmetic.
-    const placeholderPlotted = mapData.sites.features.filter((f) => f.geometry.coordinates[0] === 0 && f.geometry.coordinates[1] === 0)
-    report(placeholderPlotted.length === 0, `no plotted feature sits at the lat=0/lon=0 placeholder (found ${placeholderPlotted.length})`)
+    // No placeholder, and no corrupt-coordinate row (see hasKnownLocation), ever reaches the
+    // plotted set — checked directly against the live feature geometry, not just trusting
+    // plottedCount's arithmetic. A real Norwegian/French site is never within a few degrees of
+    // Null Island on both axes, and never has exactly one axis at 0.
+    const corruptPlotted = mapData.sites.features.filter((f) => {
+      const [lon, lat] = f.geometry.coordinates
+      return lon === 0 || lat === 0 || (Math.abs(lon) < 5 && Math.abs(lat) < 5)
+    })
+    report(corruptPlotted.length === 0, `no plotted feature sits at a placeholder or corrupt coordinate (found ${corruptPlotted.length})`)
+
+    // D1: the whole-country opening view must not be blown out by a handful of corrupt
+    // coordinates landing in the Gulf of Guinea / North Sea — the bug this script exists to
+    // catch rendered at zoom 1.77, Greenland to China, with bounds spanning -1.02 to 78.26 of
+    // latitude instead of Norway's real ~39 to ~78 (the exact seven-row fix leaves 39.32 as the
+    // real, legitimate low-latitude outlier — see hasKnownLocation's own doc comment). Not
+    // pinned to an exact zoom/bounds figure (viewport size and padding could reasonably change
+    // that), but a corrupt-bounds regression would fail these by a wide margin, not a rounding one.
+    const initialView = await page.evaluate(() => {
+      const bounds = window.__takeoffsMap!.getBounds()
+      return { south: bounds.getSouth(), zoom: window.__takeoffsMap!.getZoom() }
+    })
+    report(
+      initialView.south > 30,
+      `the opening view's southern edge stays well clear of the Gulf of Guinea / Null Island (south edge is ${initialView.south.toFixed(2)}°, expected > 30°)`,
+    )
+    // Threshold at 2, not tighter: the fixture still carries longitude corruption D1 didn't
+    // scope in (e.g. a takeoff with a real-looking but wrong lon=71.24, roughly Novaya Zemlya),
+    // which legitimately widens the fitted view beyond what a clean Norway-only bbox would need
+    // — so 2 is chosen to clearly separate the reported 1.77 world-scale bug from a real fix,
+    // not to assert a precise "correct" zoom this script hasn't independently derived.
+    report(
+      initialView.zoom > 2,
+      `the opening view is a real country-scale zoom, not the ~1.77 world-scale zoom the corrupt-bounds bug produced (got zoom ${initialView.zoom.toFixed(2)})`,
+    )
 
     // The excluded count is not just computed — it must be VISIBLE, per #12/#10's shared rule
     // that excluding is fine, doing it silently is not.
@@ -115,11 +171,14 @@ if (settled) {
     // would render nothing (its own filter, `has(point_count)`, only ever matches
     // supercluster-produced features) while the three unclustered layers would each show
     // close to the full plotted set instead.
-    const clustersAtOverview = await page.evaluate(() => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: ['takeoff-clusters'] }).length)
-    const unclusteredAtOverview = await page.evaluate(() =>
-      ['takeoff-site-none', 'takeoff-site-all', 'takeoff-site-some']
-        .flatMap((layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] }))
-        .length,
+    const clustersAtOverview = await page.evaluate(
+      (layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] }).length,
+      CLUSTER_LAYER_ID,
+    )
+    const siteLayers = [UNCLUSTERED_NONE_LAYER_ID, UNCLUSTERED_ALL_LAYER_ID, UNCLUSTERED_SOME_LAYER_ID]
+    const unclusteredAtOverview = await page.evaluate(
+      (layerIds) => layerIds.flatMap((layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] })).length,
+      siteLayers,
     )
     report(clustersAtOverview > 0, `clusters actually render at the whole-country overview zoom (got ${clustersAtOverview} cluster features)`)
     report(
@@ -127,22 +186,53 @@ if (settled) {
       `most sites are bundled into clusters at the overview zoom, not rendered individually (${unclusteredAtOverview} unclustered features rendered, vs ${EXPECTED_PLOTTED} total plotted)`,
     )
 
+    // --- D4: a ray must hold a roughly constant screen size across the zoom band it's
+    // visible in, not grow 2x per zoom level (64x from RAY_MIN_ZOOM to 15 for a fixed-degree
+    // ray — see build-takeoffs-geojson.ts's own doc comment on rayLengthDegreesAtZoom). Measured
+    // as real screen pixels via map.project(), on the SAME live site, at both ends of the band.
+    async function rayPixelLengthAt(zoom: number): Promise<number> {
+      await page.evaluate(
+        ({ coordinates, zoom }) => window.__takeoffsMap!.jumpTo({ center: coordinates as [number, number], zoom }),
+        { coordinates: sampleSite.geometry.coordinates, zoom },
+      )
+      await page.waitForTimeout(500) // let the source re-query and the layer re-render at the new viewport
+      return page.evaluate((layerId) => {
+        const [ray] = window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] })
+        if (!ray || ray.geometry.type !== 'LineString') return -1
+        const [start, end] = ray.geometry.coordinates as [number, number][]
+        const a = window.__takeoffsMap!.project(start!)
+        const b = window.__takeoffsMap!.project(end!)
+        return Math.hypot(a.x - b.x, a.y - b.y)
+      }, WIND_RAY_LAYER_ID)
+    }
+
     // Zoom in on a real, live "some"-category site (picked from the actual dataset, not a
     // guessed coordinate) — past clusterMaxZoom, so it must render individually, and past
     // RAY_MIN_ZOOM, so its wind ray(s) must render too.
     const sampleSite = someFeatures[0]!
-    await page.evaluate((coordinates) => {
-      window.__takeoffsMap!.jumpTo({ center: coordinates as [number, number], zoom: 15 })
-    }, sampleSite.geometry.coordinates)
-    await page.waitForTimeout(500) // let the source re-query and the layer re-render at the new viewport
+    const rayPixelLengthAtMinZoom = await rayPixelLengthAt(RAY_MIN_ZOOM)
+    const rayPixelLengthAtZoom15 = await rayPixelLengthAt(15)
 
-    const unclusteredAtSite = await page.evaluate(() =>
-      ['takeoff-site-none', 'takeoff-site-all', 'takeoff-site-some']
-        .flatMap((layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] }))
-        .length,
+    report(rayPixelLengthAtMinZoom > 0, `a ray renders at RAY_MIN_ZOOM (${RAY_MIN_ZOOM}) on the live sample site (got length ${rayPixelLengthAtMinZoom.toFixed(1)}px)`)
+    report(rayPixelLengthAtZoom15 > 0, `a ray renders at zoom 15 on the live sample site (got length ${rayPixelLengthAtZoom15.toFixed(1)}px)`)
+    const rayGrowthRatio = rayPixelLengthAtZoom15 / rayPixelLengthAtMinZoom
+    report(
+      rayGrowthRatio > 0.4 && rayGrowthRatio < 2.5,
+      `ray screen length stays roughly constant from zoom ${RAY_MIN_ZOOM} to 15, not a ~64x fixed-degree blowout (${rayPixelLengthAtMinZoom.toFixed(1)}px -> ${rayPixelLengthAtZoom15.toFixed(1)}px, ratio ${rayGrowthRatio.toFixed(2)})`,
     )
-    const clustersAtSite = await page.evaluate(() => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: ['takeoff-clusters'] }).length)
-    const raysAtSite = await page.evaluate(() => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: ['wind-ray-lines'] }).length)
+
+    const unclusteredAtSite = await page.evaluate(
+      (layerIds) => layerIds.flatMap((layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] })).length,
+      siteLayers,
+    )
+    const clustersAtSite = await page.evaluate(
+      (layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] }).length,
+      CLUSTER_LAYER_ID,
+    )
+    const raysAtSite = await page.evaluate(
+      (layerId) => window.__takeoffsMap!.queryRenderedFeatures(undefined, { layers: [layerId] }).length,
+      WIND_RAY_LAYER_ID,
+    )
 
     report(unclusteredAtSite > 0, `zoomed in on a real site, individual site markers now render (got ${unclusteredAtSite})`)
     report(clustersAtSite === 0, `zoomed past clusterMaxZoom, nothing renders on the cluster layer any more (got ${clustersAtSite})`)
@@ -152,6 +242,7 @@ if (settled) {
 
 report(badResponses.length === 0, `no unexpected 4xx/5xx responses (saw: ${badResponses.length ? badResponses.join('; ') : 'none'})`)
 report(pageErrors.length === 0, `no uncaught page errors (saw: ${pageErrors.length ? pageErrors.join('; ') : 'none'})`)
+report(consoleErrors.length === 0, `no console errors, including MapLibre's own 'error' events (saw: ${consoleErrors.length ? consoleErrors.join('; ') : 'none'})`)
 
 await browser.close()
 

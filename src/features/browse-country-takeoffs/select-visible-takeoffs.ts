@@ -113,13 +113,15 @@ export type VisibleTakeoffs = {
   // silently dropping these behind a wind query is not acceptable, so this count exists
   // specifically so the caller can surface it, distinct from the ordinary "0 matches" case.
   windUnknownCount: number
-  // How many takeoffs that already passed the name/region/wind filters carry a placeholder
-  // position (see hasKnownLocation) and are therefore shown WITHOUT a distance while nearby
-  // sort is active — 0 whenever userLocation is null, since nothing is being sorted by
-  // distance at all in that case. Same decision as windUnknownCount above, applied to the
-  // same shape of problem: 1948 of Norway's 6012 takeoffs (32.4%) carry lat=0/lon=0, nearly
-  // twice as common as missing wind, so pretending they have a real distance is not an edge
-  // case to skip.
+  // How many takeoffs that already passed the name/region/wind filters carry a corrupt or
+  // placeholder position (see hasKnownLocation for the three shapes that takes) and are
+  // therefore shown WITHOUT a distance while nearby sort is active — 0 whenever userLocation
+  // is null, since nothing is being sorted by distance at all in that case. Same decision as
+  // windUnknownCount above, applied to the same shape of problem: 1948 of Norway's 6012
+  // takeoffs (32.4%) carry the full lat=0/lon=0 placeholder alone, nearly twice as common as
+  // missing wind, so pretending they have a real distance is not an edge case to skip — and
+  // hasKnownLocation catches 7 more beyond that, corrupted in a different shape but reporting
+  // the exact same wrong-distance failure.
   locationUnknownCount: number
 }
 
@@ -134,17 +136,39 @@ function withoutDistance(takeoffs: TakeoffDirectoryEntry[]): TakeoffMatch[] {
   return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: null }))
 }
 
-// flightlog.org's placeholder for "no coordinates ever recorded" — 0,0 sits in the Gulf of
-// Guinea, nowhere near any real takeoff, so treating it as an actual position would report a
-// confident, wrong distance (thousands of km) as fact. 1948 of Norway's 6012 takeoffs (32.4%)
-// carry this placeholder — more than twice as common as missing wind (991), which this branch
-// already refused to silently drop (see windUnknownCount above).
+// flightlog.org's placeholder for "no coordinates ever recorded" sets BOTH axes to exactly
+// 0 — 0,0 sits in the Gulf of Guinea, nowhere near any real takeoff, so treating it as an
+// actual position would report a confident, wrong distance (thousands of km) as fact. 1948
+// of Norway's 6012 takeoffs (32.4%) carry this placeholder — more than twice as common as
+// missing wind (991), which this branch already refused to silently drop (see
+// windUnknownCount above).
+//
+// The full 0,0 placeholder isn't the only shape of coordinate corruption in the real
+// dataset, though (confirmed against fixtures/takeoffs-160.html). Two more, both still
+// inside the 4064 rows that pass the 0,0 check alone:
+//   - exactly ONE axis reset to 0 while the other still holds a real-looking value, e.g.
+//     takeoff 8478 "Veines (Kongsfjord)" carries lat=0, lon=70.73 — its real latitude
+//     (70.72N) landed in the longitude column, not a real position at 0N.
+//   - BOTH axes corrupted to a small non-zero remainder near Null Island, e.g. takeoff
+//     10778 "Auenhaugen, Golsfjellet" carries lat=-1.02, lon=1.02 (the real site is
+//     ~60.7N 9.0E). No real takeoff in this dataset — Norwegian or the ~30 genuinely French
+//     rows flightlog.org files under the same country id — sits within a few degrees of
+//     0,0; the nearest legitimate low-latitude row is at 39.3N.
+// Both shapes plot inside the Gulf of Guinea / off the African coast exactly like the full
+// placeholder, and both feed the same two consequences the full placeholder does: a
+// fabricated "nearby" distance here, and a blown-out map viewport in #10's
+// build-takeoffs-geojson.ts. One predicate excludes all three shapes rather than three
+// separate, driftable checks.
 //
 // Exported so #10's map data builder (build-takeoffs-geojson.ts) excludes the exact same
-// placeholder takeoffs from the map that this file already excludes from "nearby" distances,
-// rather than a second lat===0/lon===0 check that could silently drift from this one.
+// corrupt-coordinate takeoffs from the map that this file already excludes from "nearby"
+// distances, rather than a second, second-guessable copy of this check.
+const NULL_ISLAND_RADIUS_DEGREES = 5
+
 export function hasKnownLocation(takeoff: TakeoffDirectoryEntry): boolean {
-  return takeoff.lat !== 0 || takeoff.lon !== 0
+  const { lat, lon } = takeoff
+  if (lat === 0 || lon === 0) return false
+  return Math.abs(lat) > NULL_ISLAND_RADIUS_DEGREES || Math.abs(lon) > NULL_ISLAND_RADIUS_DEGREES
 }
 
 // Nearest-first once a location is known. Takes LocatedTakeoff, not TakeoffMatch, so
