@@ -27,6 +27,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Not an eslint-config-next default: a leftover review worktree under .claude/worktrees/**
+    // carries a full duplicate copy of this repo, node_modules included — a plain `pnpm run
+    // lint` would otherwise walk it and report failures that have nothing to do with the
+    // working tree.
+    ".claude/**",
   ]),
 ]);
 

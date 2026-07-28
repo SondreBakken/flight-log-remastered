@@ -6,6 +6,20 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/flightlog/clubs', () => ({ getClubs: vi.fn() }))
 vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
 
+// Mocked to a two-id set local to this file (not the real production list, currently just
+// [160]) and — deliberately — exporting ONLY CURATED_CLUB_COUNTRY_IDS, not
+// CURATED_TAKEOFF_COUNTRY_IDS. curated-countries.ts's own doc comment says the two curations
+// answer different questions and only coincide today (both [160]) because they happened to be
+// measured in the same pass; nothing enforced that distinction here before. Two DIFFERENT ids
+// makes a structural match on the wrong array visibly wrong rather than accidentally correct,
+// and since the real CURATED_TAKEOFF_COUNTRY_IDS isn't part of this mock at all, generateStaticParams
+// reading it instead of CURATED_CLUB_COUNTRY_IDS resolves to undefined and throws at test time
+// (the same technique route.test.ts already uses for the takeoffs route's own
+// generateStaticParams test).
+vi.mock('@/lib/flightlog/curated-countries', () => ({
+  CURATED_CLUB_COUNTRY_IDS: [160, 203],
+}))
+
 import { getClubs } from '@/lib/flightlog/clubs'
 import { getCountries } from '@/lib/flightlog/countries'
 import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
@@ -15,7 +29,7 @@ const mockedGetClubs = vi.mocked(getClubs)
 const mockedGetCountries = vi.mocked(getCountries)
 
 describe('generateStaticParams', () => {
-  it('returns exactly the curated club country ids, as canonical decimal strings', async () => {
+  it('returns exactly the curated CLUB country ids, as canonical decimal strings — not CURATED_TAKEOFF_COUNTRY_IDS, which this mock deliberately leaves undefined', async () => {
     expect(await generateStaticParams()).toEqual(CURATED_CLUB_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) })))
   })
 })

@@ -92,6 +92,25 @@ for (const { countryId, expectedCountryName, expectedRowCount, expectedHtmlBytes
   assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)
   const rowMatches = html.match(/<tr class="border-b border-black\/5 dark:border-white\/10">/g) ?? []
   assert(rowMatches.length === expectedRowCount, `${htmlPath}: renders ${expectedRowCount} club table rows (found ${rowMatches.length})`)
+
+  // The .rsc payload is Next's "Flight" wire format, not the HTML above and not plain JSON
+  // either — a handful of newline-delimited lines, most JSON but some prefixed with a numeric
+  // id and colon, and JSON values themselves containing `$`-prefixed element/reference tokens
+  // (`["$","h1",null,{"children":"Norway"}]`, `$L3`, ...). There is no off-the-shelf parser for
+  // it here, so these are content-string assertions against that format, not JSON.parse —
+  // exactly what closes the gap `existsSync` alone leaves: truncating this file to zero bytes
+  // (or to any content missing the resolved club list) previously still passed, because
+  // nothing but its presence on disk was ever checked. Same three signals as the HTML
+  // assertions above, expressed against the serialized element tree client navigation actually
+  // hydrates from, not the server-rendered markup: the resolved country name, the club count
+  // text, and one `<tr>`-equivalent element per club row.
+  const rsc = readFileSync(rscPath, 'utf8')
+  const rscCountryNamePattern = new RegExp(`"className":"text-2xl font-semibold tracking-tight","children":${JSON.stringify(expectedCountryName)}\\}\\]`)
+  assert(rscCountryNamePattern.test(rsc), `${rscPath}: serializes the resolved country name "${expectedCountryName}", not just a fallback/reference token`)
+  const rscClubCountPattern = new RegExp(`"className":"text-sm opacity-70","children":\\[${expectedRowCount},"\\s*clubs"\\]`)
+  assert(rscClubCountPattern.test(rsc), `${rscPath}: serializes the expected club count "${expectedRowCount} clubs"`)
+  const rscRowMatches = rsc.match(/\["\$","tr","\d+",\{"className":"border-b border-black\/5 dark:border-white\/10"/g) ?? []
+  assert(rscRowMatches.length === expectedRowCount, `${rscPath}: serializes ${expectedRowCount} club table rows (found ${rscRowMatches.length})`)
 }
 
 assertExactRouteSet(

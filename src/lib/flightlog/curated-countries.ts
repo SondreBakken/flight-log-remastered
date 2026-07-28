@@ -57,22 +57,30 @@ export function parseCuratedCountryId(raw: string): number | null {
 // uncurated id — see its own doc comment — so this array only decides which ids
 // generateStaticParams prerenders, not which ids the page will serve.
 //
-// Norway's club list (fixtures/clubs-160.html, the same fixture check:parsers pins to exactly
-// 91 clubs) is a ~22 KB upstream response — small enough, and small enough as parsed data
-// (~6 KB), that this build was always going to embed it directly in the page's own static
-// output the way the takeoffs page already does for region names, rather than spinning up a
-// second fetched-JSON-asset architecture the way #38 did for takeoffs' 970 KB. There is no
-// separate JSON artifact on disk to size an `expectedPayloadBytes`-shaped band against — the
-// artifact here is a full rendered HTML page (hashed asset chunk names and all) — so
-// check-clubs-prerender.mts instead asserts on rendered content: the resolved country name
-// (`expectedCountryName`, carried per entry rather than hardcoded, since a second curated
-// country would otherwise have the first one's name asserted against its own HTML), the club
-// count text, and the actual number of rendered club rows (`expectedRowCount`). It does still
-// print the artifact's raw HTML byte count for a human skimming the check's output, and
-// `expectedHtmlBytes` turns that into an actual assertion, the same coarse-sanity-band role
-// `expectedPayloadBytes` plays above — not a field-shape guard, just wide enough to catch the
-// artifact being grossly wrong (truncated, swapped for unrelated content) while tolerating the
-// page shell's own hashed chunk names and whitespace moving between Next.js versions.
+// Norway's club list (fixtures/clubs-160.html) is a ~22 KB upstream response — small enough,
+// and small enough as parsed data (~6 KB), that this build was always going to embed it
+// directly in the page's own static output the way the takeoffs page already does for region
+// names, rather than spinning up a second fetched-JSON-asset architecture the way #38 did for
+// takeoffs' 970 KB. There is no separate JSON artifact on disk to size an
+// `expectedPayloadBytes`-shaped band against — the artifact here is a full rendered HTML page
+// (hashed asset chunk names and all) — so check-clubs-prerender.mts instead asserts on
+// rendered content: the resolved country name (`expectedCountryName`, carried per entry rather
+// than hardcoded, since a second curated country would otherwise have the first one's name
+// asserted against its own HTML), the club count text, and the actual number of rendered club
+// rows (`expectedRowCount`). It does still print the artifact's raw HTML byte count for a
+// human skimming the check's output, and `expectedHtmlBytes` turns that into an actual
+// assertion, the same coarse-sanity-band role `expectedPayloadBytes` plays above — not a
+// field-shape guard, just wide enough to catch the artifact being grossly wrong (truncated,
+// swapped for unrelated content) while tolerating the page shell's own hashed chunk names and
+// whitespace moving between Next.js versions.
+//
+// `expectedRowCount: 91` below is pinned against the LIVE build by check-clubs-prerender.mts
+// on every machine that runs `pnpm run check` — that is the assertion actually load-bearing in
+// CI and on a clean checkout. check-parsers.mts's fixtures/clubs-160.html fixture pins the same
+// 91 too, but only on a machine where `fixtures/` has been manually regenerated locally (see
+// README's Fixtures section) — fixtures/ is gitignored and absent on a clean checkout, and
+// check:parsers SKIPs (exit 0), not fails, when it's missing. So on any machine without that
+// manual step — which includes CI — 91 is pinned by the live prerender check alone.
 export const CURATED_CLUB_COUNTRIES: readonly {
   countryId: number
   expectedCountryName: string
