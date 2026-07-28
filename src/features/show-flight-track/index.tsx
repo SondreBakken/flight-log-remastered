@@ -8,8 +8,6 @@ type FlightTrackProps = {
 
 type Stat = { label: string; value: string }
 
-// Narrows away `'unparseable'` (see TrackStatsResult's own doc comment) — everything below this
-// only ever needs to render real stats or know that it can't.
 function isTrackStats(result: TrackStatsResult): result is TrackStats {
   return result !== 'unparseable'
 }
@@ -35,11 +33,17 @@ export default function FlightTrack({ track }: FlightTrackProps) {
       {isTrackStats(track.stats) ? (
         <StatGrid stats={toStats(track.stats, track.points)} />
       ) : (
-        <p className="text-sm opacity-70" data-testid="stats-unparseable">
-          Could not read the statistics for this flight.
-        </p>
+        <StatsUnavailable />
       )}
     </div>
+  )
+}
+
+function StatsUnavailable() {
+  return (
+    <p className="text-sm opacity-70" data-testid="stats-unparseable">
+      Could not read the statistics for this flight.
+    </p>
   )
 }
 

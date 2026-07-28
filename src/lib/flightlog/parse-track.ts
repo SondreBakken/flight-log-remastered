@@ -35,14 +35,23 @@ function readNumber(raw: string | null | undefined): number | null {
 }
 
 // The statistics block arrives as a fixed-width plain-text table inside a CDATA section, so
-// each field is addressed by its label rather than by structure. `label` accepts more than one
-// pattern because GpsDump has worded these labels differently across export versions (measured:
-// fixtures/track-233524.kml and track-235690.kml, both GpsDump 4.36/2010, use older wording than
-// the other five sampled fixtures) — every candidate is tried in order and the first line that
-// matches wins, so a track exported by either build resolves the same field.
-function readStatLine(block: string, label: string | string[]): string | null {
-  for (const candidate of Array.isArray(label) ? label : [label]) {
-    const match = block.match(new RegExp(`^${candidate}\\s+(.+)$`, 'm'))
+// each field is addressed by its `labelPattern` — escaped regex source, not a literal label —
+// rather than by structure. Passing a label verbatim here would be wrong: an unescaped `(` in
+// e.g. "Max. climb (10s/60s)" becomes a capture group, and `match?.[1]` would silently return
+// that group's contents instead of the value. `labelPattern` accepts more than one pattern
+// because GpsDump has worded these labels differently across export versions: measured,
+// fixtures/track-233524.kml is GpsDump 4.36 and track-235690.kml is GpsDump 4.23 — both 2010-era
+// GpsDump desktop builds — while the other five sampled fixtures are GpsDumpAndroid 2.8.67/
+// 2.8.72, a different product line rather than a newer version of the same one. (The KML's own
+// `Metadata/@src`/`@v` attributes record exactly this distinction and would be the natural key
+// for variant detection if label-sniffing ever stops being enough; this parser ignores both
+// today.) Every candidate is tried in order and the first match wins.
+function readStatLine(block: string, labelPattern: string | string[]): string | null {
+  for (const candidate of Array.isArray(labelPattern) ? labelPattern : [labelPattern]) {
+    // [^\S\r\n]+, not \s+: the table is fixed-width, so a blank value column (label present,
+    // nothing after it on that line) must fail to match here, not have \s+ cross the newline
+    // and silently return the next line's label text as this field's "value" instead.
+    const match = block.match(new RegExp(`^${candidate}[^\\S\\r\\n]+(.+)$`, 'm'))
     if (match?.[1]) return match[1].trim()
   }
   return null
@@ -51,26 +60,46 @@ function readStatLine(block: string, label: string | string[]): string | null {
 // Older GpsDump exports (measured: track-233524.kml, track-235690.kml) pack both the max and
 // min climb rate onto a single "Max/min climb rate" line instead of the two separate "Max./Min.
 // climb (10s/60s)" lines the current format uses, with an interval suffix ("over 60s") trailing
-// the numbers instead of being baked into the label. Split rather than matched twice.
+// the numbers instead of being baked into the label. Split rather than matched twice. The
+// suffix is optional (some values carry none) and a leading `+` is accepted alongside `-` on
+// either number. Decimal-comma values are out of scope: no sampled fixture uses them, and
+// handling them would mean locale-aware number parsing across this whole file, not just here.
 function parseClimbRates(block: string): { maxClimb: string | null; minClimb: string | null } {
   const maxClimb = readStatLine(block, 'Max\\. climb \\(10s/60s\\)')
   const minClimb = readStatLine(block, 'Min\\. climb \\(10s/60s\\)')
   if (maxClimb !== null || minClimb !== null) return { maxClimb, minClimb }
 
-  const combined = readStatLine(block, 'Max\\/min climb rate')
-  const parts = combined?.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)\s*(.+)$/)
+  const combined = readStatLine(block, 'Max/min climb rate')
+  const parts = combined?.match(/^([+-]?\d+(?:\.\d+)?)\s*\/\s*([+-]?\d+(?:\.\d+)?)\s*(.*)$/)
   if (!parts) return { maxClimb: null, minClimb: null }
-  const [, max, min, suffix] = parts
-  return { maxClimb: `${max} ${suffix}`, minClimb: `${min} ${suffix}` }
+  const [, max, min, rawSuffix] = parts
+  const suffix = rawSuffix.trim()
+  return { maxClimb: suffix ? `${max} ${suffix}` : max, minClimb: suffix ? `${min} ${suffix}` : min }
 }
 
-// `'unparseable'` (see TrackStatsResult's own doc comment) fires only when the block carries no
-// content at all (missing/empty description) or none of the known label variants matched any of
-// the five flight-performance fields — never for a block that partially matched, since every
-// sampled fixture, old and new format alike, has all five together or none at all. That
-// all-or-nothing correlation is what makes "none of the five matched" a safe stand-in for
-// "this exporter's wording isn't one this parser knows" rather than a guess.
-function parseStats(block: string): TrackStatsResult {
+// The description CDATA carries the pilot's own free-text comment before the `<pre>` table
+// (real markup — e.g. track-235690.kml's own description opens with "solberg med alf og kurt
+// og litespeed s"). Scoping every stats read to the `<pre>` section is what stops that prose
+// from being able to fabricate or override a label line the table itself never had. No `<pre>`
+// at all collapses to an empty block, the same "nothing to read" shape parseStats already
+// treats as unparseable below.
+function extractStatsTable(description: string): string {
+  return description.match(/<pre>([\s\S]*?)<\/pre>/)?.[1] ?? ''
+}
+
+// `'unparseable'` (see TrackStatsResult's own doc comment, which also notes the "block missing
+// entirely" case folded into it here) fires only when NONE of the known labels matched
+// anything — all eight fields, not just the five flight-performance ones. Date, Start/finish
+// and Duration are matched by the exact same label-recognition mechanism as the five
+// performance fields and are equally strong evidence the block's wording was recognised:
+// measured across every sampled export era, only the five performance labels have ever been
+// renamed, never date/start-finish/duration. Gating on all eight is what stops a block whose
+// date and duration DID resolve from being reported as fully unreadable — and its already-parsed
+// fields thrown away — just because its performance labels use wording this parser hasn't seen
+// yet. The inverse risk (a stats block that's genuinely, legitimately absent, misreported as
+// 'unparseable' because nothing in it happens to match) is unproven: no sampled fixture has
+// that shape, so it's accepted as a documented gap rather than guarded against speculatively.
+function parseStats(block: string, tripId: number): TrackStatsResult {
   const height = readStatLine(block, ['Height \\(max/min\\)', 'Max\\./min\\. height'])?.match(
     /(-?\d+)\s*\/\s*(-?\d+)/,
   )
@@ -78,21 +107,20 @@ function parseStats(block: string): TrackStatsResult {
   const minAltitude = readNumber(height?.[2])
   const maxSpeed = readStatLine(block, ['Max\\. speed \\(10s/60s\\)', 'Max\\. mean/top speed'])
   const { maxClimb, minClimb } = parseClimbRates(block)
+  const date = readStatLine(block, 'Date')
+  const startFinish = readStatLine(block, 'Start/finish')
+  const duration = readStatLine(block, 'Duration')
 
-  const nothingRecognised =
-    maxAltitude === null && minAltitude === null && maxSpeed === null && maxClimb === null && minClimb === null
-  if (nothingRecognised) return 'unparseable'
-
-  return {
-    date: readStatLine(block, 'Date'),
-    startFinish: readStatLine(block, 'Start/finish'),
-    duration: readStatLine(block, 'Duration'),
-    maxAltitude,
-    minAltitude,
-    maxSpeed,
-    maxClimb,
-    minClimb,
+  // Named so the set of fields that count as "recognised" is the definition, not a comment
+  // above an eight-way conjunction.
+  const recognisedFields = [date, startFinish, duration, maxAltitude, minAltitude, maxSpeed, maxClimb, minClimb]
+  const nothingRecognised = recognisedFields.every((field) => field === null)
+  if (nothingRecognised) {
+    console.error(`[parseTrack] stats block for trip ${tripId} is unparseable: no known label matched`)
+    return 'unparseable'
   }
+
+  return { date, startFinish, duration, maxAltitude, minAltitude, maxSpeed, maxClimb, minClimb }
 }
 
 function parseCoordinates(raw: string): Array<[number, number, number]> {
@@ -359,7 +387,7 @@ export function parseTrack(kml: string, tripId: number): Track {
   return {
     tripId,
     points,
-    stats: parseStats(text(folder.description) ?? ''),
+    stats: parseStats(extractStatsTable(text(folder.description) ?? ''), tripId),
     scoring: parseScoringGeometries(placemarks, points, tripId),
   }
 }

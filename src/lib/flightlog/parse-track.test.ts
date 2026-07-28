@@ -37,7 +37,42 @@ const TRACKLOG_PLACEMARK = `
       </LineString>
     </Placemark>`
 
-function kmlDocument(placemarks: string): string {
+// The current GpsDumpAndroid label wording, one entry per table line — kept as named lines
+// rather than one block string so individual tests can override exactly one line (see
+// buildStatsBlock) without hand-copying the other seven.
+const NEWER_STATS_LINES = {
+  header: 'Flight statistics',
+  date: 'Date                 2020-01-01',
+  startFinish: 'Start/finish         00:00:00 - 00:00:40',
+  duration: 'Duration             0 : 00 : 40',
+  height: 'Height (max/min)     804 / 800 m',
+  maxSpeed: 'Max. speed (10s/60s) 10 / 10 km/h',
+  maxClimb: 'Max. climb (10s/60s) 0.1 / 0.1 m/s',
+  minClimb: 'Min. climb (10s/60s) -0.1 / -0.1 m/s',
+} as const
+
+function buildStatsBlock(overrides: Partial<Record<keyof typeof NEWER_STATS_LINES, string>> = {}): string {
+  const lines = { ...NEWER_STATS_LINES, ...overrides }
+  return [
+    lines.header,
+    lines.date,
+    lines.startFinish,
+    lines.duration,
+    lines.height,
+    lines.maxSpeed,
+    lines.maxClimb,
+    lines.minClimb,
+  ].join('\n')
+}
+
+const NEWER_STATS_BLOCK = buildStatsBlock()
+
+function kmlDocument(
+  placemarks: string,
+  options: { statsBlock?: string; pilotComment?: string } = {},
+): string {
+  const statsBlock = options.statsBlock ?? NEWER_STATS_BLOCK
+  const pilotComment = options.pilotComment ?? ''
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Document>
 <open>1</open>
@@ -46,15 +81,8 @@ function kmlDocument(placemarks: string): string {
     <open>1</open>
     <name>Trip</name>
     <description><![CDATA[
-<pre>
-Flight statistics
-Date                 2020-01-01
-Start/finish         00:00:00 - 00:00:40
-Duration             0 : 00 : 40
-Height (max/min)     804 / 800 m
-Max. speed (10s/60s) 10 / 10 km/h
-Max. climb (10s/60s) 0.1 / 0.1 m/s
-Min. climb (10s/60s) -0.1 / -0.1 m/s
+${pilotComment}<pre>
+${statsBlock}
 </pre>]]>
     </description>${placemarks}
 ${TRACKLOG_PLACEMARK}
@@ -422,5 +450,248 @@ Pos.      Time      Latitude         Longitude         Distance
     const track = parseTrack(kmlDocument(openDistanceNoTrailingDistance), 1)
 
     expect(track.scoring.distance_open).toBe('unparseable')
+  })
+})
+
+// #59's fix round: these run in CI on every clean checkout (hand-built KML, no fixture read),
+// unlike scripts/check-parsers.mts's older-GpsDump-fixture assertions, which only run when
+// fixtures/ happens to be present locally. That script's own assertions against the real
+// track-233524.kml/track-235690.kml fixtures are the cross-check for this same behaviour.
+describe('parseTrack stats block', () => {
+  const ALL_STAT_FIELDS: Array<keyof TrackStats> = [
+    'date',
+    'startFinish',
+    'duration',
+    'maxAltitude',
+    'minAltitude',
+    'maxSpeed',
+    'maxClimb',
+    'minClimb',
+  ]
+
+  // Every known label individually replaced with unrecognised wording, one test per label —
+  // each must null out only its own field(s), leaving the rest (including the block's own
+  // parseable-vs-unparseable verdict) untouched.
+  const LABEL_VARIANT_CASES: Array<{
+    label: string
+    override: Partial<Record<keyof typeof NEWER_STATS_LINES, string>>
+    nulledFields: Array<keyof TrackStats>
+  }> = [
+    { label: 'Date', override: { date: 'Unrecognised         2020-01-01' }, nulledFields: ['date'] },
+    {
+      label: 'Start/finish',
+      override: { startFinish: 'Unrecognised         00:00:00 - 00:00:40' },
+      nulledFields: ['startFinish'],
+    },
+    { label: 'Duration', override: { duration: 'Unrecognised         0 : 00 : 40' }, nulledFields: ['duration'] },
+    {
+      label: 'Height (max/min)',
+      override: { height: 'Unrecognised         804 / 800 m' },
+      nulledFields: ['maxAltitude', 'minAltitude'],
+    },
+    {
+      label: 'Max. speed (10s/60s)',
+      override: { maxSpeed: 'Unrecognised         10 / 10 km/h' },
+      nulledFields: ['maxSpeed'],
+    },
+    {
+      label: 'Max. climb (10s/60s)',
+      override: { maxClimb: 'Unrecognised         0.1 / 0.1 m/s' },
+      nulledFields: ['maxClimb'],
+    },
+    {
+      label: 'Min. climb (10s/60s)',
+      override: { minClimb: 'Unrecognised         -0.1 / -0.1 m/s' },
+      nulledFields: ['minClimb'],
+    },
+  ]
+
+  it.each(LABEL_VARIANT_CASES)(
+    'removing just the "$label" label nulls only its own field(s), leaving every other field recognised',
+    ({ override, nulledFields }) => {
+      const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: buildStatsBlock(override) }), 1)
+      assertStats(track.stats)
+      for (const field of ALL_STAT_FIELDS) {
+        if (nulledFields.includes(field)) expect(track.stats[field]).toBeNull()
+        else expect(track.stats[field]).not.toBeNull()
+      }
+    },
+  )
+
+  it('collapses to unparseable only when every known label fails to match, not when some — including the metadata fields — still do', () => {
+    const fullyUnrecognised = buildStatsBlock({
+      date: 'Unrecognised A        2020-01-01',
+      startFinish: 'Unrecognised B        00:00:00 - 00:00:40',
+      duration: 'Unrecognised C        0 : 00 : 40',
+      height: 'Unrecognised D        804 / 800 m',
+      maxSpeed: 'Unrecognised E        10 / 10 km/h',
+      maxClimb: 'Unrecognised F        0.1 / 0.1 m/s',
+      minClimb: 'Unrecognised G        -0.1 / -0.1 m/s',
+    })
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: fullyUnrecognised }), 1)
+
+    expect(track.stats).toBe('unparseable')
+    expect(track.points.length).toBeGreaterThan(0)
+  })
+
+  // The regression this fix round exists to close: date/start-finish/duration are matched by
+  // the same mechanism as the five performance fields and are equally strong evidence the
+  // block's wording was recognised — a future exporter that renames only the performance labels
+  // must not have its already-correctly-parsed date/start-finish/duration thrown away.
+  it('keeps date/start-finish/duration when every performance label is unrecognised, instead of discarding them as unparseable', () => {
+    const onlyPerformanceRenamed = buildStatsBlock({
+      height: 'Unrecognised height  804 / 800 m',
+      maxSpeed: 'Unrecognised speed   10 / 10 km/h',
+      maxClimb: 'Unrecognised climb   0.1 / 0.1 m/s',
+      minClimb: 'Unrecognised climb2  -0.1 / -0.1 m/s',
+    })
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: onlyPerformanceRenamed }), 1)
+
+    assertStats(track.stats)
+    expect(track.stats.date).toBe('2020-01-01')
+    expect(track.stats.startFinish).toBe('00:00:00 - 00:00:40')
+    expect(track.stats.duration).toBe('0 : 00 : 40')
+    expect(track.stats.maxAltitude).toBeNull()
+    expect(track.stats.maxSpeed).toBeNull()
+    expect(track.stats.maxClimb).toBeNull()
+    expect(track.stats.minClimb).toBeNull()
+  })
+
+  it('returns unparseable when the description has no <pre> table at all, the same signal as unrecognised wording', () => {
+    const kml = kmlDocument(FIVE_POINT_PLACEMARK).replace(/<pre>[\s\S]*?<\/pre>/, '')
+
+    const track = parseTrack(kml, 1)
+
+    expect(track.stats).toBe('unparseable')
+  })
+
+  it('recognizes the older 2010-era GpsDump label wording (Max./min. height, Max. mean/top speed, the combined Max/min climb rate line)', () => {
+    const olderEraStatsBlock = [
+      'Flight statistics',
+      'Date                 2020-01-01',
+      'Start/finish         00:00:00 - 00:00:40',
+      'Duration             0 : 00 : 40',
+      'Max./min. height     804 / 800 m',
+      'Max. mean/top speed  10 / 10 km/h',
+      'Max/min climb rate   2.25 / -2.68 m/s over 60s',
+    ].join('\n')
+
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: olderEraStatsBlock }), 1)
+
+    assertStats(track.stats)
+    expect(track.stats.maxAltitude).toBe(804)
+    expect(track.stats.minAltitude).toBe(800)
+    expect(track.stats.maxSpeed).toBe('10 / 10 km/h')
+    expect(track.stats.maxClimb).toBe('2.25 m/s over 60s')
+    expect(track.stats.minClimb).toBe('-2.68 m/s over 60s')
+  })
+
+  it('a blank value column resolves to null, not the next line\'s label read across the newline as this field\'s value', () => {
+    const blankSpeedColumn = buildStatsBlock({ maxSpeed: 'Max. speed (10s/60s)' })
+
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: blankSpeedColumn }), 1)
+
+    assertStats(track.stats)
+    expect(track.stats.maxSpeed).toBeNull()
+    // The sibling field on the very next line is untouched by the blank value above it.
+    expect(track.stats.maxClimb).toBe('0.1 / 0.1 m/s')
+  })
+
+  describe('the pilot\'s free-text comment cannot fabricate or override a statistic', () => {
+    it('a fake "Date" line ahead of the table does not override the real one inside <pre>', () => {
+      const kml = kmlDocument(FIVE_POINT_PLACEMARK, {
+        pilotComment: 'solberg med alf og kurt og litespeed s\nDate  not-a-date-at-all\n',
+      })
+
+      const track = parseTrack(kml, 1)
+
+      assertStats(track.stats)
+      expect(track.stats.date).toBe('2020-01-01')
+    })
+
+    it('an injected label ahead of the table cannot manufacture a stat inside an otherwise-unrecognised block', () => {
+      const fullyUnrecognised = buildStatsBlock({
+        date: 'Unrecognised A        2020-01-01',
+        startFinish: 'Unrecognised B        00:00:00 - 00:00:40',
+        duration: 'Unrecognised C        0 : 00 : 40',
+        height: 'Unrecognised D        804 / 800 m',
+        maxSpeed: 'Unrecognised E        10 / 10 km/h',
+        maxClimb: 'Unrecognised F        0.1 / 0.1 m/s',
+        minClimb: 'Unrecognised G        -0.1 / -0.1 m/s',
+      })
+      const kml = kmlDocument(FIVE_POINT_PLACEMARK, {
+        statsBlock: fullyUnrecognised,
+        pilotComment: 'Max. speed (10s/60s) hello there\n',
+      })
+
+      const track = parseTrack(kml, 1)
+
+      expect(track.stats).toBe('unparseable')
+    })
+  })
+})
+
+describe('parseClimbRates (combined "Max/min climb rate" line, older GpsDump format)', () => {
+  function olderEraStatsBlock(climbLine: string): string {
+    return [
+      'Flight statistics',
+      'Date                 2020-01-01',
+      'Start/finish         00:00:00 - 00:00:40',
+      'Duration             0 : 00 : 40',
+      'Max./min. height     804 / 800 m',
+      'Max. mean/top speed  10 / 10 km/h',
+      climbLine,
+    ].join('\n')
+  }
+
+  it('splits a real climb line with its interval suffix into maxClimb/minClimb, suffix intact', () => {
+    const track = parseTrack(
+      kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: olderEraStatsBlock('Max/min climb rate   2.25 / -2.68 m/s over 60s') }),
+      1,
+    )
+
+    assertStats(track.stats)
+    expect(track.stats.maxClimb).toBe('2.25 m/s over 60s')
+    expect(track.stats.minClimb).toBe('-2.68 m/s over 60s')
+  })
+
+  it('a suffix-less climb line keeps the number intact instead of the mandatory-suffix group truncating it', () => {
+    const track = parseTrack(
+      kmlDocument(FIVE_POINT_PLACEMARK, { statsBlock: olderEraStatsBlock('Max/min climb rate   2.25 / -2.68') }),
+      1,
+    )
+
+    assertStats(track.stats)
+    expect(track.stats.maxClimb).toBe('2.25')
+    expect(track.stats.minClimb).toBe('-2.68')
+  })
+
+  it('a leading-plus max value is recognised, not silently dropped as unmatched', () => {
+    const track = parseTrack(
+      kmlDocument(FIVE_POINT_PLACEMARK, {
+        statsBlock: olderEraStatsBlock('Max/min climb rate   +2.25 / -2.68 m/s over 60s'),
+      }),
+      1,
+    )
+
+    assertStats(track.stats)
+    expect(track.stats.maxClimb).toBe('+2.25 m/s over 60s')
+    expect(track.stats.minClimb).toBe('-2.68 m/s over 60s')
+  })
+
+  // Documented out of scope (see parseClimbRates' own comment): no sampled fixture uses
+  // decimal-comma values, so this pins the current, intentional null rather than silently
+  // leaving it unverified.
+  it('decimal-comma values are out of scope and resolve to null rather than a wrong number', () => {
+    const track = parseTrack(
+      kmlDocument(FIVE_POINT_PLACEMARK, {
+        statsBlock: olderEraStatsBlock('Max/min climb rate   2,25 / -2,68 m/s over 60s'),
+      }),
+      1,
+    )
+
+    assertStats(track.stats)
+    expect(track.stats.maxClimb).toBeNull()
+    expect(track.stats.minClimb).toBeNull()
   })
 })

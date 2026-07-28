@@ -26,6 +26,10 @@ export type TrackPoint = {
   secondsFromStart: number
 }
 
+// Total distance (its own labeled line in the two 2010-era GpsDump fixtures, track-233524.kml
+// and track-235690.kml) is read nowhere in this file — the newer GpsDumpAndroid format has no
+// equivalent line to reconcile it against, so it stays unparsed rather than added as a field
+// only the older fixtures could ever populate.
 export type TrackStats = {
   date: string | null
   startFinish: string | null
@@ -44,7 +48,11 @@ export type TrackStats = {
 // no statistics" case to keep distinct from "unreadable" — only parsed vs `'unparseable'` (markup
 // present but none of the known label variants matched it, or the block was empty/missing
 // entirely; both collapse to the same "nothing to show, and it's not because the flight has
-// nothing" signal). See parse-track.test.ts and scripts/check-parsers.mts for what's pinned.
+// nothing" signal). Note this folds a genuinely distinct third case — "the block is missing
+// entirely" vs. "the block is present but this exporter's wording isn't recognised" — into one
+// signal; kept collapsed rather than split into its own state because no sampled fixture has
+// ever shown the "missing entirely" shape to actually confirm it needs distinguishing. See
+// parse-track.test.ts and scripts/check-parsers.mts for what's pinned.
 export type TrackStatsResult = TrackStats | 'unparseable'
 
 // The five single-LineString scoring geometries flightlog.org computes from a track, keyed
