@@ -149,11 +149,14 @@ export type Club = {
 }
 
 // From `a=26` (see docs/flightlog-api.md): every field the club-detail info table renders,
-// each one optional except `memberCount` — "Link to more info", "Coordinates" and
-// "Description" are all confirmed absent on at least one real club (Oslo has no Coordinates
-// row at all; a club with no logo/blurb has no Description text beyond its region name; a
-// club with no external site has no "Link to more info" row) — see parse-club-detail.ts.
-// `name` comes from the page's own breadcrumb, not a labelled row.
+// each one optional except `memberCount` — "Link to more info" and "Coordinates" are each
+// confirmed absent on at least one real club (Oslo has no Coordinates row at all; a club with
+// no external site has no "Link to more info" row) — see parse-club-detail.ts. `description`
+// is optional here for type-shape consistency with the others (its own value can be `null`
+// after multi-line normalisation), but `Description` itself is one of parse-club-detail.ts's
+// REQUIRED_LABELS: it is present on every sampled fixture, including the zero-member one, and
+// the parser throws rather than returning a club without it. `name` comes from the page's own
+// breadcrumb, not a labelled row.
 export type ClubDetail = {
   clubId: number
   name: string

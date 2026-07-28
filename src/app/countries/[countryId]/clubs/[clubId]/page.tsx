@@ -8,6 +8,24 @@ import { parseCanonicalCountryId } from '@/lib/flightlog/country-id'
 
 type ClubParams = Promise<{ countryId: string; clubId: string }>
 
+// Same canonical-decimal-string + isSafeInteger discipline as parseCanonicalCountryId (see
+// country-id.ts's own doc comment for the full reasoning) — clubId gets no CURATION opinion
+// (this route accepts every real club id, not just a curated set, see Club's own doc comment
+// below), but that is a separate question from whether an alias spelling should be accepted at
+// all. `Number(raw)` alone accepts hex (`0x33`), a trailing `.0`, a leading `+`, and
+// surrounding whitespace — none of them a spelling any real link in this app emits — and
+// `Number.isInteger` alone (rather than `isSafeInteger`) still lets a digit string past
+// 2^53-1 silently collapse onto a neighbouring value via float rounding. Each distinct
+// spelling of the same id is also a distinct URL, so accepting them multiplies this route's
+// own cache entries (both the underlying `'use cache'` data cache, keyed by the parsed number
+// either way, and any URL-keyed caching layer in front of it) for no real benefit.
+const CANONICAL_DECIMAL_ID = /^(0|[1-9]\d*)$/
+function parseCanonicalClubId(raw: string): number | null {
+  if (!CANONICAL_DECIMAL_ID.test(raw)) return null
+  const id = Number(raw)
+  return Number.isSafeInteger(id) ? id : null
+}
+
 export default function ClubPage({ params }: { params: ClubParams }) {
   return (
     <Suspense fallback={<ClubSkeleton />}>
@@ -29,11 +47,8 @@ export async function Club({ params }: { params: ClubParams }) {
   const countryId = parseCanonicalCountryId(countryIdParam)
   if (countryId === null || countryId <= 0) notFound()
 
-  // Same guard TakeoffDetail's own dynamic id segment uses — no canonical-spelling rejection
-  // the way countryId gets, since this route is never statically generated (see
-  // generateStaticParams' absence below).
-  const clubId = Number(clubIdParam)
-  if (!Number.isInteger(clubId) || clubId <= 0) notFound()
+  const clubId = parseCanonicalClubId(clubIdParam)
+  if (clubId === null || clubId <= 0) notFound()
 
   // Independent fetches, run in parallel: getClub (`a=26`, needs both ids) and getClubStats
   // (`rqtid=1`, needs only `clubId` — see that fetcher's own doc comment on why `country_id`

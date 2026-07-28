@@ -2,13 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { parseClubRoster } from './parse-club-roster'
 
 const ROSTER_HTML = `<html><body>
-<div>
 <!-- Phantom "pilot details" icon anchors, real markup from a26-51-club.html (Voss): these
      carry a user_id and no name, but live OUTSIDE the roster table entirely. A parser that
      searched the whole document for a[href*="user_id="] instead of scoping to the roster
-     table would miscount the roster by picking these up as blank-name rows. -->
-<a href="https://flightlog.org/fl.html?l=1&amp;a=28&amp;user_id=9000&amp;xc=xc"><img src="yi.html" alt="pilot details"></a>
-</div>
+     table would miscount the roster by picking these up as blank-name rows. Placed inside a
+     <tr> of an unrelated table, not a bare <div> — measured against the real fixture, all 5
+     of Voss's own phantom anchors sit inside <tr>s of a page-chrome table, never a <div>. A
+     scoping mutation that widens the search from rosterTable.find('tr') to
+     $('body').find('tr') still misses a <div>-wrapped phantom (a <div> is never itself a
+     <tr>, so find('tr') doesn't reach it either way) but DOES pick up this one, which is
+     what actually makes that mutation detectable here rather than only in the fixture-gated
+     check:parsers script. -->
+<table>
+<tr><td><a href="https://flightlog.org/fl.html?l=1&amp;a=28&amp;user_id=9000&amp;xc=xc"><img src="yi.html" alt="pilot details"></a></td></tr>
+</table>
 <table cellspacing='1' cellpadding='3' bgcolor='black'>
 <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Ada Sofie Thrane Bjoroy</a></td></tr>
 <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=2>Cato Wiese-Hansen</a></td></tr>

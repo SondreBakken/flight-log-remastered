@@ -41,6 +41,20 @@ describe('Club route guard', () => {
     expect(mockedGetClub).not.toHaveBeenCalled()
   })
 
+  // clubId gets the same canonical-decimal-string + isSafeInteger discipline as countryId
+  // (see page.tsx's own parseCanonicalClubId doc comment) — each of these alias spellings
+  // resolves to the exact same club under plain `Number()` coercion, so accepting them would
+  // only multiply this route's own cache entries for no benefit.
+  it.each(['0x33', '51.0', '1.6e2', '+51', ' 51 ', '999999999999999999999'])(
+    'renders notFound for the clubId alias %j',
+    async (alias) => {
+      await expect(Club({ params: Promise.resolve({ countryId: '160', clubId: alias }) })).rejects.toMatchObject({
+        digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+      })
+      expect(mockedGetClub).not.toHaveBeenCalled()
+    },
+  )
+
   it('renders notFound when getClub resolves null (the 0-byte-body not-found signal) rather than rendering an empty club', async () => {
     mockedGetClub.mockResolvedValue(null)
     mockedGetClubStats.mockResolvedValue([])

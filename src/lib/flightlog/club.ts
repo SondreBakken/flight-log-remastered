@@ -48,5 +48,24 @@ export async function getClub(countryId: number, clubId: number): Promise<ClubWi
   const detail = parseClubDetail(html, clubId)
   if (detail === null) return null
 
-  return { detail, roster: parseClubRoster(html, clubId) }
+  const roster = parseClubRoster(html, clubId)
+
+  // The info block sits near the top of the response and the roster runs to the bottom (Voss:
+  // 1271 rows) — an upstream truncation mid-render (a fatal or timeout partway through a
+  // legacy page emitting hundreds or thousands of rows) produces a complete HTTP response
+  // carrying a fully-formed info block beside a partial roster, and neither parser can catch
+  // this on its own: parseClubRoster's own floor check only compares parsed-vs-candidate rows
+  // WITHIN whatever markup survived, so a body cut off after row 100 of 1271 still parses those
+  // 100 rows cleanly and returns them. `detail.memberCount` is the one number on this page that
+  // both halves of the response independently agree on when nothing was cut — enforcing it here
+  // is what actually closes the gap, the same floor-check discipline every parser in this file
+  // family applies within its own table, just applied across the two tables instead of within
+  // one.
+  if (roster.length !== detail.memberCount) {
+    throw new Error(
+      `Club ${clubId}: roster carries ${roster.length} member(s) but the info block declares ${detail.memberCount} — the response is likely truncated`,
+    )
+  }
+
+  return { detail, roster }
 }

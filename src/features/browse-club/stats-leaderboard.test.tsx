@@ -34,22 +34,29 @@ describe('StatsLeaderboard', () => {
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
   })
 
-  it('sorts descending by flights on the first click of the Flights header', () => {
+  // A bare `title` attribute alone is invisible on touch, never focusable, and not announced
+  // by a screen reader — the ambiguous row must carry a second, always-present affordance
+  // explaining why it has no link, not just a hover-only one.
+  it('gives the ambiguous row a screen-reader-visible explanation for why it has no profile link, not just a hover title', () => {
+    render(<StatsLeaderboard stats={ROWS} />)
+
+    expect(screen.getByText(/no pilot profile link available/i)).not.toBeNull()
+  })
+
+  it('defaults to sorted descending by flights, with the Flights header reflecting that, before any click', () => {
+    render(<StatsLeaderboard stats={ROWS} />)
+
+    expect(rowOrder()[0]).toContain('High Flyer')
+    expect(screen.getByRole('columnheader', { name: /^flights/i }).getAttribute('aria-sort')).toBe('descending')
+  })
+
+  it('flips to ascending on a click of the already-sorted Flights header', () => {
     render(<StatsLeaderboard stats={ROWS} />)
 
     fireEvent.click(screen.getByRole('button', { name: /^flights/i }))
 
-    expect(rowOrder()[0]).toContain('High Flyer')
-  })
-
-  it('flips to ascending on a second click of the same header', () => {
-    render(<StatsLeaderboard stats={ROWS} />)
-
-    const flightsHeader = screen.getByRole('button', { name: /^flights/i })
-    fireEvent.click(flightsHeader)
-    fireEvent.click(flightsHeader)
-
     expect(rowOrder()[0]).toContain('Low Flyer')
+    expect(screen.getByRole('columnheader', { name: /^flights/i }).getAttribute('aria-sort')).toBe('ascending')
   })
 
   it('sorts by a different column (distance) independently of the flights sort', () => {
@@ -58,5 +65,7 @@ describe('StatsLeaderboard', () => {
     fireEvent.click(screen.getByRole('button', { name: /distance/i }))
 
     expect(rowOrder()[0]).toContain('High Flyer')
+    expect(screen.getByRole('columnheader', { name: /distance/i }).getAttribute('aria-sort')).toBe('descending')
+    expect(screen.getByRole('columnheader', { name: /^flights/i }).getAttribute('aria-sort')).toBe('none')
   })
 })

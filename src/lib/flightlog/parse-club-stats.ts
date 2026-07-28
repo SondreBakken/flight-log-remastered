@@ -52,11 +52,14 @@ function toStats(row: Nodes): ClubPilotStats | null {
 // never accepted as part of an options bag a caller could omit a key from. Measured live:
 // `rqtid=1` WITHOUT `club_id` does not error and does not come back empty, it silently
 // returns 146 rows of a DIFFERENT, unrelated club's pilots (see docs/flightlog-api.md) — a
-// plausible-looking, wrong answer a caller could easily ship without noticing. Putting
-// `clubId` here, in the parser's own signature, rather than only in the fetcher that builds
-// the URL (club.ts's getClubStats) means the mistake this guards against — someone building
-// the query string by hand and forgetting the param — has nowhere left to happen: nothing
-// calls the flightlog.org endpoint without going through a function that requires the id.
+// plausible-looking, wrong answer a caller could easily ship without noticing.
+//
+// This parser never builds the URL itself — `clubId` here is used only to label the error
+// messages below (a parse failure for club 51 should say so), not to construct or validate
+// the query string. It does NOT, by itself, stop someone from hand-building
+// `/fl.html?rqtid=1` without `club_id` at the fetcher: that guard lives in club-stats.ts's
+// `getClubStats`, whose own required `clubId` parameter is what actually keeps the mistake
+// from happening, pinned by club-stats.test.ts's exact-URL assertion.
 export function parseClubStats(html: string, clubId: number): ClubPilotStats[] {
   const rows = extractDataRows(html, EXPECTED_HEADER, `Club stats for club ${clubId}`)
   const stats = rows.map(toStats).filter((row): row is ClubPilotStats => row !== null)

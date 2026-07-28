@@ -6,8 +6,9 @@ import type { ClubMember, ClubPilotStats } from '@/lib/flightlog/types'
 // more-than-one roster match), not "not yet resolved" — a caller must render it as "no link
 // available", never as a confident answer it doesn't have. This repo has shipped that exact
 // confident-wrong-answer failure five times before (#25, #6, #32, #8, #59); this type exists
-// so a fifth attempt at the same mistake, specifically for club stats, is a type error instead
-// of a runtime one.
+// so a sixth attempt at the same mistake, specifically for club stats, is a type error instead
+// of a runtime one — matching docs/flightlog-api.md's own count of what a silently-picked
+// ambiguous userId here would be.
 export type ResolvedClubStats = ClubPilotStats & { userId: number | null }
 
 // Both `ClubMember.name` and `ClubPilotStats.name` are already the output of cheerio's own
@@ -48,15 +49,4 @@ export function resolveStatsPilots(roster: ClubMember[], stats: ClubPilotStats[]
     const matches = nameIndex.get(row.name) ?? []
     return { ...row, userId: matches.length === 1 ? matches[0] : null }
   })
-}
-
-export type ClubStatsSortKey = 'flights' | 'distanceKm' | 'hours'
-export type SortDirection = 'asc' | 'desc'
-
-// A new array, never sorted in place — `stats` is a caller-owned prop/state value in every
-// call site this file has (the leaderboard component's own state), and mutating a prop array
-// in place is the kind of bug that only shows up as a confusing re-render later.
-export function sortResolvedStats(stats: ResolvedClubStats[], key: ClubStatsSortKey, direction: SortDirection): ResolvedClubStats[] {
-  const sign = direction === 'asc' ? 1 : -1
-  return [...stats].sort((a, b) => (a[key] - b[key]) * sign)
 }

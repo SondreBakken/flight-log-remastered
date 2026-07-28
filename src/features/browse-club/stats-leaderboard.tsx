@@ -3,12 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { FollowButton } from '@/components/follow-button'
-import {
-  sortResolvedStats,
-  type ClubStatsSortKey,
-  type ResolvedClubStats,
-  type SortDirection,
-} from './resolve-stats-pilots'
+import type { ResolvedClubStats } from './resolve-stats-pilots'
+import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
 
 type StatsLeaderboardProps = {
   stats: ResolvedClubStats[]
@@ -20,21 +16,29 @@ const COLUMNS: { key: ClubStatsSortKey; label: string }[] = [
   { key: 'hours', label: 'Hours' },
 ]
 
-// Sorted highest-first on first click of a column, matching a leaderboard's own default
-// reading order (most flights/distance/hours at the top) — flipping to ascending needs a
-// second click, same toggle-on-reclick convention as every sortable table this repo would
-// otherwise need to invent from scratch.
-function nextSort(current: { key: ClubStatsSortKey; direction: SortDirection } | null, key: ClubStatsSortKey): {
+// Sorted highest-first the first time a column becomes the sort key — either DEFAULT_SORT
+// below (flights, on initial render) or the first click of a different column — matching a
+// leaderboard's own default reading order (most flights/distance/hours at the top). Flipping
+// to ascending needs a second click on the SAME column, same toggle-on-reclick convention as
+// every sortable table this repo would otherwise need to invent from scratch.
+function nextSort(current: { key: ClubStatsSortKey; direction: SortDirection }, key: ClubStatsSortKey): {
   key: ClubStatsSortKey
   direction: SortDirection
 } {
-  if (current?.key !== key) return { key, direction: 'desc' }
+  if (current.key !== key) return { key, direction: 'desc' }
   return { key, direction: current.direction === 'desc' ? 'asc' : 'desc' }
 }
 
+// Flights descending, not unsorted — the table renders with a rank column implied by row
+// order (highest first) before anyone clicks anything, so it must actually start ranked
+// rather than looking ranked while secretly reflecting rqtid=1's own row order. This is also
+// exactly what clicking the Flights header once would produce, so the default costs nothing
+// extra to keep in sync.
+const DEFAULT_SORT: { key: ClubStatsSortKey; direction: SortDirection } = { key: 'flights', direction: 'desc' }
+
 export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
-  const [sort, setSort] = useState<{ key: ClubStatsSortKey; direction: SortDirection } | null>(null)
-  const rows = sort ? sortResolvedStats(stats, sort.key, sort.direction) : stats
+  const [sort, setSort] = useState(DEFAULT_SORT)
+  const rows = sortResolvedStats(stats, sort.key, sort.direction)
 
   if (stats.length === 0) {
     return (
@@ -51,15 +55,18 @@ export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
           <tr className="border-b border-black/10 text-left dark:border-white/15">
             <th className="py-2 pr-4 font-medium">Pilot</th>
             {COLUMNS.map((column) => (
-              <th key={column.key} className="py-2 pr-4 text-right font-medium">
+              <th
+                key={column.key}
+                className="py-2 pr-4 text-right font-medium"
+                aria-sort={sort.key === column.key ? (sort.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
+              >
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, column.key))}
-                  aria-pressed={sort?.key === column.key}
                   className="underline-offset-2 hover:underline"
                 >
                   {column.label}
-                  {sort?.key === column.key ? (sort.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  {sort.key === column.key ? (sort.direction === 'desc' ? ' ↓' : ' ↑') : ''}
                 </button>
               </th>
             ))}
@@ -68,7 +75,7 @@ export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <StatsRow key={`${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`} row={row} />
+            <StatsRow key={row.userId ?? `${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`} row={row} />
           ))}
         </tbody>
       </table>
@@ -76,18 +83,25 @@ export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
   )
 }
 
-// A stats row's own `userId` is `null` whenever its name resolved to zero or more than one
-// roster member (see resolve-stats-pilots.ts) — that must render as "no link available", not
-// as a name that merely looks like every other row. `userId === null` therefore renders the
-// bare name, no Link and no FollowButton, rather than picking one of the ambiguous matches or
-// omitting the row outright: the pilot's stats are still real and worth showing, only the
-// identity behind them isn't known.
+// A stats row's own `userId` is `null` whenever its name resolved to zero OR more than one
+// roster member (see resolve-stats-pilots.ts) — two different causes with one shared
+// consequence, "no link available", not as a name that merely looks like every other row.
+// `userId === null` therefore renders the bare name, no Link and no FollowButton, rather than
+// picking one of the ambiguous matches or omitting the row outright: the pilot's stats are
+// still real and worth showing, only the identity behind them isn't known. The wording below
+// says "no profile link available" rather than committing to either cause, since `userId ===
+// null` alone can't tell a genuine zero-match from an ambiguous multi-match apart. A `title`
+// alone is also not enough signal — invisible on touch, never focusable, not announced by a
+// screen reader — so the same explanation is repeated as visible text via `sr-only`.
 function StatsRow({ row }: { row: ResolvedClubStats }) {
   return (
     <tr className="border-b border-black/5 dark:border-white/10">
       <td className="py-2 pr-4">
         {row.userId === null ? (
-          <span title="Multiple club members share this name — can't tell which one this is">{row.name}</span>
+          <span title="No pilot profile link available for this name">
+            <span>{row.name}</span>
+            <span className="sr-only"> (no pilot profile link available for this name)</span>
+          </span>
         ) : (
           <Link className="underline underline-offset-2" href={`/pilots/${row.userId}`}>
             {row.name}
