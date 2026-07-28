@@ -1,7 +1,14 @@
 import { XMLParser } from 'fast-xml-parser'
 import { buildRecord } from '@/lib/records/build-record'
 import { SCORING_KIND_LABELS } from './types'
-import type { ScoringGeometry, ScoringGeometryKind, ScoringGeometryResult, Track, TrackPoint, TrackStats } from './types'
+import type {
+  ScoringGeometry,
+  ScoringGeometryKind,
+  ScoringGeometryResult,
+  Track,
+  TrackPoint,
+  TrackStatsResult,
+} from './types'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
@@ -27,25 +34,64 @@ function readNumber(raw: string | null | undefined): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-// The statistics block arrives as a fixed-width plain-text table inside a CDATA section,
-// so each field is addressed by its label rather than by structure.
-function readStatLine(block: string, label: string): string | null {
-  const match = block.match(new RegExp(`^${label}\\s+(.+)$`, 'm'))
-  return match?.[1]?.trim() ?? null
+// The statistics block arrives as a fixed-width plain-text table inside a CDATA section, so
+// each field is addressed by its label rather than by structure. `label` accepts more than one
+// pattern because GpsDump has worded these labels differently across export versions (measured:
+// fixtures/track-233524.kml and track-235690.kml, both GpsDump 4.36/2010, use older wording than
+// the other five sampled fixtures) — every candidate is tried in order and the first line that
+// matches wins, so a track exported by either build resolves the same field.
+function readStatLine(block: string, label: string | string[]): string | null {
+  for (const candidate of Array.isArray(label) ? label : [label]) {
+    const match = block.match(new RegExp(`^${candidate}\\s+(.+)$`, 'm'))
+    if (match?.[1]) return match[1].trim()
+  }
+  return null
 }
 
-function parseStats(block: string): TrackStats {
-  const height = readStatLine(block, 'Height \\(max/min\\)')?.match(/(-?\d+)\s*\/\s*(-?\d+)/)
+// Older GpsDump exports (measured: track-233524.kml, track-235690.kml) pack both the max and
+// min climb rate onto a single "Max/min climb rate" line instead of the two separate "Max./Min.
+// climb (10s/60s)" lines the current format uses, with an interval suffix ("over 60s") trailing
+// the numbers instead of being baked into the label. Split rather than matched twice.
+function parseClimbRates(block: string): { maxClimb: string | null; minClimb: string | null } {
+  const maxClimb = readStatLine(block, 'Max\\. climb \\(10s/60s\\)')
+  const minClimb = readStatLine(block, 'Min\\. climb \\(10s/60s\\)')
+  if (maxClimb !== null || minClimb !== null) return { maxClimb, minClimb }
+
+  const combined = readStatLine(block, 'Max\\/min climb rate')
+  const parts = combined?.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)\s*(.+)$/)
+  if (!parts) return { maxClimb: null, minClimb: null }
+  const [, max, min, suffix] = parts
+  return { maxClimb: `${max} ${suffix}`, minClimb: `${min} ${suffix}` }
+}
+
+// `'unparseable'` (see TrackStatsResult's own doc comment) fires only when the block carries no
+// content at all (missing/empty description) or none of the known label variants matched any of
+// the five flight-performance fields — never for a block that partially matched, since every
+// sampled fixture, old and new format alike, has all five together or none at all. That
+// all-or-nothing correlation is what makes "none of the five matched" a safe stand-in for
+// "this exporter's wording isn't one this parser knows" rather than a guess.
+function parseStats(block: string): TrackStatsResult {
+  const height = readStatLine(block, ['Height \\(max/min\\)', 'Max\\./min\\. height'])?.match(
+    /(-?\d+)\s*\/\s*(-?\d+)/,
+  )
+  const maxAltitude = readNumber(height?.[1])
+  const minAltitude = readNumber(height?.[2])
+  const maxSpeed = readStatLine(block, ['Max\\. speed \\(10s/60s\\)', 'Max\\. mean/top speed'])
+  const { maxClimb, minClimb } = parseClimbRates(block)
+
+  const nothingRecognised =
+    maxAltitude === null && minAltitude === null && maxSpeed === null && maxClimb === null && minClimb === null
+  if (nothingRecognised) return 'unparseable'
 
   return {
     date: readStatLine(block, 'Date'),
     startFinish: readStatLine(block, 'Start/finish'),
     duration: readStatLine(block, 'Duration'),
-    maxAltitude: readNumber(height?.[1]),
-    minAltitude: readNumber(height?.[2]),
-    maxSpeed: readStatLine(block, 'Max\\. speed \\(10s/60s\\)'),
-    maxClimb: readStatLine(block, 'Max\\. climb \\(10s/60s\\)'),
-    minClimb: readStatLine(block, 'Min\\. climb \\(10s/60s\\)'),
+    maxAltitude,
+    minAltitude,
+    maxSpeed,
+    maxClimb,
+    minClimb,
   }
 }
 

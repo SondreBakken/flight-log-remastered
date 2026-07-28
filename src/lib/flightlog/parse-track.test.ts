@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseTrack } from './parse-track'
-import type { ScoringGeometry, ScoringGeometryResult } from './types'
+import type { ScoringGeometry, ScoringGeometryResult, TrackStats, TrackStatsResult } from './types'
 
 // Narrows a scoring result down to a real, parsed geometry, failing the test with a clear
 // assertion message if it's actually `null` or `'unparseable'` — used wherever a test needs
@@ -8,6 +8,12 @@ import type { ScoringGeometry, ScoringGeometryResult } from './types'
 function assertGeometry(state: ScoringGeometryResult): asserts state is ScoringGeometry {
   expect(state).not.toBeNull()
   expect(state).not.toBe('unparseable')
+}
+
+// Same narrowing for TrackStatsResult (see its own doc comment in types.ts) — used wherever a
+// test needs to read a field (date, maxAltitude, ...) that only exists on the real shape.
+function assertStats(result: TrackStatsResult): asserts result is TrackStats {
+  expect(result).not.toBe('unparseable')
 }
 
 // A small, hand-built tracklog rather than a full real fixture (thousands of points):
@@ -207,6 +213,7 @@ Pos.      Time      Latitude         Longitude         Distance
     const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
     expect(track.scoring.distance_4_point).toBe('unparseable')
     expect(track.points.length).toBeGreaterThan(0)
+    assertStats(track.stats)
     expect(track.stats.date).toBe('2020-01-01')
   })
 

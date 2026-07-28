@@ -37,6 +37,16 @@ export type TrackStats = {
   minClimb: string | null
 }
 
+// A stats-block parse outcome, one of two states — deliberately not three. ScoringGeometryResult
+// (below) needs `null` because a flight can genuinely lack a given scoring geometry. The stats
+// block is different: every fixture sampled (see parse-track.ts's parseStats, both current-format
+// and 2010-era GpsDump exports) carries one, so there is no observed "this flight legitimately has
+// no statistics" case to keep distinct from "unreadable" — only parsed vs `'unparseable'` (markup
+// present but none of the known label variants matched it, or the block was empty/missing
+// entirely; both collapse to the same "nothing to show, and it's not because the flight has
+// nothing" signal). See parse-track.test.ts and scripts/check-parsers.mts for what's pinned.
+export type TrackStatsResult = TrackStats | 'unparseable'
+
 // The five single-LineString scoring geometries flightlog.org computes from a track, keyed
 // by the KML's own `Metadata/@type` value (see parse-track.ts). Triangles (`distance_flat_
 // triangle`/`distance_fai_triangle`) are deliberately excluded: they're MultiGeometry with a
@@ -97,7 +107,7 @@ export type ScoringGeometryResult = ScoringGeometry | null | 'unparseable'
 export type Track = {
   tripId: number
   points: TrackPoint[]
-  stats: TrackStats
+  stats: TrackStatsResult
   scoring: Record<ScoringGeometryKind, ScoringGeometryResult>
 }
 

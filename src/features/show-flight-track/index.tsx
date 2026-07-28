@@ -1,4 +1,4 @@
-import type { Track } from '@/lib/flightlog/types'
+import type { Track, TrackPoint, TrackStats, TrackStatsResult } from '@/lib/flightlog/types'
 import { formatAltitude } from './format-altitude'
 import { TrackHoverView } from './track-hover-view'
 
@@ -8,8 +8,13 @@ type FlightTrackProps = {
 
 type Stat = { label: string; value: string }
 
-function toStats(track: Track): Stat[] {
-  const { stats, points } = track
+// Narrows away `'unparseable'` (see TrackStatsResult's own doc comment) — everything below this
+// only ever needs to render real stats or know that it can't.
+function isTrackStats(result: TrackStatsResult): result is TrackStats {
+  return result !== 'unparseable'
+}
+
+function toStats(stats: TrackStats, points: TrackPoint[]): Stat[] {
   return [
     { label: 'Date', value: stats.date ?? '—' },
     { label: 'Start / finish', value: stats.startFinish ?? '—' },
@@ -27,7 +32,13 @@ export default function FlightTrack({ track }: FlightTrackProps) {
   return (
     <div className="flex flex-col gap-6">
       <TrackHoverView points={track.points} scoring={track.scoring} />
-      <StatGrid stats={toStats(track)} />
+      {isTrackStats(track.stats) ? (
+        <StatGrid stats={toStats(track.stats, track.points)} />
+      ) : (
+        <p className="text-sm opacity-70" data-testid="stats-unparseable">
+          Could not read the statistics for this flight.
+        </p>
+      )}
     </div>
   )
 }

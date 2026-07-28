@@ -72,9 +72,70 @@ for (const [file, userId] of pilotFixtures) {
 }
 
 const track = parseTrack(readFileSync('fixtures/track-1001428.kml', 'utf8'), 1001428)
-console.log(`track 1001428: points=${track.points.length} maxAlt=${track.stats.maxAltitude} duration=${track.stats.duration}`)
+const stats1001428 = track.stats
+console.log(
+  `track 1001428: points=${track.points.length} maxAlt=${stats1001428 === 'unparseable' ? 'unparseable' : stats1001428.maxAltitude} ` +
+    `duration=${stats1001428 === 'unparseable' ? 'unparseable' : stats1001428.duration}`,
+)
 assert(track.points.length > 0, 'track 1001428: parses at least one point')
-assert(track.stats.maxAltitude !== null, 'track 1001428: parses a max altitude')
+assert(stats1001428 !== 'unparseable' && stats1001428.maxAltitude !== null, 'track 1001428: parses a max altitude')
+
+// #59: fixed-width label variants across GpsDump export versions. track-233524.kml and
+// track-235690.kml are both GpsDump 4.36/2010 fixtures, using older wording ("Max./min. height",
+// "Max. mean/top speed", the combined "Max/min climb rate ... over 60s" line) than the other five
+// sampled fixtures — see parse-track.ts's readStatLine/parseClimbRates. Every one of these five
+// fields must resolve on both eras, not just the newer one.
+const olderGpsDumpFixtures = [
+  ['fixtures/track-233524.kml', 233524],
+  ['fixtures/track-235690.kml', 235690],
+] as const
+
+for (const [file, tripId] of olderGpsDumpFixtures) {
+  const olderTrack = parseTrack(readFileSync(file, 'utf8'), tripId)
+  const stats = olderTrack.stats
+  console.log(`${file}: stats=${stats === 'unparseable' ? 'unparseable' : JSON.stringify(stats)}`)
+  assert(stats !== 'unparseable', `${file}: older GpsDump label wording still resolves to real stats, not 'unparseable'`)
+  if (stats === 'unparseable') continue
+  assert(stats.maxAltitude !== null, `${file}: "Max./min. height" resolves a max altitude`)
+  assert(stats.minAltitude !== null, `${file}: "Max./min. height" resolves a min altitude`)
+  assert(stats.maxSpeed !== null, `${file}: "Max. mean/top speed" resolves a max speed`)
+  assert(stats.maxClimb !== null, `${file}: the combined "Max/min climb rate" line resolves a max climb`)
+  assert(stats.minClimb !== null, `${file}: the combined "Max/min climb rate" line resolves a min climb`)
+}
+
+// The other half of #59: a stats block this parser genuinely doesn't recognise must render as
+// the distinguishable 'unparseable' state, not silently-null fields that look like a flight with
+// no statistics. Built inline, not a fixture: no captured KML actually has unrecognised label
+// wording (that's the whole point — the two eras above are the only variants seen in the wild),
+// so this is the one pair of assertions in this file that can't be gated on a real fixture.
+{
+  const rawKml = readFileSync('fixtures/track-1001428.kml', 'utf8')
+
+  const partiallyRenamed = parseTrack(rawKml.replace(/Height \(max\/min\)/, 'Elevation spread'), 1001428)
+  console.log(`synthetic partial-rename stats block: stats=${JSON.stringify(partiallyRenamed.stats)}`)
+  assert(
+    partiallyRenamed.stats !== 'unparseable',
+    "synthetic: renaming only the height label still leaves the other four fields recognised, so the block must NOT flip to 'unparseable' (partial recognition stays partial, not all-or-nothing)",
+  )
+
+  const fullyRenamed = parseTrack(
+    rawKml
+      .replace(/Height \(max\/min\)/, 'Elevation spread')
+      .replace(/Max\. speed \(10s\/60s\)/, 'Peak velocity')
+      .replace(/Max\. climb \(10s\/60s\)/, 'Peak lift')
+      .replace(/Min\. climb \(10s\/60s\)/, 'Peak sink'),
+    1001428,
+  )
+  console.log(`synthetic fully-unrecognised stats block: stats=${JSON.stringify(fullyRenamed.stats)}`)
+  assert(
+    fullyRenamed.stats === 'unparseable',
+    "synthetic: renaming every flight-performance label to unrecognised wording must resolve to 'unparseable', not five silently-null fields that read as a flight with no statistics",
+  )
+  assert(
+    fullyRenamed.points.length === track.points.length,
+    'synthetic: an unparseable stats block must not affect the rest of the track (points still parse)',
+  )
+}
 
 const countries = parseCountries(readFileSync('fixtures/countries.html', 'utf8'))
 const norway = countries.find((country) => country.countryId === 160)
