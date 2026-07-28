@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
-import { TakeoffsMap } from './takeoffs-map'
+import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
+import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-geojson'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
 import {
@@ -233,6 +234,13 @@ function classes(...values: Array<string | false | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
+// TakeoffsMap no longer renders its own legend (see that component's own doc comment on why —
+// a mode flag was explicitly rejected) — this directory is the caller that actually wants one,
+// so it composes the two itself. buildTakeoffsMapData runs a second time here (once more inside
+// TakeoffsMap's own useMemo) rather than lifting mapData into a shared prop between the two:
+// it's measured at 1.75ms for the whole Norway dataset (see that function's own doc comment),
+// cheap enough that keeping TakeoffsMap's existing `takeoffs` prop contract simple wins over
+// avoiding the duplicate computation.
 function TakeoffsMapSection({
   state,
   takeoffs,
@@ -244,7 +252,16 @@ function TakeoffsMapSection({
 }) {
   if (state.status === 'loading') return <p className="text-sm opacity-70">Loading takeoffs…</p>
   if (state.status === 'error') return <p className="text-sm text-red-600">{state.message}</p>
-  return <TakeoffsMap takeoffs={takeoffs} countryId={countryId} />
+
+  // Only alongside the real map, not TakeoffsMap's own "no takeoffs with a recorded location"
+  // placeholder — a legend for a map that isn't there reads as confusing, not helpful.
+  const mapData = buildTakeoffsMapData(takeoffs)
+  return (
+    <div className="flex flex-col gap-2">
+      <TakeoffsMap takeoffs={takeoffs} countryId={countryId} />
+      {mapData.plottedCount > 0 && <TakeoffsMapLegend mapData={mapData} />}
+    </div>
+  )
 }
 
 function TakeoffCountSummary({ state }: { state: TakeoffsState }) {

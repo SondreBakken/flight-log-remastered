@@ -7,7 +7,7 @@ import type { Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/type
 // actual maplibre-gl MapLibreMap against a canvas, which jsdom cannot provide. Stubbed here so
 // this suite can assert WHETHER the map section renders (and what it's handed) without a real
 // GL context.
-vi.mock('@/features/browse-country-takeoffs/takeoffs-map', () => ({
+vi.mock('@/components/takeoffs-map', () => ({
   TakeoffsMap: ({ takeoffs }: { takeoffs: Takeoff[] }) => (
     <div data-testid="stub-takeoffs-map">{takeoffs.length} takeoff(s) on the map</div>
   ),

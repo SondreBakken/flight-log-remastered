@@ -1,4 +1,4 @@
-// MapLibre source/layer ids shared between takeoffs-map.tsx, which builds them, and
+// MapLibre source/layer ids shared between index.tsx, which builds them, and
 // scripts/verify-sites-map.mts, which queries them from a real browser to prove clustering
 // and layer configuration actually work. Kept in their own module — no maplibre-gl import, no
 // CSS, no React — specifically so the Node-side verify script can import this file directly

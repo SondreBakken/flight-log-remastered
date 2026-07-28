@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { TakeoffsMap } from '@/features/browse-country-takeoffs/takeoffs-map'
+import { TakeoffsMap } from '@/components/takeoffs-map'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
 import type { SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
@@ -32,24 +32,27 @@ export default function TakeoffDetailView({
 }: TakeoffDetailViewProps) {
   return (
     <section className="flex flex-col gap-6">
-      <TakeoffHeader countryId={countryId} detail={detail} />
+      <TakeoffHeader countryName={countryName} detail={detail} />
       <TakeoffLinks countryId={countryId} countryName={countryName} takeoffId={detail.takeoffId} linkUrl={detail.linkUrl} />
       {detail.siteRecords.length > 0 && <SiteRecords records={detail.siteRecords} />}
-      {detail.description !== '' && <Description text={detail.description} />}
+      {detail.description !== null && <Description text={detail.description} />}
       <TakeoffMetadata createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
-      {mapEntry && <TakeoffsMap takeoffs={[mapEntry]} countryId={countryId} />}
+      {/* No TakeoffsMapLegend here — that's the directory's three-category wind key, wrong
+          copy on a page about exactly one site (see TakeoffsMap's own doc comment on why
+          composing a legend is each caller's choice, not a mode flag on the map itself). A
+          smaller className than the directory's own h-[70vh]: one marker doesn't need a
+          viewport-scale map. */}
+      {mapEntry && <TakeoffsMap takeoffs={[mapEntry]} countryId={countryId} className="h-64 w-full" />}
       <TakeoffFlights flights={flights} currentYear={currentYear} />
     </section>
   )
 }
 
-function TakeoffHeader({ countryId, detail }: { countryId: number; detail: TakeoffDetail }) {
+function TakeoffHeader({ countryName, detail }: { countryName: string; detail: TakeoffDetail }) {
   return (
     <header className="flex flex-col gap-1">
       <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
-      <p className="text-sm opacity-70">
-        {[detail.region, detail.altitude].filter(Boolean).join(' · ') || `Country ${countryId}`}
-      </p>
+      <p className="text-sm opacity-70">{[detail.region, detail.altitude].filter(Boolean).join(' · ') || countryName}</p>
     </header>
   )
 }
@@ -98,7 +101,7 @@ function SiteRecords({ records }: { records: SiteRecord[] }) {
       <h2 className="text-lg font-medium">Site records</h2>
       <ul className="flex flex-col gap-1 text-sm">
         {records.map((record) => (
-          <li key={record.recordClass} className="flex items-center gap-2">
+          <li key={record.tripId} className="flex items-center gap-2">
             <span className="w-10 shrink-0 font-medium opacity-70">{record.recordClass}</span>
             <span>
               {record.pilotName} — {record.distanceKm.toFixed(1)} km
