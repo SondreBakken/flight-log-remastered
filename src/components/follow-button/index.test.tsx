@@ -4,6 +4,7 @@ import type { FollowButton as FollowButtonComponent } from './index'
 
 const STORAGE_KEY = 'flight-log:followed-pilots'
 const WATERMARK_STORAGE_KEY = 'flight-log:track-watermarks'
+const SEEN_TRIP_STORAGE_KEY = 'flight-log:seen-untracked-trips'
 const PILOT_ID = 42
 
 function seedFollowedIds(ids: number[]): void {
@@ -88,9 +89,10 @@ describe('FollowButton', () => {
     expect(button.textContent).toBe('Follow')
   })
 
-  it('drops the pilot\'s watermark on unfollow — the explicit call issue #5 requires, so a later refollow shows their whole history as new again instead of comparing against a stale mark', async () => {
+  it('drops the pilot\'s watermark AND seen-trip entry on unfollow — the explicit call issue #5 (extended by #62 to the seen-trip store) requires, so a later refollow shows their whole history as new again instead of comparing against a stale mark', async () => {
     seedFollowedIds([PILOT_ID])
     window.localStorage.setItem(WATERMARK_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: '20260101000000' }))
+    window.localStorage.setItem(SEEN_TRIP_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: [1, 2] }))
     const FollowButton = await loadFreshFollowButton()
 
     const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
@@ -101,29 +103,41 @@ describe('FollowButton', () => {
     expect(button.getAttribute('aria-pressed')).toBe('false') // sanity: click actually unfollowed
 
     expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({})
+    // check-seen-trip-store.mts's cross-store integration test replicates useFollowPilot's
+    // toggle sequence by hand against the storage modules directly, which its own comment
+    // notes cannot detect a regression in the PRODUCTION sequence itself (deleting
+    // clearSeenTripIds from use-follow-store.ts, say) — only a test that actually drives
+    // useFollowPilot/FollowButton, like this one, can (blocking finding, FIX section).
+    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_STORAGE_KEY) ?? '{}')).toEqual({})
   })
 
-  it('does NOT touch the watermark on follow — only unfollowing clears it', async () => {
+  it('does NOT touch the watermark or the seen-trip entry on follow — only unfollowing clears either', async () => {
     seedFollowedIds([])
-    // Seeds a watermark for the PILOT BEING CLICKED, not just an unrelated one: an unconditional
-    // clearWatermark(pilotId) call (clearing on follow too, not just unfollow) would leave an
-    // unrelated pilot's watermark untouched either way, so asserting only that survives cannot
-    // tell "clears only on unfollow" apart from "always clears the pilot just clicked". Seeding
-    // 999 too proves the unrelated pilot really is unaffected by ANY call this click makes.
+    // Seeds a watermark AND a seen-trip entry for the PILOT BEING CLICKED, not just an
+    // unrelated one: an unconditional clearWatermark(pilotId)/clearSeenTripIds(pilotId) call
+    // (clearing on follow too, not just unfollow) would leave an unrelated pilot's stores
+    // untouched either way, so asserting only that survives cannot tell "clears only on
+    // unfollow" apart from "always clears the pilot just clicked". Seeding 999 too proves the
+    // unrelated pilot really is unaffected by ANY call this click makes.
     window.localStorage.setItem(
       WATERMARK_STORAGE_KEY,
       JSON.stringify({ [PILOT_ID]: '20260101000000', 999: '20260101000000' }),
     )
+    window.localStorage.setItem(SEEN_TRIP_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: [1], 999: [2] }))
     const FollowButton = await loadFreshFollowButton()
 
     const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
     const button = within(container).getByRole<HTMLButtonElement>('button')
 
-    fireEvent.click(button) // follows PILOT_ID — following must not clear ITS OWN watermark either
+    fireEvent.click(button) // follows PILOT_ID — following must not clear ITS OWN stores either
 
     expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({
       [PILOT_ID]: '20260101000000',
       '999': '20260101000000',
+    })
+    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_STORAGE_KEY) ?? '{}')).toEqual({
+      [PILOT_ID]: [1],
+      '999': [2],
     })
   })
 })

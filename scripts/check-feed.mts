@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { isDeepStrictEqual, inspect } from 'node:util'
 import {
-  anyPilotHasPriorWatermark,
+  anyPilotHasPriorVisit,
   buildFeedEntries,
   failedPilotResults,
   FEED_SIZE,
@@ -76,8 +76,11 @@ function success(overrides: Partial<PilotFeedSuccess> & { pilotId: number }): Pi
     trackedTrips: [],
     // null (never seen before) by default, so every existing fixture that doesn't care about
     // newness keeps reading every tracked flight as 'new' — matches buildFeedEntries's own
-    // classifyNewness null-watermark case, not a fabricated default value.
+    // classifyTrackedNewness null-watermark case, not a fabricated default value.
     watermarkAtLoad: null,
+    // Same null-default rationale, for untracked flights (#62): every fixture that doesn't
+    // care about untracked newness keeps reading every untracked flight as 'new' too.
+    seenTripIdsAtLoad: null,
     ...overrides,
   }
 }
@@ -472,7 +475,7 @@ assertEqual(buildFeedEntries([], 10), [], 'buildFeedEntries: no followed pilots 
     pilot,
     flight: makeFlight({ userId: 70, date: '2026-04-15' }),
     hasTrack: false,
-    newness: 'unknown',
+    newness: 'new',
     trackedAt: null,
   }
   const candidates = shownTrackedTsByPilot([shown, alsoShownButOlder, untracked])
@@ -486,22 +489,31 @@ assertEqual(buildFeedEntries([], 10), [], 'buildFeedEntries: no followed pilots 
 assertEqual(shownTrackedTsByPilot([]), new Map(), 'shownTrackedTsByPilot: no shown entries produces no advance candidates')
 
 // =====================================================================================
-// anyPilotHasPriorWatermark: distinguishes a genuine first visit (nothing to report "since
-// your last visit" against) from an established one — drives NewSinceLastVisitNotice's honest
-// first-visit state below.
+// anyPilotHasPriorVisit: distinguishes a genuine first visit (nothing to report "since your
+// last visit" against) from an established one — drives NewSinceLastVisitNotice's honest
+// first-visit state below. True from EITHER a prior watermark OR a prior seen-trip entry
+// (#62) — checking only the watermark would wrongly read "first visit" forever for a pilot
+// who has never uploaded a single GPS track.
 // =====================================================================================
 
 assert(
-  anyPilotHasPriorWatermark([success({ pilotId: 1, watermarkAtLoad: '20260101000000' }), success({ pilotId: 2, watermarkAtLoad: null })]),
-  'anyPilotHasPriorWatermark: true when at least one pilot had a prior watermark, even if another is being seen for the first time',
+  anyPilotHasPriorVisit([success({ pilotId: 1, watermarkAtLoad: '20260101000000' }), success({ pilotId: 2, watermarkAtLoad: null })]),
+  'anyPilotHasPriorVisit: true when at least one pilot had a prior watermark, even if another is being seen for the first time',
 )
 assert(
-  !anyPilotHasPriorWatermark([success({ pilotId: 1, watermarkAtLoad: null }), success({ pilotId: 2, watermarkAtLoad: null })]),
-  'anyPilotHasPriorWatermark: false only when EVERY successful pilot has no prior watermark — a genuine first visit',
+  anyPilotHasPriorVisit([
+    success({ pilotId: 1, watermarkAtLoad: null, seenTripIdsAtLoad: new Set([123]) }),
+    success({ pilotId: 2, watermarkAtLoad: null, seenTripIdsAtLoad: null }),
+  ]),
+  'anyPilotHasPriorVisit: true when at least one pilot had a prior seen-trip entry, even with no watermark at all',
 )
 assert(
-  !anyPilotHasPriorWatermark([failure(1)]),
-  'anyPilotHasPriorWatermark: a failed pilot contributes no watermark either way',
+  !anyPilotHasPriorVisit([success({ pilotId: 1, watermarkAtLoad: null }), success({ pilotId: 2, watermarkAtLoad: null })]),
+  'anyPilotHasPriorVisit: false only when EVERY successful pilot has no prior watermark AND no prior seen-trip entry — a genuine first visit',
+)
+assert(
+  !anyPilotHasPriorVisit([failure(1)]),
+  'anyPilotHasPriorVisit: a failed pilot contributes no signal either way',
 )
 
 // =====================================================================================
@@ -1044,8 +1056,12 @@ await withStubbedFetch(
     }),
   )
   assert(
-    firstVisit.includes('first time') && !firstVisit.includes('since your last visit'),
-    'NewSinceLastVisitNotice: a genuine first visit (no prior watermark for any pilot) says something honest, never claims a "last visit" that never happened',
+    firstVisit.includes('first time') && !firstVisit.includes('new since your last visit'),
+    'NewSinceLastVisitNotice: a genuine first visit (no prior watermark for any pilot) says something honest about there being no history yet, not the returning-visitor "N new since your last visit" count caption',
+  )
+  assert(
+    firstVisit.includes('>New<') && !firstVisit.includes('nothing is marked new'),
+    'NewSinceLastVisitNotice: the first-visit caption does not contradict what actually renders — the "New" badge on the entry below genuinely shows, and the caption no longer claims "nothing is marked new yet" while it does (fix round: this exact contradiction used to ship)',
   )
 }
 

@@ -13,11 +13,10 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
     <tr className="border-b border-black/5 dark:border-white/10">
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
         {newness === 'new' && (
-          // Positive-only signal, deliberately: 'not-new' and 'unknown' (untracked, so
-          // newness could not be checked at all — see feed.ts's FlightNewness) both render
-          // with no badge here. Rendering a distinct "not new" state for 'not-new' would
-          // require rendering SOME state for 'unknown' too, and there is no honest one —
-          // "we don't know" has no positive badge that isn't itself a claim.
+          // Positive-only signal, deliberately: 'not-new' renders with no badge here, tracked
+          // or untracked alike (see feed.ts's FlightNewness — both are fully classifiable now,
+          // #62). A "seen before" badge for 'not-new' would be pure noise on an already-quiet
+          // row; the "New" badge alone carries the entire signal this table needs to show.
           <span className="mr-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
             New
           </span>

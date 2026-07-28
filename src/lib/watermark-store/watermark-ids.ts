@@ -62,8 +62,8 @@ export function removeWatermark(watermarks: ReadonlyMap<PilotId, Timestamp>, pil
 // The only place a stored watermark is ever moved forward. Strictly greater-than, not
 // greater-than-or-equal: reusing the newest `ts` shown (see feed.ts's shownTrackedTsByPilot) as
 // the candidate is exactly the inclusive-boundary bug this store exists to avoid — flight
-// comparison against the watermark (also strict `>`, see feed.ts's classifyNewness) means a
-// flight whose `ts` equals the watermark is correctly "not new", but the watermark ITSELF must
+// comparison against the watermark (also strict `>`, see feed.ts's classifyTrackedNewness) means
+// a flight whose `ts` equals the watermark is correctly "not new", but the watermark ITSELF must
 // still accept being set to that same value once; only a candidate that is not an improvement
 // over what's already stored is a no-op here. A candidate for a pilot with no prior watermark
 // always wins (`current === undefined`).
@@ -72,7 +72,7 @@ export function removeWatermark(watermarks: ReadonlyMap<PilotId, Timestamp>, pil
 // comparison is written (`>` or `>=`): the resulting map's contents are byte-identical, so no
 // test observing only the returned/stored value can ever distinguish the two operators here —
 // see watermark-ids.test.ts and check-watermark-store.mts for where that boundary actually is
-// observable (classifyNewness above the store, not this function).
+// observable (classifyTrackedNewness above the store, not this function).
 export function advanceWatermark(
   watermarks: ReadonlyMap<PilotId, Timestamp>,
   pilotId: PilotId,

@@ -30,11 +30,14 @@ function isTrackIndexEntry(value: unknown): value is TrackIndexEntry {
 // TrackIndexEntry[]` replaced the older `trackedTripIds: number[]` shape. Requiring only the
 // new shape turned that ordinary cache staleness into a hard failure (the amber "could not be
 // loaded" banner) for every followed pilot, for that whole window. The legacy shape carries no
-// `updatedAt`, so a flight read through it is honestly untrackable for newness (see feed.ts's
-// FlightNewness) until the next real fetch replaces the cached body — the same kind of honest
-// degradation MAX_YEARS_PER_PILOT already gives an inactive pilot's older flights, not a crash
-// or a false claim. Drop this once this deploy has aged out of every CDN/browser cache (bounded
-// by the Cache-Control window above), not on any fixed calendar date.
+// real `updatedAt`, so this maps it to `''` rather than fabricating one — but `''` is still a
+// STRING, not `null`: a flight read through it takes the ordinary tracked path
+// (classifyTrackedNewness), not an "untrackable for newness" one — there is no such path once a
+// track is known to exist at all. It classifies 'new' only against a null watermark (this
+// pilot's first ever load); against any real watermark it reads 'not-new', since a real
+// 14-digit timestamp always sorts strictly greater than `''`. Drop this once this deploy has
+// aged out of every CDN/browser cache (bounded by the Cache-Control window above), not on any
+// fixed calendar date.
 function legacyTrackedTrips(candidate: Record<string, unknown>): TrackIndexEntry[] | null {
   if (!Array.isArray(candidate.trackedTripIds)) return null
   if (!candidate.trackedTripIds.every((id): id is number => typeof id === 'number')) return null

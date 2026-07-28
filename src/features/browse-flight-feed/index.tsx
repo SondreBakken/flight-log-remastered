@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect } from 'react'
 import { useFollowedPilotIds } from '@/lib/follow-store/use-follow-store'
+import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
@@ -19,6 +21,18 @@ type FlightFeedProps = {
 // feed cannot be rendered on the server: it has nothing to fetch until it hydrates.
 export default function FlightFeed({ defaultPilotId }: FlightFeedProps) {
   const { followedIds, hasHydrated } = useFollowedPilotIds()
+
+  // The true, untruncated follow set lives here — usePilotFeedResults only ever sees
+  // selectFeedPilotIds's MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to
+  // safely prune seen-trip-store's stored map (see pruneSeenTripIdsToFollowedPilots's own doc
+  // comment for the accumulation bug this closes). Runs on every followedIds change, not just
+  // mount, so unfollowing (already handled explicitly by useFollowPilot's clearSeenTripIds)
+  // and simply falling out of the top MAX_PILOTS_PER_FEED both stay pruned over time.
+  useEffect(() => {
+    if (!hasHydrated) return
+    pruneSeenTripIdsToFollowedPilots(followedIds)
+  }, [hasHydrated, followedIds])
+
   return <FlightFeedView hasHydrated={hasHydrated} followedIds={followedIds} defaultPilotId={defaultPilotId} />
 }
 
@@ -106,21 +120,23 @@ export function FeedView({
   )
 }
 
-// A flight with no uploaded GPS track has no `ts` anywhere on flightlog.org, so it cannot be
-// checked for newness at all (see FlightNewness's doc comment in feed.ts) — "N new" without
-// qualification would silently claim every followed pilot's untracked flights were checked
-// too. Shown only once loading settles: a count that includes still-arriving pilots would
-// undercount and then jump, which reads as more confusing than informative mid-load.
+// Untracked flights are checked for newness too now (#62, via seen-trip-store), so "N new"
+// covers every followed pilot's flights, tracked or not — the caption used to carve out an
+// explicit "counted only among flights with a saved GPS track" caveat; that caveat is gone
+// because it would now be false. Shown only once loading settles: a count that includes
+// still-arriving pilots would undercount and then jump, which reads as more confusing than
+// informative mid-load.
 //
 // Two states this used to get wrong, both now handled explicitly rather than left as permanent
 // furniture: a genuine first-time visitor has no "last visit" to report a count against, however
-// many flights classifyNewness reads as 'new' by construction of its null-watermark case — see
-// hasSeenBefore/anyPilotHasPriorWatermark. And a count of zero isn't worth a permanent line of
-// UI once there IS a real last visit to compare against — it renders nothing rather than "0 new"
-// every time nothing changed. (`newCount` here is scoped to the top FEED_SIZE shown entries, per
-// countNewEntries's own doc comment, so pilots truncated out of the merge — see MAX_PILOTS_PER_FEED
-// — or their flights truncated out by FEED_SIZE, are not represented in it; the adjacent failed-
-// pilots notice partly mitigates the failed-to-load case, but truncation itself has no notice.)
+// many flights classifyTrackedNewness/classifyUntrackedNewness read as 'new' by construction of
+// their null-signal case — see hasSeenBefore/anyPilotHasPriorVisit. And a count of zero isn't
+// worth a permanent line of UI once there IS a real last visit to compare against — it renders
+// nothing rather than "0 new" every time nothing changed. (`newCount` here is scoped to the top
+// FEED_SIZE shown entries, per countNewEntries's own doc comment, so pilots truncated out of the
+// merge — see MAX_PILOTS_PER_FEED — or their flights truncated out by FEED_SIZE, are not
+// represented in it; the adjacent failed-pilots notice partly mitigates the failed-to-load case,
+// but truncation itself has no notice.)
 function NewSinceLastVisitNotice({
   isLoading,
   entries,
@@ -132,21 +148,22 @@ function NewSinceLastVisitNotice({
 }) {
   if (isLoading) return null
   if (!hasSeenBefore) {
+    // Every flight below genuinely reads 'new' right now (classifyTrackedNewness/
+    // classifyUntrackedNewness's null-signal default, since no watermark or seen-trip entry
+    // exists for any followed pilot yet) — the "New" badges ARE showing. This caption used to
+    // claim the opposite ("nothing is marked new yet"), which was false the moment #62 gave
+    // untracked flights the same default (worst for an all-untracked pilot, previously the one
+    // case where that claim was actually true). Describe what's really on screen instead.
     return (
       <p className="text-sm opacity-70">
-        This is the first time your followed pilots&apos; flights have been checked — nothing is
-        marked new yet; that starts from your next visit.
+        This is the first time your followed pilots&apos; flights have been checked, so everything
+        below is shown as new; a real &quot;since your last visit&quot; comparison starts from here.
       </p>
     )
   }
   const newCount = countNewEntries(entries)
   if (newCount === 0) return null
-  return (
-    <p className="text-sm opacity-70">
-      {newCount} new since your last visit — counted only among flights with a saved GPS track;
-      flights without one aren&apos;t checked.
-    </p>
-  )
+  return <p className="text-sm opacity-70">{newCount} new since your last visit</p>
 }
 
 function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
