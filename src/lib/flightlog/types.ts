@@ -18,6 +18,13 @@ export function isValidPilotId(value: unknown): value is PilotId {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
+// A row from a=28's pilot logbook. flightlog.org aggregates same-day, same-glider flights
+// into a single row (rendered `"00:10/ 2"`) — when `flightCount > 1`, `duration` is the GROUP
+// TOTAL across those flights, not a per-flight duration (#68, measured against rqtid=1's
+// independently labelled "Time (hours)" column: pilot 12677's own aggregated rows sum to that
+// total). flightlog.org publishes no per-flight breakdown for an aggregated row, so there is no
+// honest per-flight duration to compute here — see format-flight.ts's formatFlightDuration for
+// how this renders without implying one.
 export type Flight = {
   tripId: number
   userId: number
