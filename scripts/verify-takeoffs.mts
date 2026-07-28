@@ -5,9 +5,13 @@ import { chromium } from 'playwright'
 // asset, renders the real fetched count, shows a visible truncation notice for the unfiltered
 // (6012-row) view, and narrows to a real match when the user types a folded, diacritic-free
 // query — not something baked into the initial HTML, and not a component that ignores its own
-// input. Run against `pnpm run build && pnpm run start` (the static artifact this route
-// serves only exists after a real build — see check-takeoffs-prerender.mts), never against
-// `pnpm dev`, which would re-run `getTakeoffs`/`getRegions` against flightlog.org live.
+// input. Extended by #12 to also prove: a real wind-direction selection narrows the real
+// dataset and round-trips through the address bar as a shareable ?wind= link (server-validated,
+// not just a client toggle), and a real, un-granted geolocation permission (Chromium
+// auto-denies rather than hanging on a dialog) leaves the directory just as usable as before,
+// never an error state. Run against `pnpm run build && pnpm run start` (the static artifact
+// this route serves only exists after a real build — see check-takeoffs-prerender.mts), never
+// against `pnpm dev`, which would re-run `getTakeoffs`/`getRegions` against flightlog.org live.
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs'
 const EXPECTED_ROW_COUNT = 6012 // fixtures/takeoffs-160.html, pinned by check:parsers too
 const MAX_RENDERED_RESULTS = 200 // select-visible-takeoffs.ts's own cap
@@ -107,6 +111,89 @@ if (settled) {
       !filteredText.includes(`Showing ${MAX_RENDERED_RESULTS} of ${EXPECTED_ROW_COUNT} matches`),
       'the truncation notice reflects the narrowed match count, not the original unfiltered total, once a query is typed',
     )
+  }
+
+  // #12: a real wind-direction selection, through the real <select>, against the real 6012-row
+  // Norway fixture — not a unit test calling selectVisibleTakeoffs directly. Reads the TOTAL
+  // match count from the truncation notice, not the rendered <li> count: both the unfiltered
+  // view and a single-direction filter comfortably exceed the 200-row cap, so the rendered
+  // count alone would stay pinned at 200 either way and could never catch a broken filter.
+  // Cleared query first so this measures the wind filter alone, not query+wind together.
+  await page.getByRole('textbox', { name: /takeoff name/i }).fill('')
+  await page.waitForFunction(() => document.body.textContent?.includes('Showing 200 of 6012 matches'), { timeout: 10000 })
+  const beforeWindTotal = await page.evaluate(() => {
+    const match = document.body.textContent?.match(/of (\d+) matches/)
+    return match ? Number(match[1]) : null
+  })
+  await page.getByRole('combobox', { name: /wind direction/i }).selectOption('N')
+  const windSettled = await page
+    .waitForFunction((prev) => {
+      const match = document.body.textContent?.match(/of (\d+) matches/)
+      const total = match ? Number(match[1]) : null
+      return total !== null && total !== prev
+    }, beforeWindTotal, { timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  report(windSettled, 'selecting "Works in N" changes the total match count within the timeout')
+  if (windSettled) {
+    const afterWindTotal = await page.evaluate(() => {
+      const match = document.body.textContent?.match(/of (\d+) matches/)
+      return match ? Number(match[1]) : null
+    })
+    report(
+      typeof afterWindTotal === 'number' && afterWindTotal < (beforeWindTotal ?? Infinity),
+      `narrows the total match count, not widens it (before: ${beforeWindTotal}, after: ${afterWindTotal})`,
+    )
+    report(
+      new URL(page.url()).searchParams.get('wind') === 'N',
+      `updates the address bar to a shareable ?wind=N (url: ${page.url()})`,
+    )
+
+    // Shareable link, proven end to end: navigating fresh to that exact URL (server-validated
+    // via parseWindFilterParam, see page.tsx) reproduces the same filtered total an
+    // interactive selection just produced, not a different or unfiltered one.
+    const sharedUrl = new URL(url)
+    sharedUrl.searchParams.set('wind', 'N')
+    await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
+    const sharedSettled = await page
+      .waitForFunction(() => document.querySelectorAll('li').length > 0, { timeout: 20000 })
+      .then(() => true)
+      .catch(() => false)
+    report(sharedSettled, `opening the shared ${sharedUrl} link directly settles to a non-empty list within the timeout`)
+    if (sharedSettled) {
+      const sharedSelectValue = await page.evaluate(
+        () => (document.querySelector('select[aria-label="Wind direction"]') as HTMLSelectElement | null)?.value,
+      )
+      report(sharedSelectValue === 'N', `the wind <select> is pre-seeded to N from the URL, not left at "Any wind" (got: ${sharedSelectValue})`)
+      const sharedTotal = await page.evaluate(() => {
+        const match = document.body.textContent?.match(/of (\d+) matches/)
+        return match ? Number(match[1]) : null
+      })
+      report(
+        sharedTotal === afterWindTotal,
+        `the shared link's total match count (${sharedTotal}) matches what interactively selecting N just produced (${afterWindTotal})`,
+      )
+    }
+  }
+
+  // #12: geolocation denial is a normal path in a REAL browser too, not simulated — Chromium
+  // under Playwright auto-denies an ungranted permission request instead of hanging on a
+  // dialog, which exercises the same PERMISSION_DENIED branch a real user's "Block" click
+  // would. The directory must stay visibly usable, not fall into an error state.
+  const beforeNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)
+  await page.getByRole('checkbox', { name: /nearby/i }).check()
+  const deniedSettled = await page
+    .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), { timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  report(deniedSettled, 'checking "Nearby" without a granted permission shows the denial hint within the timeout, not a hang')
+  if (deniedSettled) {
+    const afterNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)
+    report(
+      afterNearbyCount === beforeNearbyCount,
+      `the directory stays exactly as usable after a denied permission (rows before: ${beforeNearbyCount}, after: ${afterNearbyCount}) — not an error state`,
+    )
+    report(!(await mainText()).toLowerCase().includes('error'), 'no "error" text rendered for a declined permission')
   }
 
   report(badResponses.length === 0, `no unexpected 4xx/5xx responses (saw: ${badResponses.length ? badResponses.join('; ') : 'none'})`)

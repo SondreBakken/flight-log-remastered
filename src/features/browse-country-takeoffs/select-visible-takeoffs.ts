@@ -1,4 +1,6 @@
 import { foldForSearch } from '@/lib/text-search/fold-search'
+import { haversineDistanceMetres, type GeoPoint } from '@/lib/geo/distance'
+import { isCompassOctant, windIncludesDirection, type CompassOctant } from '@/lib/flightlog/wind'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 
 export type RegionOption = { regionId: number; name: string }
@@ -10,6 +12,19 @@ export type RegionOption = { regionId: number; name: string }
 // as "no filter" would make selecting that Unregioned option indistinguishable from
 // selecting no filter at all.
 export type RegionFilter = number | 'all'
+
+// 'all' rather than requiring a real octant for "no filter", same reasoning as RegionFilter
+// above — the wind filter has no meaningful "unset" CompassOctant to reuse as a sentinel.
+export type WindFilter = CompassOctant | 'all'
+
+// Parses #12's `?wind=` URL query parameter into a validated WindFilter. Falls back to 'all'
+// for anything absent or not a real compass octant (a stale, hand-edited, or malicious link),
+// mirroring parseCuratedCountryId/isValidSearchQuery's own "return a safe default rather than
+// throw on untrusted input" shape — this is exactly the case wind.ts's assertOctant guard was
+// added for (see its own doc comment), except here the caller wants a fallback, not a throw.
+export function parseWindFilterParam(value: string | undefined): WindFilter {
+  return value !== undefined && isCompassOctant(value) ? value : 'all'
+}
 
 // 6012 rows (Norway's full fixture) rendered as DOM nodes on every keystroke, with no
 // virtualisation available in this repo or its dependencies (confirmed: neither is in
@@ -74,10 +89,43 @@ export function sortRegionOptions(regions: RegionOption[]): RegionOption[] {
   return [...regions].sort((a, b) => a.name.localeCompare(b.name))
 }
 
+export type TakeoffMatch = TakeoffDirectoryEntry & {
+  // Distance from the user's current position, in metres — null whenever "nearby" isn't in
+  // play (no location yet, permission denied, unavailable). Present on every match either way
+  // so a caller doesn't need a second type to render the common case and the located one.
+  distanceMetres: number | null
+}
+
 export type VisibleTakeoffs = {
-  matches: TakeoffDirectoryEntry[]
+  matches: TakeoffMatch[]
   totalMatchCount: number
   isTruncated: boolean
+  // How many takeoffs that already passed the name/region filters have no recorded wind
+  // (wind === 0) and are therefore excluded by the active wind filter — 0 whenever windFilter
+  // is 'all', since nothing is being excluded on wind's account in that case. #12's decision:
+  // silently dropping these behind a wind query is not acceptable, so this count exists
+  // specifically so the caller can surface it, distinct from the ordinary "0 matches" case.
+  windUnknownCount: number
+}
+
+// Pure — attaches each takeoff's great-circle distance from `from`, reusing the same haversine
+// formula show-flight-track's altitude gradient already uses (see lib/geo/distance.ts) rather
+// than a second implementation that could drift from it.
+function withDistanceFrom(takeoffs: TakeoffDirectoryEntry[], from: GeoPoint): TakeoffMatch[] {
+  return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: haversineDistanceMetres(from, takeoff) }))
+}
+
+function withoutDistance(takeoffs: TakeoffDirectoryEntry[]): TakeoffMatch[] {
+  return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: null }))
+}
+
+// Nearest-first once a location is known — "nearby" sorting is layered entirely on top of the
+// filtered set, never a precondition for it (see #12's decision on geolocation refusal). Falls
+// back to the directory's original alphabetical order otherwise, so this is also what a caller
+// gets before the user ever asks for "nearby" at all.
+function sortForDisplay(takeoffs: TakeoffMatch[], userLocation: GeoPoint | null): TakeoffMatch[] {
+  if (userLocation) return [...takeoffs].sort((a, b) => a.distanceMetres! - b.distanceMetres!)
+  return [...takeoffs].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // Pure — no DOM, no fetch, so the whole filter/sort/cap/truncate pipeline is one thing to
@@ -87,30 +135,49 @@ export type VisibleTakeoffs = {
 // folds the QUERY once per call, not once per row.
 //
 // The pipeline order matters and each step is deliberate:
-// 1. Filter runs BEFORE capping, never the reverse: `matches` is always the first
-//    MAX_RENDERED_RESULTS entries of the REAL match set, not a slice of the full unfiltered
-//    list that then gets narrowed down to fewer than the cap by chance.
-// 2. Sort runs BEFORE capping too, and is alphabetical by name — which 200 of a match set
-//    over the cap get shown is a user-visible decision, not an accident of whatever order
-//    `takeoffs` happened to arrive in from the fetch.
+// 1. Name and region filter first, same as before #12.
+// 2. Wind filter next, over what's left — composes with name/region rather than replacing
+//    them (#12's explicit requirement: applying wind must not ignore the active region). A
+//    site with no recorded wind (wind === 0) can never satisfy a real octant query, by
+//    construction of windIncludesDirection, so it's excluded here — and windUnknownCount
+//    records exactly how many, before this step throws them away, so that exclusion stays
+//    visible instead of silently shrinking the dataset.
+// 3. Distance is attached and the set is sorted — BEFORE capping, never after: `matches` is
+//    always the first MAX_RENDERED_RESULTS of the REAL, fully-filtered match set, not a slice
+//    of a smaller or differently-ordered one. Which 200 of an over-the-cap match set get shown
+//    is a user-visible decision (nearest 200, or alphabetically-first 200), not an accident of
+//    fetch order.
+// 4. Cap and report truncation, over the post-filter, post-sort count — adding wind or nearby
+//    never makes the truncation notice lie about what "the rest" actually is.
 export function selectVisibleTakeoffs(
   takeoffs: TakeoffDirectoryEntry[],
   foldedNames: ReadonlyMap<number, string>,
   query: string,
   regionFilter: RegionFilter,
+  windFilter: WindFilter = 'all',
+  userLocation: GeoPoint | null = null,
 ): VisibleTakeoffs {
   const foldedQuery = foldForSearch(query)
-  const matched = takeoffs
-    .filter(
-      (takeoff) =>
-        (regionFilter === 'all' || takeoff.regionId === regionFilter) &&
-        (foldedNames.get(takeoff.takeoffId) ?? '').includes(foldedQuery),
-    )
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const nameAndRegionMatched = takeoffs.filter(
+    (takeoff) =>
+      (regionFilter === 'all' || takeoff.regionId === regionFilter) &&
+      (foldedNames.get(takeoff.takeoffId) ?? '').includes(foldedQuery),
+  )
+
+  const windUnknownCount =
+    windFilter === 'all' ? 0 : nameAndRegionMatched.filter((takeoff) => takeoff.wind === 0).length
+  const windMatched =
+    windFilter === 'all'
+      ? nameAndRegionMatched
+      : nameAndRegionMatched.filter((takeoff) => windIncludesDirection(takeoff.wind, windFilter))
+
+  const withDistance = userLocation ? withDistanceFrom(windMatched, userLocation) : withoutDistance(windMatched)
+  const sorted = sortForDisplay(withDistance, userLocation)
 
   return {
-    matches: matched.slice(0, MAX_RENDERED_RESULTS),
-    totalMatchCount: matched.length,
-    isTruncated: matched.length > MAX_RENDERED_RESULTS,
+    matches: sorted.slice(0, MAX_RENDERED_RESULTS),
+    totalMatchCount: sorted.length,
+    isTruncated: sorted.length > MAX_RENDERED_RESULTS,
+    windUnknownCount,
   }
 }

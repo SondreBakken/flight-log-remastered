@@ -18,10 +18,17 @@ function stubFetch(rows: unknown[]): void {
 }
 
 // Builds a wire-shaped TakeoffRow tuple (see contract.ts's own field order) with realistic
-// in-range lat/lon/wind, so isTakeoffRows accepts it — only takeoffId, name and regionId
-// (indices 0, 1, 6) are ever varied by these tests.
-function makeRow(takeoffId: number, name: string, regionId: number): unknown[] {
-  return [takeoffId, name, 60, 10, 0, 999, regionId, 0, 500, 100]
+// in-range lat/lon/wind, so isTakeoffRows accepts it — takeoffId, name and regionId (indices
+// 0, 1, 6) are the fields most tests vary; lat/lon/wind (indices 2, 3, 4) default to a fixed,
+// unremarkable point with no recorded wind, and are overridden explicitly by the tests below
+// that exercise #12's filters.
+function makeRow(
+  takeoffId: number,
+  name: string,
+  regionId: number,
+  options?: { wind?: number; lat?: number; lon?: number },
+): unknown[] {
+  return [takeoffId, name, options?.lat ?? 60, options?.lon ?? 10, options?.wind ?? 0, 999, regionId, 0, 500, 100]
 }
 
 const REGIONS: RegionOption[] = [
@@ -29,8 +36,33 @@ const REGIONS: RegionOption[] = [
   { regionId: 2, name: 'Vestlandet' },
 ]
 
+// jsdom does not implement navigator.geolocation — installed and removed per test that needs
+// it, same shape as use-nearby.test.ts's own fakes, so a mid-suite test that forgets to install
+// one exercises the real, absent API ('unavailable') rather than silently reusing a leftover
+// mock from a previous test.
+type FakeGeolocation = { watchPosition: ReturnType<typeof vi.fn> }
+function installFakeGeolocation(behavior: 'granted' | 'denied' | (() => void)): FakeGeolocation {
+  const fake: FakeGeolocation = {
+    watchPosition: vi.fn((onSuccess: (p: GeolocationPosition) => void, onError: (e: GeolocationPositionError) => void) => {
+      if (behavior === 'granted') onSuccess({ coords: { latitude: 60.0, longitude: 10.0 } } as GeolocationPosition)
+      else if (behavior === 'denied')
+        onError({ code: 1, message: 'denied', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 })
+      else behavior()
+      return 1
+    }),
+  }
+  Object.defineProperty(window.navigator, 'geolocation', {
+    value: { ...fake, clearWatch: vi.fn() },
+    configurable: true,
+    writable: true,
+  })
+  return fake
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
+  Object.defineProperty(window.navigator, 'geolocation', { value: undefined, configurable: true, writable: true })
+  window.history.replaceState(null, '', '/')
 })
 
 describe('TakeoffDirectory — input-driven filtering', () => {
@@ -185,7 +217,7 @@ describe('TakeoffDirectory — input-driven filtering', () => {
     render(<TakeoffDirectory countryId={999} countryName="Norway" regions={unsortedRegions} />)
     await screen.findByText('Alpha')
 
-    const options = screen.getAllByRole('option')
+    const options = within(screen.getByRole('combobox', { name: /region/i })).getAllByRole('option')
     expect(options.map((option) => option.textContent)).toEqual(['All regions', 'Agder', 'Østlandet'])
   })
 
@@ -199,5 +231,151 @@ describe('TakeoffDirectory — input-driven filtering', () => {
 
     await screen.findByText('No takeoffs recorded in Vestlandet.')
     expect(screen.queryByText(/no takeoffs match/i)).toBeNull()
+  })
+})
+
+describe('TakeoffDirectory — wind filter', () => {
+  it('choosing a direction narrows the rendered set to sites recorded to work in it', async () => {
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'FacesSouth', 1, { wind: 8 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FacesNorth')
+    screen.getByText('FacesSouth')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+
+    await waitFor(() => expect(screen.queryByText('FacesSouth')).toBeNull())
+    screen.getByText('FacesNorth')
+  })
+
+  it('excludes a site with no recorded wind and surfaces the exclusion, not silently', async () => {
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'NoWindRecorded', 1, { wind: 0 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('NoWindRecorded')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+
+    await waitFor(() => expect(screen.queryByText('NoWindRecorded')).toBeNull())
+    await screen.findByText(/1 matching site has no recorded wind direction and is excluded/i)
+  })
+
+  it('shows no exclusion notice while the wind filter is "Any wind", even though unknown-wind sites are present', async () => {
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'NoWindRecorded', 1, { wind: 0 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('NoWindRecorded')
+
+    expect(screen.queryByText(/no recorded wind direction/i)).toBeNull()
+  })
+
+  it('composes with the region filter — wind narrows within the active region, not across all regions', async () => {
+    stubFetch([
+      makeRow(1, 'InRegionFacesNorth', 1, { wind: 128 }),
+      makeRow(2, 'OtherRegionFacesNorth', 2, { wind: 128 }),
+    ])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('InRegionFacesNorth')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /region/i }), { target: { value: '1' } })
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+
+    await waitFor(() => expect(screen.queryByText('OtherRegionFacesNorth')).toBeNull())
+    screen.getByText('InRegionFacesNorth')
+  })
+
+  // A shared link (?wind=S) opens straight into the filtered view — the whole point of
+  // carrying this filter in the URL (see index.tsx's own doc comment on initialWindFilter).
+  it('seeds the wind select and the rendered set from the initialWindFilter prop', async () => {
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'FacesSouth', 1, { wind: 8 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} initialWindFilter="S" />)
+
+    await screen.findByText('FacesSouth')
+    expect(screen.queryByText('FacesNorth')).toBeNull()
+    expect((screen.getByRole('combobox', { name: /wind direction/i }) as HTMLSelectElement).value).toBe('S')
+  })
+
+  it('updates the URL as the wind filter changes, and clears the param back to "Any wind"', async () => {
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FacesNorth')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+    expect(window.location.search).toBe('?wind=N')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'all' } })
+    expect(window.location.search).toBe('')
+  })
+})
+
+describe('TakeoffDirectory — nearby', () => {
+  it('sorts nearest-first once permission is granted and "Nearby" is checked', async () => {
+    installFakeGeolocation('granted') // resolves to lat: 60.0, lon: 10.0
+    stubFetch([
+      makeRow(1, 'FarSite', 1, { lat: 69.65, lon: 18.96 }),
+      makeRow(2, 'NearSite', 1, { lat: 60.0, lon: 10.0 }),
+    ])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FarSite')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+
+    await waitFor(() => {
+      const names = screen.getAllByRole('listitem').map((li) => li.textContent)
+      expect(names[0]).toContain('NearSite')
+      expect(names[1]).toContain('FarSite')
+    })
+  })
+
+  // The hard requirement: refusal is a normal path, not an error — the list must stay exactly
+  // as usable as before the checkbox was ever touched.
+  it('a denied permission keeps the list usable (no error state) and explains why distance sort is off', async () => {
+    installFakeGeolocation('denied')
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+
+    await screen.findByText(/location permission denied/i)
+    screen.getByText('Alpha')
+    screen.getByText('Beta')
+    expect(screen.queryByText(/error/i)).toBeNull()
+  })
+
+  it('an unavailable geolocation API (no navigator.geolocation at all) also keeps the list usable', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+
+    await screen.findByText(/location unavailable in this browser/i)
+    screen.getByText('Alpha')
+  })
+
+  // #12's own "genuinely useful" combination: nearby sorts within whatever the wind filter
+  // already narrowed down to, rather than either filter ignoring the other.
+  it('composes with the wind filter — nearby sorts within the wind-narrowed set', async () => {
+    installFakeGeolocation('granted') // resolves to lat: 60.0, lon: 10.0
+    stubFetch([
+      makeRow(1, 'NearButWrongWind', 1, { lat: 60.0, lon: 10.0, wind: 8 }), // S only
+      makeRow(2, 'FarButRightWind', 1, { lat: 69.65, lon: 18.96, wind: 128 }), // N only
+    ])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('NearButWrongWind')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+
+    await waitFor(() => expect(screen.queryByText('NearButWrongWind')).toBeNull())
+    screen.getByText('FarButRightWind')
   })
 })

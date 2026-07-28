@@ -31,11 +31,12 @@ describe('fetchTakeoffs', () => {
 
     expect(result).toEqual({
       status: 'success',
-      // Field order pinned to TakeoffRow's own (index 0 takeoffId, 1 name, 6 regionId) —
-      // wrong indices here would still "succeed" with plausible-looking but wrong values.
+      // Field order pinned to TakeoffRow's own (index 0 takeoffId, 1 name, 2 lat, 3 lon, 4
+      // wind, 6 regionId) — wrong indices here would still "succeed" with plausible-looking
+      // but wrong values.
       takeoffs: [
-        { takeoffId: 1, name: 'Bodø', regionId: 6 },
-        { takeoffId: 10, name: 'Ålesund', regionId: 61 },
+        { takeoffId: 1, name: 'Bodø', regionId: 6, lat: 2, lon: 3, wind: 4 },
+        { takeoffId: 10, name: 'Ålesund', regionId: 61, lat: 20, lon: 30, wind: 40 },
       ],
     })
   })

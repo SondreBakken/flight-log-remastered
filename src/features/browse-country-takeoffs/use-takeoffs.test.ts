@@ -47,9 +47,9 @@ describe('useTakeoffs', () => {
       expect(result.current).toEqual({
         status: 'success',
         takeoffs: [
-          { takeoffId: 1, name: 'Bodø', regionId: 6 },
-          { takeoffId: 10, name: 'Ålesund', regionId: 61 },
-          { takeoffId: 11, name: 'Oslo', regionId: 62 },
+          { takeoffId: 1, name: 'Bodø', regionId: 6, lat: 2, lon: 3, wind: 4 },
+          { takeoffId: 10, name: 'Ålesund', regionId: 61, lat: 20, lon: 30, wind: 40 },
+          { takeoffId: 11, name: 'Oslo', regionId: 62, lat: 21, lon: 31, wind: 41 },
         ],
       }),
     )
@@ -110,7 +110,7 @@ describe('useTakeoffs', () => {
     await waitFor(() =>
       expect(result.current).toEqual({
         status: 'success',
-        takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1 }],
+        takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1, lat: 1, lon: 1, wind: 1 }],
       }),
     )
 
@@ -119,7 +119,7 @@ describe('useTakeoffs', () => {
 
     expect(result.current).toEqual({
       status: 'success',
-      takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1 }],
+      takeoffs: [{ takeoffId: 2, name: 'Fresh', regionId: 1, lat: 1, lon: 1, wind: 1 }],
     })
   })
 })
