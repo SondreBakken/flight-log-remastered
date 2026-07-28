@@ -6,10 +6,10 @@ import {
   NavigationControl,
   ScaleControl,
   type ExpressionSpecification,
-  type MapOptions,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TrackPoint } from '@/lib/flightlog/types'
+import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
 import { formatAltitude } from './format-altitude'
 import { TRACK_LINE_COLOR } from './colors'
@@ -29,8 +29,6 @@ type TrackMapProps = {
   className?: string
 }
 
-type MapStyle = NonNullable<MapOptions['style']>
-
 type TrackLineData = {
   type: 'FeatureCollection'
   features: Array<{
@@ -43,27 +41,9 @@ type TrackLineData = {
 const TRACK_SOURCE_ID = 'flight-track'
 const TRACK_LAYER_ID = 'flight-track-line'
 const DEFAULT_SIZE_CLASSES = 'h-[70vh] w-full'
-const OSM_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
 
 function toLngLat(point: TrackPoint): [number, number] {
   return [point.lon, point.lat]
-}
-
-// Built per map instance because MapLibre takes ownership of the style object it is given.
-function osmRasterStyle(): MapStyle {
-  return {
-    version: 8,
-    sources: {
-      osm: {
-        type: 'raster',
-        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-        tileSize: 256,
-        attribution: OSM_ATTRIBUTION,
-      },
-    },
-    layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm' }],
-  }
 }
 
 function trackLineData(points: TrackPoint[]): TrackLineData {

@@ -3,6 +3,18 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import TakeoffDirectory, { resolveUserLocation } from './index'
 import { MAX_RENDERED_RESULTS, type RegionOption } from './select-visible-takeoffs'
 import * as selectVisibleTakeoffsModule from './select-visible-takeoffs'
+import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+
+// The real TakeoffsMap constructs an actual maplibre-gl MapLibreMap against a canvas — jsdom
+// has no WebGL context, the same reason track-map.tsx has no unit test of its own (see
+// scripts/verify-*.mts instead). Stubbed here so this suite can assert the SWITCH into map
+// view and what it's handed, without needing a real GL context; the map's own rendering is
+// covered by scripts/verify-sites-map.mts against a live browser instead.
+vi.mock('./takeoffs-map', () => ({
+  TakeoffsMap: ({ takeoffs }: { takeoffs: TakeoffDirectoryEntry[] }) => (
+    <div data-testid="stub-takeoffs-map">{takeoffs.length} sites on the map</div>
+  ),
+}))
 
 // Stubs the real network boundary (global fetch), not the hook — mocking the hook would let a
 // default export that never calls it, and instead returns a hardcoded state, pass this suite
@@ -602,5 +614,52 @@ describe('TakeoffDirectory — nearby', () => {
 
     expect(foldSpy.mock.calls.length).toBe(callsAfterMount)
     foldSpy.mockRestore()
+  })
+})
+
+describe('TakeoffDirectory — #10 map view toggle', () => {
+  it('shows the list by default, with no map mounted', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    expect(screen.queryByTestId('stub-takeoffs-map')).toBeNull()
+    expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Map' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('switches to the map view on click, handing it the SAME fetched dataset rather than fetching again', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)])
+    const fetchSpy = vi.mocked(fetch)
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+    const callsBeforeToggle = fetchSpy.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }))
+
+    await screen.findByTestId('stub-takeoffs-map')
+    screen.getByText('2 sites on the map')
+    expect(screen.queryByText('Alpha')).toBeNull() // the list itself is no longer rendered
+    expect(fetchSpy.mock.calls.length).toBe(callsBeforeToggle) // no second network request
+
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+
+    await screen.findByText('Alpha')
+    expect(screen.queryByTestId('stub-takeoffs-map')).toBeNull()
+  })
+
+  it('shows loading/error states in the map view too, rather than mounting the map on incomplete data', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 502, json: () => Promise.resolve({ error: 'boom' }) }),
+    )
+
+    render(<TakeoffDirectory countryId={160} countryName="Norway" regions={REGIONS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }))
+
+    await screen.findByText('takeoffs for country 160: server returned 502')
+    expect(screen.queryByTestId('stub-takeoffs-map')).toBeNull()
   })
 })

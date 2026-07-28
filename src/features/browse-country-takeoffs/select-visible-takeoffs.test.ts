@@ -403,6 +403,26 @@ describe('selectVisibleTakeoffs — nearby (distance) sort', () => {
     expect(result.locationUnknownCount).toBe(1)
   })
 
+  // D1: the full lat=0/lon=0 placeholder isn't the only corrupt shape in the live dataset —
+  // hasKnownLocation also catches a single axis dropped to 0 (takeoff 8478 "Veines
+  // (Kongsfjord)" really carries lat=0, lon=70.73: its real latitude landed in the longitude
+  // column) and both axes corrupted to a small non-zero remainder near Null Island (takeoff
+  // 10778 "Auenhaugen, Golsfjellet": lat=-1.02, lon=1.02). Both shapes would otherwise report
+  // a confident, fabricated distance here, exactly like the 0,0 case above — the same class
+  // of bug, through the same shared predicate.
+  it('never attaches a distance to a takeoff with only one axis zeroed, or to one corrupted to a small remainder near Null Island', () => {
+    const takeoffs = [
+      distanceFixture()[0],
+      makeTakeoff({ takeoffId: 98, name: 'LatLostToZero', lat: 0, lon: 70.73 }),
+      makeTakeoff({ takeoffId: 97, name: 'NearNullIsland', lat: -1.02, lon: 1.02 }),
+    ]
+
+    const result = select(takeoffs, '', 'all', 'all', { lat: 60.39, lon: 5.33 })
+
+    expect(result.matches.find((t) => t.takeoffId === 98)?.distanceMetres).toBeNull()
+    expect(result.matches.find((t) => t.takeoffId === 97)?.distanceMetres).toBeNull()
+  })
+
   // D1: isTruncated and totalMatchCount must reflect the WIND-narrowed set, the same
   // requirement windUnknownCount's own composition tests already pin for the count alone —
   // here the set starts well over the cap, and the wind filter alone brings it back under,
