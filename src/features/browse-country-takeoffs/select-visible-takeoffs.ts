@@ -96,6 +96,13 @@ export type TakeoffMatch = TakeoffDirectoryEntry & {
   distanceMetres: number | null
 }
 
+// A narrower type than TakeoffMatch, used only internally for the branch where a distance is
+// actually known — lets sortByDistance below compare `distanceMetres` as a plain `number`
+// rather than asserting it non-null with `!`. Widens back to TakeoffMatch (number is
+// assignable to number | null) the moment it's returned to a caller that doesn't care which
+// branch produced it.
+type LocatedTakeoff = TakeoffDirectoryEntry & { distanceMetres: number }
+
 export type VisibleTakeoffs = {
   matches: TakeoffMatch[]
   totalMatchCount: number
@@ -111,7 +118,7 @@ export type VisibleTakeoffs = {
 // Pure — attaches each takeoff's great-circle distance from `from`, reusing the same haversine
 // formula show-flight-track's altitude gradient already uses (see lib/geo/distance.ts) rather
 // than a second implementation that could drift from it.
-function withDistanceFrom(takeoffs: TakeoffDirectoryEntry[], from: GeoPoint): TakeoffMatch[] {
+function withDistanceFrom(takeoffs: TakeoffDirectoryEntry[], from: GeoPoint): LocatedTakeoff[] {
   return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: haversineDistanceMetres(from, takeoff) }))
 }
 
@@ -119,12 +126,18 @@ function withoutDistance(takeoffs: TakeoffDirectoryEntry[]): TakeoffMatch[] {
   return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: null }))
 }
 
-// Nearest-first once a location is known — "nearby" sorting is layered entirely on top of the
-// filtered set, never a precondition for it (see #12's decision on geolocation refusal). Falls
-// back to the directory's original alphabetical order otherwise, so this is also what a caller
-// gets before the user ever asks for "nearby" at all.
-function sortForDisplay(takeoffs: TakeoffMatch[], userLocation: GeoPoint | null): TakeoffMatch[] {
-  if (userLocation) return [...takeoffs].sort((a, b) => a.distanceMetres! - b.distanceMetres!)
+// Nearest-first once a location is known. Takes LocatedTakeoff, not TakeoffMatch, so
+// `distanceMetres` is a plain `number` here — the caller only ever reaches this with the
+// output of withDistanceFrom above, never withoutDistance's, so there is no runtime case to
+// assert away.
+function sortByDistance(takeoffs: LocatedTakeoff[]): LocatedTakeoff[] {
+  return [...takeoffs].sort((a, b) => a.distanceMetres - b.distanceMetres)
+}
+
+// The directory's original order, before the user ever asks for "nearby" — also what it falls
+// back to while a location isn't in hand yet (no request made, still pending, denied, or
+// unavailable; see #12's decision that all of those are normal, not error, states).
+function sortAlphabetically<T extends TakeoffDirectoryEntry>(takeoffs: T[]): T[] {
   return [...takeoffs].sort((a, b) => a.name.localeCompare(b.name))
 }
 
@@ -171,8 +184,9 @@ export function selectVisibleTakeoffs(
       ? nameAndRegionMatched
       : nameAndRegionMatched.filter((takeoff) => windIncludesDirection(takeoff.wind, windFilter))
 
-  const withDistance = userLocation ? withDistanceFrom(windMatched, userLocation) : withoutDistance(windMatched)
-  const sorted = sortForDisplay(withDistance, userLocation)
+  const sorted: TakeoffMatch[] = userLocation
+    ? sortByDistance(withDistanceFrom(windMatched, userLocation))
+    : sortAlphabetically(withoutDistance(windMatched))
 
   return {
     matches: sorted.slice(0, MAX_RENDERED_RESULTS),

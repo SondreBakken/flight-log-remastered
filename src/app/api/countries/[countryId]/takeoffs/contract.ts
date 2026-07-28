@@ -66,6 +66,7 @@ function isTakeoffRow(value: unknown): value is TakeoffRow {
     lon >= -180 &&
     lon <= 180 &&
     typeof wind === 'number' &&
+    Number.isInteger(wind) &&
     wind >= 0 &&
     wind <= 255 &&
     typeof countryId === 'number' &&

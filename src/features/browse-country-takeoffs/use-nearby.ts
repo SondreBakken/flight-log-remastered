@@ -49,7 +49,19 @@ export function useNearby(): NearbyState {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         setStatus('granted')
-        setLocation({ lat: position.coords.latitude, lon: position.coords.longitude })
+        // watchPosition fires again for every GPS update, most of which report the SAME
+        // coordinates (measured: 0.76ms per re-run, not urgent, but free to avoid) — a plain
+        // `setLocation({...})` here would allocate a new object identity every time
+        // regardless, invalidating index.tsx's `userLocation` memo and re-running the whole
+        // filter/sort pipeline over all 6012 rows for a location that didn't actually change.
+        // Returning the PREVIOUS state object when lat/lon are unchanged keeps the reference
+        // stable, which is what lets React bail out of that re-render entirely.
+        setLocation((previous) => {
+          const lat = position.coords.latitude
+          const lon = position.coords.longitude
+          if (previous && previous.lat === lat && previous.lon === lon) return previous
+          return { lat, lon }
+        })
       },
       (error) => {
         setStatus(error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable')

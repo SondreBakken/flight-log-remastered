@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
-import { useNearby } from './use-nearby'
+import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
@@ -11,6 +11,7 @@ import {
   foldTakeoffNames,
   withUnregionedOptions,
   sortRegionOptions,
+  parseWindFilterParam,
   UNREGIONED_LABEL,
   MAX_RENDERED_RESULTS,
   type RegionFilter,
@@ -23,11 +24,6 @@ type TakeoffDirectoryProps = {
   countryId: number
   countryName: string
   regions: RegionOption[]
-  // Seeded from the page's own `?wind=` query parameter (already validated server-side — see
-  // page.tsx and select-visible-takeoffs.ts's parseWindFilterParam), so a shared link opens
-  // straight into the filtered view instead of the user having to reselect it. 'all' when the
-  // route is visited with no param at all, matching every other filter's default.
-  initialWindFilter?: WindFilter
 }
 
 // No takeoffs to show yet at module scope, not `[]` re-allocated inline on every render —
@@ -40,10 +36,9 @@ function formatDistanceKm(distanceMetres: number): string {
 
 // Keeps the address bar in sync with the wind filter without pulling Next's router into a
 // component that has no actual navigation to perform — nothing here changes route, triggers a
-// server render, or needs next/navigation's Suspense-boundary rules (see page.tsx, which is
-// the one place that DOES need those, for the opposite direction: reading the initial value).
-// `replaceState`, not `pushState`: picking a new direction is a filter edit, not a page the
-// user would expect the back button to step through one octant at a time.
+// server render, or needs next/navigation's Suspense-boundary rules. `replaceState`, not
+// `pushState`: picking a new direction is a filter edit, not a page the user would expect the
+// back button to step through one octant at a time.
 function syncWindFilterToUrl(windFilter: WindFilter): void {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
@@ -52,17 +47,35 @@ function syncWindFilterToUrl(windFilter: WindFilter): void {
   window.history.replaceState(null, '', url)
 }
 
+// The read counterpart of syncWindFilterToUrl above, used once, as windFilter's own useState
+// initialiser — deliberately NOT read server-side (see page.tsx, which no longer touches
+// `?wind=` at all). This component already fetches its takeoff data client-side (see
+// useTakeoffs), so the filtered list is never part of the server-rendered/prerendered shell
+// either way; the only thing a server-seeded value used to buy was the wind <select>'s initial
+// value matching the URL a fraction of a second sooner, at the cost of pulling searchParams
+// (and therefore a Suspense boundary around this entire component, all 6012 rows of client
+// component included) into what was otherwise a fully static, build-time-prerenderable page —
+// measured at 8470 characters of postponed shell for one select's default, against 0 for the
+// sibling country page with no searchParams dependency at all. Reading it here instead, in a
+// lazy useState initialiser, costs nothing server-side (the ternary below is the whole price)
+// and runs before the browser's first paint on the client, so a shared link still opens
+// straight into the filtered view — just resolved here instead of on the server.
+function readWindFilterFromUrl(): WindFilter {
+  if (typeof window === 'undefined') return 'all'
+  return parseWindFilterParam(new URL(window.location.href).searchParams.get('wind') ?? undefined)
+}
+
 // #9's directory, replacing #38's proof-of-mechanism preview — that component's own comment
 // said as much: "the moment this grows an input with live filtering it is #9". #12 adds wind
 // direction and nearby-me on top of the same pipeline. Filtering runs entirely against
 // `state.takeoffs`, the same array the browser already fetched once from the prerendered
 // takeoffs route — no per-keystroke or per-filter-change network request, and geolocation is a
 // browser API call, not a request to flightlog.org either.
-export default function TakeoffDirectory({ countryId, countryName, regions, initialWindFilter = 'all' }: TakeoffDirectoryProps) {
+export default function TakeoffDirectory({ countryId, countryName, regions }: TakeoffDirectoryProps) {
   const state = useTakeoffs(countryId)
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
-  const [windFilter, setWindFilter] = useState<WindFilter>(initialWindFilter)
+  const [windFilter, setWindFilter] = useState<WindFilter>(readWindFilterFromUrl)
   const nearby = useNearby()
   // Separate from `nearby.status` on purpose: the user's INTENT to sort by distance survives
   // a denial or an unavailable browser (so the explanatory copy below stays visible instead of
@@ -136,7 +149,7 @@ function TakeoffCountSummary({ state }: { state: TakeoffsState }) {
 // Refusal, unavailability, and "still asking" are all normal, expected rests for this control
 // — none of them render as an error, each just tells the user why distance sort isn't active
 // yet (or won't be), while the rest of the directory keeps working underneath unchanged.
-function NearbyStatusHint({ enabled, status }: { enabled: boolean; status: ReturnType<typeof useNearby>['status'] }) {
+function NearbyStatusHint({ enabled, status }: { enabled: boolean; status: NearbyStatus }) {
   if (!enabled) return null
   if (status === 'pending') return <span className="text-xs opacity-70">Locating…</span>
   if (status === 'denied') return <span className="text-xs opacity-70">Location permission denied — showing all sites</span>
@@ -165,7 +178,7 @@ function SearchControls({
   onWindFilterChange: (value: WindFilter) => void
   nearbyEnabled: boolean
   onNearbyToggle: (checked: boolean) => void
-  nearbyStatus: ReturnType<typeof useNearby>['status']
+  nearbyStatus: NearbyStatus
 }) {
   const sortedRegions = useMemo(() => sortRegionOptions(regions), [regions])
 
@@ -195,7 +208,7 @@ function SearchControls({
         </select>
         <select
           value={windFilter}
-          onChange={(event) => onWindFilterChange(event.target.value as WindFilter)}
+          onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
           className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
         >
@@ -207,16 +220,17 @@ function SearchControls({
           ))}
         </select>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={nearbyEnabled}
-          onChange={(event) => onNearbyToggle(event.target.checked)}
-          aria-label="Nearby"
-        />
-        Sort by distance from me
+      <div className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={nearbyEnabled}
+            onChange={(event) => onNearbyToggle(event.target.checked)}
+          />
+          Sort by distance from me
+        </label>
         <NearbyStatusHint enabled={nearbyEnabled} status={nearbyStatus} />
-      </label>
+      </div>
     </div>
   )
 }
@@ -305,7 +319,21 @@ function TakeoffRow({ takeoff, regionName }: { takeoff: TakeoffMatch; regionName
 // A blank query is not something the user typed — it's what's left after they picked a
 // region with zero takeoffs without touching the search box, or the directory is genuinely
 // empty. `No takeoffs match ""` blames a query that was never entered; this names the actual
-// cause instead; a query IS blamed once one was actually typed, region filter or not.
+// cause instead.
+//
+// All three filters that can DROP a match (query, region, wind — "nearby" only sorts, it
+// never removes a row, so it plays no part here) compose into one message rather than one
+// replacing the others: a region-plus-wind search with zero results has TWO actual causes,
+// and naming only the first (as an if/else-if chain picking one branch would) makes the
+// other look like it was never applied at all. See B1 in the branch's own review — that
+// was exactly this bug: selecting a region, then a wind direction, blamed the region alone.
+function buildEmptyStateMessage(query: string, regionFilter: RegionFilter, regionName: string | undefined, windFilter: WindFilter): string {
+  const verb = query !== '' ? `match “${query}”` : 'recorded'
+  const regionClause = regionFilter !== 'all' ? ` in ${regionName}` : ''
+  const windClause = windFilter !== 'all' ? ` that work in ${windFilter}` : ''
+  return `No takeoffs ${verb}${regionClause}${windClause}.`
+}
+
 function EmptyState({
   query,
   regionFilter,
@@ -319,14 +347,7 @@ function EmptyState({
   windFilter: WindFilter
   windUnknownCount: number
 }) {
-  const message =
-    query !== ''
-      ? `No takeoffs match “${query}”.`
-      : regionFilter !== 'all'
-        ? `No takeoffs recorded in ${regionName}.`
-        : windFilter !== 'all'
-          ? `No takeoffs recorded that work in ${windFilter}.`
-          : 'No takeoffs recorded.'
+  const message = buildEmptyStateMessage(query, regionFilter, regionName, windFilter)
 
   return (
     <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">

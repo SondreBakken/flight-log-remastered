@@ -132,6 +132,45 @@ describe('useNearby', () => {
     expect(result.current.location).toBeNull()
   })
 
+  // watchPosition fires again on every GPS update, most of which repeat the same fix — a
+  // fresh object identity on every one of those would invalidate a caller's memo (see
+  // index.tsx's userLocation) and re-run its whole downstream pipeline for a location that
+  // never actually changed.
+  it('keeps the same location object reference across repeated fixes at identical coordinates', () => {
+    const fake = installFakeGeolocation()
+    let onSuccess: ((p: GeolocationPosition) => void) | undefined
+    fake.watchPosition.mockImplementation((success: (p: GeolocationPosition) => void) => {
+      onSuccess = success
+      onSuccess(fakePosition(60.39, 5.32))
+      return 1
+    })
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+    const firstLocation = result.current.location
+
+    act(() => onSuccess?.(fakePosition(60.39, 5.32)))
+
+    expect(result.current.location).toBe(firstLocation)
+  })
+
+  it('allocates a new location object once the coordinates actually change', () => {
+    const fake = installFakeGeolocation()
+    let onSuccess: ((p: GeolocationPosition) => void) | undefined
+    fake.watchPosition.mockImplementation((success: (p: GeolocationPosition) => void) => {
+      onSuccess = success
+      onSuccess(fakePosition(60.39, 5.32))
+      return 1
+    })
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+
+    act(() => onSuccess?.(fakePosition(61.0, 5.32)))
+
+    expect(result.current.location).toEqual({ lat: 61.0, lon: 5.32 })
+  })
+
   it('clears the active watch on unmount, instead of leaking it', () => {
     const fake = installFakeGeolocation()
     fake.watchPosition.mockImplementation(() => 42)

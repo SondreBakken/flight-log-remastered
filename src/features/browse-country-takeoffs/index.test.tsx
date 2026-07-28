@@ -40,7 +40,7 @@ const REGIONS: RegionOption[] = [
 // it, same shape as use-nearby.test.ts's own fakes, so a mid-suite test that forgets to install
 // one exercises the real, absent API ('unavailable') rather than silently reusing a leftover
 // mock from a previous test.
-type FakeGeolocation = { watchPosition: ReturnType<typeof vi.fn> }
+type FakeGeolocation = { watchPosition: ReturnType<typeof vi.fn>; clearWatch: ReturnType<typeof vi.fn> }
 function installFakeGeolocation(behavior: 'granted' | 'denied' | (() => void)): FakeGeolocation {
   const fake: FakeGeolocation = {
     watchPosition: vi.fn((onSuccess: (p: GeolocationPosition) => void, onError: (e: GeolocationPositionError) => void) => {
@@ -50,9 +50,13 @@ function installFakeGeolocation(behavior: 'granted' | 'denied' | (() => void)): 
       else behavior()
       return 1
     }),
+    clearWatch: vi.fn(),
   }
+  // Installs the SAME object it returns, not a copy with an extra field spliced in — a caller
+  // that asserts against the returned value (e.g. on clearWatch) is asserting against what the
+  // component actually called, not a look-alike.
   Object.defineProperty(window.navigator, 'geolocation', {
-    value: { ...fake, clearWatch: vi.fn() },
+    value: fake,
     configurable: true,
     writable: true,
   })
@@ -285,16 +289,60 @@ describe('TakeoffDirectory — wind filter', () => {
     screen.getByText('InRegionFacesNorth')
   })
 
+  // B1: the empty state must name BOTH active causes, not just the first one picked out of
+  // a chain — a region with hundreds of sites reads as genuinely empty otherwise, when the
+  // real reason is the wind filter narrowing it to zero within that region.
+  it('names both the region and the wind direction when their combination has zero results', async () => {
+    stubFetch([makeRow(1, 'AlphaFacesSouth', 1, { wind: 8 }), makeRow(2, 'BetaFacesNorth', 2, { wind: 128 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('AlphaFacesSouth')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /region/i }), { target: { value: '2' } })
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'S' } })
+
+    await screen.findByText('No takeoffs recorded in Vestlandet that work in S.')
+  })
+
+  // Same bug, the other pairing: a name query composed with a wind filter must also name
+  // both causes, not silently drop the wind half of the story.
+  it('names both the query and the wind direction when their combination has zero results', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1, { wind: 8 }), makeRow(2, 'Beta', 1, { wind: 128 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    fireEvent.change(screen.getByRole('textbox', { name: /takeoff name/i }), { target: { value: 'Alpha' } })
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+
+    await screen.findByText('No takeoffs match “Alpha” that work in N.')
+  })
+
   // A shared link (?wind=S) opens straight into the filtered view — the whole point of
-  // carrying this filter in the URL (see index.tsx's own doc comment on initialWindFilter).
-  it('seeds the wind select and the rendered set from the initialWindFilter prop', async () => {
+  // carrying this filter in the URL (see index.tsx's own readWindFilterFromUrl doc comment).
+  // Seeded via the real address bar, not a prop: this component now reads `?wind=` itself,
+  // client-side, specifically so the page it lives on never needs a searchParams-dependent
+  // Suspense boundary just to seed one select's default (see page.tsx's own comment on that).
+  it('seeds the wind select and the rendered set from the URL’s ?wind= param', async () => {
+    window.history.replaceState(null, '', '/?wind=S')
     stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'FacesSouth', 1, { wind: 8 })])
 
-    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} initialWindFilter="S" />)
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
 
     await screen.findByText('FacesSouth')
     expect(screen.queryByText('FacesNorth')).toBeNull()
     expect((screen.getByRole('combobox', { name: /wind direction/i }) as HTMLSelectElement).value).toBe('S')
+  })
+
+  it('falls back to "Any wind" for an invalid ?wind= param, rather than passing the raw string through', async () => {
+    window.history.replaceState(null, '', '/?wind=northwest')
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 }), makeRow(2, 'FacesSouth', 1, { wind: 8 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+
+    await screen.findByText('FacesNorth')
+    screen.getByText('FacesSouth')
+    expect((screen.getByRole('combobox', { name: /wind direction/i }) as HTMLSelectElement).value).toBe('all')
   })
 
   it('updates the URL as the wind filter changes, and clears the param back to "Any wind"', async () => {
@@ -322,7 +370,7 @@ describe('TakeoffDirectory — nearby', () => {
     render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
     await screen.findByText('FarSite')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
 
     await waitFor(() => {
       const names = screen.getAllByRole('listitem').map((li) => li.textContent)
@@ -340,7 +388,7 @@ describe('TakeoffDirectory — nearby', () => {
     render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
     await screen.findByText('Alpha')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
 
     await screen.findByText(/location permission denied/i)
     screen.getByText('Alpha')
@@ -354,7 +402,7 @@ describe('TakeoffDirectory — nearby', () => {
     render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
     await screen.findByText('Alpha')
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
 
     await screen.findByText(/location unavailable in this browser/i)
     screen.getByText('Alpha')
@@ -373,7 +421,7 @@ describe('TakeoffDirectory — nearby', () => {
     await screen.findByText('NearButWrongWind')
 
     fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: /nearby/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
 
     await waitFor(() => expect(screen.queryByText('NearButWrongWind')).toBeNull())
     screen.getByText('FarButRightWind')

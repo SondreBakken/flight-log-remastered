@@ -1,6 +1,7 @@
 import type { TrackPoint } from '../src/lib/flightlog/types'
 import { altitudeColorRampCss, altitudeToColor, buildAltitudeGradient } from '../src/features/show-flight-track/altitude-color'
 import { downsampleByMinMax } from '../src/features/show-flight-track/barogram-math'
+import { haversineDistanceMetres } from '../src/lib/geo/distance'
 
 let failures = 0
 
@@ -191,6 +192,28 @@ function hueOf([r, g, b]: [number, number, number]): number {
       `every stop fraction matches the independent full-track distance oracle (max deviation ${maxDeviation.toExponential(2)} < 1e-6)`,
     )
   }
+}
+
+// --- haversineDistanceMetres itself matches a closed-form ABSOLUTE distance, in metres, not
+// just a normalised fraction: the "stop fractions match an independent oracle" check above
+// only constrains a RATIO (distance / total distance along the track), so a scale error in
+// this function's Earth radius, or in its trig, cancels out of that ratio and passes it
+// undetected — measured: EARTH_RADIUS_METRES off by 7km, or the cos(lat1)*cos(lat2) term
+// dropped, both still pass the fraction check to well within its 1e-6 threshold. One degree
+// of latitude along a meridian is exactly EARTH_RADIUS_METRES * (pi/180) metres by
+// definition, independent of haversineDistanceMetres's own implementation, so this is a real
+// external oracle, not the function checking itself. See distance.ts's own comment and
+// distance.test.ts, which carries the full closed-form suite; this is the cheap subset that
+// keeps this specific check from being silently blind to a scale regression. ---
+{
+  const earthRadiusMetres = 6_371_000
+  const expectedMetres = earthRadiusMetres * (Math.PI / 180)
+  const actualMetres = haversineDistanceMetres({ lat: 10, lon: 20 }, { lat: 11, lon: 20 })
+  const deviation = Math.abs(actualMetres - expectedMetres)
+  assert(
+    deviation < 1,
+    `haversineDistanceMetres matches the closed-form meridian distance in absolute metres (expected ${expectedMetres.toFixed(1)}m, got ${actualMetres.toFixed(1)}m, deviation ${deviation.toFixed(3)}m)`,
+  )
 }
 
 // --- altitude extremes survive decimation ---
