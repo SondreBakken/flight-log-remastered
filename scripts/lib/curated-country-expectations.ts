@@ -57,10 +57,16 @@ export const CLUB_ROSTER_EXPECTATIONS: readonly {
   // "Frozen pins vs. live pins" section, which lists this as the fourth live-crossing check.
   rowCount: number
   // A coarse sanity band on the rendered HTML PAGE's total byte size — not a field-shape guard,
-  // just wide enough (roughly ±25% of the observed 53,192 bytes) to catch the artifact being
+  // just wide enough (roughly ±25% of the observed baseline) to catch the artifact being
   // grossly wrong (truncated, swapped for unrelated content) while tolerating the page shell's
   // own hashed asset chunk names and whitespace moving between Next.js versions. The country
   // name / club count / row count assertions in check-clubs-prerender.mts are what actually pin
   // correctness; this is a backstop underneath them, not a replacement.
+  //
+  // Rebaselined from [40_000, 66_000] (~53,192 bytes observed) by #7: each of the 91 club rows
+  // gained a real `<a href="/countries/160/clubs/<id>">` link into its own club page (see
+  // browse-country-clubs/index.tsx's ClubTable), which is exactly the kind of legitimate,
+  // one-time size step this band is meant to tolerate widening for, not a drift to chase —
+  // observed 71,180 bytes after the change.
   htmlBytesRange: Range
-}[] = [{ countryId: 160, countryName: 'Norway', rowCount: 91, htmlBytesRange: [40_000, 66_000] }]
+}[] = [{ countryId: 160, countryName: 'Norway', rowCount: 91, htmlBytesRange: [53_000, 90_000] }]

@@ -22,7 +22,7 @@ export default function CountryClubs({ countryId, countryName, clubs }: CountryC
         <h1 className="text-2xl font-semibold tracking-tight">{countryName}</h1>
         <p className="text-sm opacity-70">{clubs.length} clubs</p>
       </header>
-      {clubs.length === 0 ? <EmptyClubs /> : <ClubTable clubs={clubs} />}
+      {clubs.length === 0 ? <EmptyClubs /> : <ClubTable countryId={countryId} clubs={clubs} />}
       <div className="flex flex-wrap gap-4">
         <Link className="text-sm underline underline-offset-2" href="/countries">
           Back to countries
@@ -37,7 +37,12 @@ export default function CountryClubs({ countryId, countryName, clubs }: CountryC
   )
 }
 
-function ClubTable({ clubs }: { clubs: Club[] }) {
+// #7: clubs were plain text here, with no way to reach a club's own page at all. Each row's
+// link carries its own `club.clubId`, pinned to the SAME club whose name and flight count sit
+// in the same table row — not, say, the row's array index — so a reordered or filtered list
+// can never send a click to the wrong club (the class of bug #11's own review caught in a
+// sibling table before this one existed).
+function ClubTable({ countryId, clubs }: { countryId: number; clubs: Club[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -50,7 +55,11 @@ function ClubTable({ clubs }: { clubs: Club[] }) {
         <tbody>
           {clubs.map((club) => (
             <tr key={club.clubId} className="border-b border-black/5 dark:border-white/10">
-              <td className="py-2 pr-4">{club.name}</td>
+              <td className="py-2 pr-4">
+                <Link className="underline underline-offset-2" href={`/countries/${countryId}/clubs/${club.clubId}`}>
+                  {club.name}
+                </Link>
+              </td>
               <td className="py-2 pr-4 text-right">{club.flightCount}</td>
             </tr>
           ))}

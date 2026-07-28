@@ -148,6 +148,45 @@ export type Club = {
   flightCount: number
 }
 
+// From `a=26` (see docs/flightlog-api.md): every field the club-detail info table renders,
+// each one optional except `memberCount` — "Link to more info", "Coordinates" and
+// "Description" are all confirmed absent on at least one real club (Oslo has no Coordinates
+// row at all; a club with no logo/blurb has no Description text beyond its region name; a
+// club with no external site has no "Link to more info" row) — see parse-club-detail.ts.
+// `name` comes from the page's own breadcrumb, not a labelled row.
+export type ClubDetail = {
+  clubId: number
+  name: string
+  memberCount: number
+  coordinatesText: string | null
+  mapUrl: string | null
+  description: string | null
+  linkUrl: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+// A row from `a=26`'s own member roster table (same page as ClubDetail above, not a second
+// fetch) — the only source in this app that ties a club member to a `user_id`. See
+// parse-club-roster.ts.
+export type ClubMember = {
+  userId: number
+  name: string
+}
+
+// A row from `rqtid=1`'s per-pilot stats table — name only, no `user_id` (see
+// docs/flightlog-api.md's "THE JOIN" reasoning: flightlog.org itself has no reliable way to
+// key this by pilot, only by display name). Resolving a row to a `ClubMember.userId` is a
+// separate, explicit step (see resolve-stats-pilots.ts) — never done inside this type or its
+// parser, so "unresolved" stays a visible state rather than something a parser could
+// silently paper over.
+export type ClubPilotStats = {
+  name: string
+  flights: number
+  distanceKm: number
+  hours: number
+}
+
 export type Region = {
   regionId: number
   name: string
