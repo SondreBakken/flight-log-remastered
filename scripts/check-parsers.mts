@@ -147,11 +147,11 @@ assert(
 assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes the wire-boundary shape check')
 
 // The payload-size sanity band that used to live here now lives in
-// check-takeoffs-prerender.mts (see curated-countries.ts's expectedPayloadBytes), asserted
-// against the real build artifact instead of this fixture — this script is gated on
-// fixtures/ (gitignored) and therefore never runs in CI on a clean checkout, which made the
-// band here invisible where it mattered most. Row count and shape are still pinned here,
-// against the fixture, same as everywhere else in this file.
+// check-takeoffs-prerender.mts (see scripts/lib/curated-country-expectations.ts's
+// bytesPerRowRange), asserted against the real build artifact instead of this fixture — this
+// script is gated on fixtures/ (gitignored) and therefore never runs in CI on a clean
+// checkout, which made the band here invisible where it mattered most. Row count and shape
+// are still pinned here, against the fixture, same as everywhere else in this file.
 
 const emptyTakeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-29.html', 'utf8'), 29)
 console.log(`takeoffs-29.html (Bouvet Island): takeoffs=${emptyTakeoffs.length}`)

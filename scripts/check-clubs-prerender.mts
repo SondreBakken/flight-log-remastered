@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { CURATED_CLUB_COUNTRIES, CURATED_CLUB_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import { CURATED_CLUB_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import { CLUB_ROSTER_EXPECTATIONS } from './lib/curated-country-expectations'
+import { formatRange, inRange } from './lib/range'
 import {
   assertExactRouteSet,
   createChecker,
@@ -34,7 +36,7 @@ const manifest = readPrerenderManifest()
 const clubRouteKeys = routesForSrcRoute(manifest, SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${clubRouteKeys.join(', ') || '(none)'}`)
 
-for (const { countryId, expectedCountryName, expectedRowCount, expectedHtmlBytes } of CURATED_CLUB_COUNTRIES) {
+for (const { countryId, countryName: expectedCountryName, rowCount: expectedRowCount, htmlBytesRange } of CLUB_ROSTER_EXPECTATIONS) {
   const routeKey = `/countries/${countryId}`
   const entry = manifest.routes[routeKey]
 
@@ -67,10 +69,9 @@ for (const { countryId, expectedCountryName, expectedRowCount, expectedHtmlBytes
   assert(!('postponed' in meta), `${metaPath}: has no 'postponed' key — the club list was resolved at build time, not left as a per-request hole`)
 
   const html = readFileSync(htmlPath, 'utf8')
-  const [minBytes, maxBytes] = expectedHtmlBytes
   assert(
-    html.length >= minBytes && html.length <= maxBytes,
-    `${htmlPath}: artifact size (${html.length} bytes) falls within the expected ${minBytes}-${maxBytes} byte band for country ${countryId}`,
+    inRange(html.length, htmlBytesRange),
+    `${htmlPath}: artifact size (${html.length} bytes) falls within the expected ${formatRange(htmlBytesRange)} byte band for country ${countryId}`,
   )
 
   // The static shell's own Suspense fallback (ClubsSkeleton) legitimately appears in this
@@ -83,10 +84,11 @@ for (const { countryId, expectedCountryName, expectedRowCount, expectedHtmlBytes
   // and the exact club count rendered as plain text by CountryClubs (`{clubs.length} clubs`,
   // with React's hydration-safe text-separator comment between the number and the literal),
   // plus the actual number of rendered `<tr>` club rows — content-aware, not just "the file
-  // exists", the same reasoning as check-takeoffs-prerender.mts's row-count assertion, and,
-  // like that file's expectedRowCount, pinned against the live build (not the offline fixture
-  // check:parsers uses), so these may need a one-line bump if flightlog.org's data drifts from
-  // the fixture-time values.
+  // exists", the same reasoning as check-takeoffs-prerender.mts's row-count assertion. Pinned
+  // EXACT against the live build, not a band the way that file's is (#55) — see
+  // curated-country-expectations.ts's own doc comment on CLUB_ROSTER_EXPECTATIONS.rowCount for
+  // why a club roster gets different treatment, and expect a one-line bump here, not there, if
+  // Norway's club count ever actually drifts from the pinned 91.
   assert(html.includes(`>${expectedCountryName}</h1>`), `${htmlPath}: renders the resolved country name "${expectedCountryName}", not just the fallback shell`)
   const clubCountPattern = new RegExp(`<p class="text-sm opacity-70">${expectedRowCount}(?:<!--\\s*-->)?\\s*clubs</p>`)
   assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)

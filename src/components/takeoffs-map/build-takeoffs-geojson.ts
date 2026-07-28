@@ -69,11 +69,14 @@ export type TakeoffsMapData = {
   sites: TakeoffSitesGeoJSON
   rays: WindRaysGeoJSON
   // How many takeoffs carry a corrupt or placeholder coordinate (see hasKnownLocation for the
-  // three shapes that takes — the full lat=0/lon=0 placeholder, 1948 of Norway's 6012 real
-  // rows, plus 7 more with one axis dropped or both corrupted near Null Island) and are
-  // therefore never plotted — 1955 total. #10's explicit rule, the same one #12 settled for
-  // the list view: excluding them is fine, doing it silently is not, so the caller renders
-  // this rather than the map just quietly showing fewer markers.
+  // three shapes that takes — the full lat=0/lon=0 placeholder, which accounts for the large
+  // majority, plus a handful more with one axis dropped or both corrupted near Null Island)
+  // and are therefore never plotted. Measured at curation time against Norway's fixture: 1948
+  // of then-6012 rows placeholder-only, 7 more corrupted, 1955 excluded total — a live count,
+  // not a frozen one (#55), so treat any exact figure in this comment as a curation-time
+  // snapshot, not a present-tense fact. #10's explicit rule, the same one #12 settled for the
+  // list view: excluding them is fine, doing it silently is not, so the caller renders this
+  // rather than the map just quietly showing fewer markers.
   excludedCount: number
   plottedCount: number
 }

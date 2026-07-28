@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { CURATED_TAKEOFF_COUNTRIES, CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import { CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
 import { isTakeoffRows, type TakeoffRow } from '../src/app/api/countries/[countryId]/takeoffs/contract'
+import { formatRange, inRange } from './lib/range'
 import {
   assertExactRouteSet,
   createChecker,
@@ -25,7 +27,7 @@ const manifest = readPrerenderManifest()
 const takeoffRouteKeys = routesForSrcRoute(manifest, SRC_ROUTE)
 console.log(`prerender-manifest.json: routes under ${SRC_ROUTE} = ${takeoffRouteKeys.join(', ') || '(none)'}`)
 
-for (const { countryId, expectedRowCountRange, expectedPayloadBytes } of CURATED_TAKEOFF_COUNTRIES) {
+for (const { countryId, rowCountRange, bytesPerRowRange } of TAKEOFF_ROW_COUNT_EXPECTATIONS) {
   const routeKey = `/api/countries/${countryId}/takeoffs`
   const entry = manifest.routes[routeKey]
 
@@ -47,17 +49,6 @@ for (const { countryId, expectedRowCountRange, expectedPayloadBytes } of CURATED
   const parsed: unknown = JSON.parse(readFileSync(bodyPath, 'utf8'))
   console.log(`${bodyPath}: ${bytes} bytes on disk, ${Array.isArray(parsed) ? parsed.length : 'NOT AN ARRAY'} rows`)
 
-  // Runs against the real build artifact, unlike check:parsers' identical band, which only
-  // runs when fixtures/ (gitignored) is present locally and is therefore invisible to CI on a
-  // clean checkout. This is a coarse sanity band on total serialised size, not a field-shape
-  // guard — see curated-countries.ts's own doc comment on expectedPayloadBytes for what it
-  // does and does not catch, and why.
-  const [minBytes, maxBytes] = expectedPayloadBytes
-  assert(
-    bytes >= minBytes && bytes <= maxBytes,
-    `${bodyPath}: artifact size (${bytes} bytes) falls within the expected ${minBytes}-${maxBytes} byte band for country ${countryId}`,
-  )
-
   // Content-aware, not just "parses as an array": `[1,2,3]` (7 bytes) parses as a non-empty
   // array and previously passed this check outright. isTakeoffRows applies the same
   // wire-boundary shape guard the browser-side consumer applies to this exact payload — if
@@ -78,15 +69,27 @@ for (const { countryId, expectedRowCountRange, expectedPayloadBytes } of CURATED
   // A floor and a ceiling, not `=== expectedRowCount` (#55): `rows` comes from a REAL BUILD's
   // LIVE fetch of flightlog.org, which grows over time as pilots log new takeoffs — an exact
   // pin here goes stale the moment someone logs one, on a schedule this repo doesn't control.
-  // curated-countries.ts's own doc comment on expectedRowCountRange has the full frozen-vs-live
-  // reasoning; the short version is that this band still fails hard for a parser or route
-  // returning something wildly wrong (near-zero, or some unrelated multiple), just not for
-  // ordinary organic growth. Not `> 0` either: that would also accept the "some unrelated
-  // multiple" and "most rows silently dropped" failures this band exists to catch.
-  const [minRows, maxRows] = expectedRowCountRange
+  // curated-country-expectations.ts's own doc comment on rowCountRange has the full
+  // frozen-vs-live reasoning and why the floor, specifically, is what catches a parser or
+  // route silently dropping most rows. Not `> 0` either: that would also accept the "some
+  // unrelated multiple" and "most rows silently dropped" failures this band exists to catch.
   assert(
-    rows.length >= minRows && rows.length <= maxRows,
-    `${bodyPath}: row count falls within the expected ${minRows}-${maxRows} band for country ${countryId} (got ${rows.length})`,
+    inRange(rows.length, rowCountRange),
+    `${bodyPath}: row count falls within the expected ${formatRange(rowCountRange)} band for country ${countryId} (got ${rows.length})`,
+  )
+
+  // Runs against the real build artifact, unlike check:parsers' identical band, which only
+  // runs when fixtures/ (gitignored) is present locally and is therefore invisible to CI on a
+  // clean checkout. Bytes PER ROW, not total artifact bytes (#55) — see
+  // curated-country-expectations.ts's own doc comment on bytesPerRowRange for why: a total
+  // drifts with the row count above it depends on, a per-row average doesn't. `rows.length ===
+  // 0` (an emptied artifact) divides out to `Infinity`, which fails this band on its own
+  // without a special case — the row-count floor above already fails it too, so the two bands
+  // corroborate rather than one silently standing in for the other.
+  const bytesPerRow = rows.length > 0 ? bytes / rows.length : Infinity
+  assert(
+    inRange(bytesPerRow, bytesPerRowRange),
+    `${bodyPath}: serialised bytes per row (${bytesPerRow.toFixed(2)}) falls within the expected ${formatRange(bytesPerRowRange)} band for country ${countryId} (${bytes} bytes / ${rows.length} rows)`,
   )
 }
 

@@ -8,6 +8,8 @@ import {
   WIND_RAY_LAYER_ID,
 } from '../src/components/takeoffs-map/site-layer-ids'
 import { RAY_MIN_ZOOM } from '../src/components/takeoffs-map/build-takeoffs-geojson'
+import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
+import { formatRange, inRange } from './lib/range'
 import { createReporter } from './lib/verify-report'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
@@ -35,29 +37,29 @@ const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs?__v
 
 // This page's data comes from a REAL BUILD's LIVE fetch of flightlog.org (same as
 // check-takeoffs-prerender.mts and verify-takeoffs.mts), not from fixtures/takeoffs-160.html
-// directly — so a number pinned here against the fixture's own observed shape is pinned
-// against something that keeps moving as pilots log new takeoffs, not something frozen (#55).
-// Bands, not exact counts, for that reason — but still bands wide enough to fail hard for the
-// same class of bug an exact pin would have caught: an empty, near-empty, or still-corrupt
+// directly — see the README's "Frozen pins vs. live pins" section for the general rule; bands,
+// not exact counts, still wide enough to fail hard for an empty, near-empty, or still-corrupt
 // source (see hasKnownLocation in src/lib/flightlog/has-known-location.ts for what "corrupt"
-// means here — the full lat=0/lon=0 placeholder, one axis reset to 0 while the other still
-// holds a real-looking value, or both axes corrupted to a small non-zero remainder near Null
-// Island).
+// means here).
 //
-// TOTAL_RANGE matches check-takeoffs-prerender.mts's expectedRowCountRange for the same
-// country — see curated-countries.ts's doc comment for the full floor/ceiling reasoning, which
-// applies identically here since both pin the same real-world quantity (Norway's live takeoff
-// count). EXCLUDED_RANGE is its own band, not derived from TOTAL_RANGE: corrupt-coordinate
-// takeoffs are a subset that can grow at a different rate than the whole (a newly-logged
-// takeoff is corrupt or it isn't, independent of how many other takeoffs got logged alongside
-// it), so pinning it to the fixture's observed 1955 ± comparable headroom is the honest band,
-// not one algebraically forced to agree with TOTAL_RANGE. PLOTTED_RANGE IS derived, by interval
-// subtraction of the two bands above — that's arithmetic, not an independent observation, so
-// deriving it here (rather than picking a third number by hand) is the version least likely to
-// drift out of sync with the two inputs it depends on.
-const TOTAL_RANGE = [5500, 9000] as const
-const EXCLUDED_RANGE = [1700, 2600] as const
-const PLOTTED_RANGE = [TOTAL_RANGE[0] - EXCLUDED_RANGE[1], TOTAL_RANGE[1] - EXCLUDED_RANGE[0]] as const
+// TOTAL_TAKEOFF_COUNT_RANGE is imported, shared verbatim with check-takeoffs-prerender.mts and
+// verify-takeoffs.mts — all three bound the same real-world quantity (Norway's live takeoff
+// count), so it is declared once (scripts/lib/curated-country-expectations.ts) rather than
+// copy-pasted three times with a comment asserting the copies agree (#55). Asserted below
+// against excludedCount + plottedCount, not plottedCount alone — that sum IS the total
+// (build-takeoffs-geojson.ts's own arithmetic: `excludedCount: takeoffs.length - located.length,
+// plottedCount: located.length`), so this is the only assertion in this file that reads the
+// total at all. Without it, excludedCount and plottedCount could each independently land in
+// their own band while implying an impossible total (e.g. excluded at its ceiling and plotted
+// at ITS ceiling summing past TOTAL_TAKEOFF_COUNT_RANGE's own ceiling) and nothing here would
+// notice. EXCLUDED_TAKEOFF_COUNT_RANGE is its own band, not derived from the total: corrupt-
+// coordinate takeoffs are a subset that can grow at a different rate than the whole (a
+// newly-logged takeoff is corrupt or it isn't, independent of how many other takeoffs got
+// logged alongside it), so pinning it to the fixture's observed 1955 ± comparable headroom is
+// the honest band, not one algebraically forced to agree with the total.
+const NORWAY_COUNTRY_ID = 160
+const TOTAL_TAKEOFF_COUNT_RANGE = TAKEOFF_ROW_COUNT_EXPECTATIONS.find((e) => e.countryId === NORWAY_COUNTRY_ID)!.rowCountRange
+const EXCLUDED_TAKEOFF_COUNT_RANGE = [1700, 2600] as const
 
 const { report, finish } = createReporter()
 
@@ -124,12 +126,15 @@ if (settled) {
     report(false, 'window.__takeoffsMapData is present after settling (it is the data the map was actually built from)')
   } else {
     report(
-      mapData.excludedCount >= EXCLUDED_RANGE[0] && mapData.excludedCount <= EXCLUDED_RANGE[1],
-      `excludedCount falls within the expected ${EXCLUDED_RANGE[0]}-${EXCLUDED_RANGE[1]} band (got ${mapData.excludedCount})`,
+      inRange(mapData.excludedCount, EXCLUDED_TAKEOFF_COUNT_RANGE),
+      `excludedCount falls within the expected ${formatRange(EXCLUDED_TAKEOFF_COUNT_RANGE)} band (got ${mapData.excludedCount})`,
     )
+    // excludedCount + plottedCount, not plottedCount alone (see the constant's own doc comment
+    // above for why) — this is the only place in this script that reads the total.
+    const totalTakeoffCount = mapData.excludedCount + mapData.plottedCount
     report(
-      mapData.plottedCount >= PLOTTED_RANGE[0] && mapData.plottedCount <= PLOTTED_RANGE[1],
-      `plottedCount falls within the expected ${PLOTTED_RANGE[0]}-${PLOTTED_RANGE[1]} band (got ${mapData.plottedCount})`,
+      inRange(totalTakeoffCount, TOTAL_TAKEOFF_COUNT_RANGE),
+      `excludedCount + plottedCount (${totalTakeoffCount}) falls within the expected ${formatRange(TOTAL_TAKEOFF_COUNT_RANGE)} band for Norway's live takeoff total (excluded ${mapData.excludedCount}, plotted ${mapData.plottedCount})`,
     )
     // Self-consistency, not a second absolute pin: the sites SOURCE and the plottedCount FIELD
     // are two different readings of the same map-build output, taken at the same moment — this
