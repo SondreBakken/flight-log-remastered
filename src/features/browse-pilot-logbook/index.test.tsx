@@ -33,19 +33,18 @@ describe('PilotLogbook header', () => {
   // flightCount 2, trip_id 1002600 / flightCount 6), ten flights total, matched against
   // rqtid=1's own "Flights" column. `flights.length` (4) undercounts it by more than half.
   //
-  // The tracked half of the line has the identical row-vs-flight ambiguity: a GPS track is
-  // recorded per trip_id (one continuous tracklog covering that trip's whole session), so a
-  // tracked aggregated row's entire flightCount is honestly "covered by a track" — there is no
-  // per-flight breakdown to divide it by. Here trip_id 1002600 (flightCount 6) and trip_id
-  // 1001964 (flightCount 1) are tracked, trip_id 1002601 (flightCount 2) is not: 7 flights
-  // tracked, not the 2 tracked ROWS the old `trackedTripIds.size` would have reported.
+  // The two halves count deliberately different things, and the words say which. Flights can be
+  // summed because every row publishes its own count. Tracked FLIGHTS cannot: one tracklog
+  // exists per trip_id and an aggregated row's flights share it, with no per-flight breakdown
+  // anywhere, so summing flightCount over tracked rows would over-claim. That over-claim is
+  // measured — pilot 9377's trip 802531 reads flightCount 2 while its tracklog holds a single
+  // descent — so this line reports tracks, which is what the index can answer.
   //
-  // No assertion can verify that "10 flights shown · 7 with a GPS track" *means* what this
-  // comment says it means — meaning is a property of the reader. What this pins is the exact
-  // reviewed phrasing and numbers, so a later edit that quietly reverts either half to a row
-  // count, or leaves the two halves counting different units, breaks this test rather than
-  // drifting past review unnoticed.
-  it('counts flights, not table rows, on both halves of the header line — mixing single-flight and aggregated rows', () => {
+  // No assertion can verify that "10 flights shown · 2 GPS tracks" *means* what this comment
+  // says. What it pins is the exact reviewed phrasing and both numbers, so a later edit that
+  // reverts either half, or silently puts them back into the same unit, breaks this test
+  // rather than drifting past review.
+  it('counts flights for the flights half and rows for the tracks half, on a mix of single and aggregated rows', () => {
     const flights: Flight[] = [
       flight({ tripId: 1002674, duration: '00:05', flightCount: 1 }),
       flight({ tripId: 1002601, duration: '00:10', flightCount: 2 }),
@@ -56,7 +55,23 @@ describe('PilotLogbook header', () => {
 
     render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
 
-    screen.getByText('10 flights shown · 7 with a GPS track')
+    screen.getByText('10 flights shown · 2 GPS tracks')
+  })
+
+  // Pins WHICH collection the track count walks. Summing or counting the track index instead of
+  // the rows renders 3 here, because 999 has no row on this page — the shape of the old
+  // `trackedTripIds.size` overcount, which the two tests above cannot distinguish since every
+  // tracked id in them has a matching row.
+  it('ignores a tracked trip that has no row on this page', () => {
+    const flights: Flight[] = [
+      flight({ tripId: 1002600, duration: '00:30', flightCount: 6 }),
+      flight({ tripId: 1002674, duration: '00:05', flightCount: 1 }),
+    ]
+    const trackedTripIds = new Set([1002600, 999])
+
+    render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
+
+    screen.getByText('7 flights shown · 1 GPS tracks')
   })
 
   // The extreme opposite of the boundary case above: fixtures/pilot-4549.html's 134 rows are
@@ -72,6 +87,6 @@ describe('PilotLogbook header', () => {
 
     render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
 
-    screen.getByText('3 flights shown · 2 with a GPS track')
+    screen.getByText('3 flights shown · 2 GPS tracks')
   })
 })

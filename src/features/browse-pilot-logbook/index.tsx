@@ -15,7 +15,7 @@ export default function PilotLogbook({ pilot, flights, trackedTripIds }: PilotLo
       <PilotHeader
         pilot={pilot}
         flightCount={totalFlightCount(flights)}
-        trackCount={trackedFlightCount(flights, trackedTripIds)}
+        trackCount={trackedRowCount(flights, trackedTripIds)}
       />
       {flights.length === 0 ? <EmptyLogbook /> : (
         <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
@@ -33,17 +33,22 @@ function totalFlightCount(flights: Flight[]): number {
   return flights.reduce((total, flight) => total + flight.flightCount, 0)
 }
 
-// Same fix, same reasoning, for the OTHER half of the header line: `trackedTripIds.size`
-// counts tracked ROWS, which undercounts identically once a tracked row is an aggregate.
-// A GPS track is recorded per trip_id (rqtid=21/19, one continuous tracklog per trip), and an
-// aggregated row's flights share that one trip_id — flightlog.org has no per-flight track
-// breakdown to divide it by — so a tracked row's whole `flightCount` is honestly "covered by
-// a GPS track", not just one flight of it. Fixing one half of the line and not the other
-// would leave it stating two different units side by side with nothing announcing the switch.
-function trackedFlightCount(flights: Flight[], trackedTripIds: Set<number>): number {
-  return flights
-    .filter((flight) => trackedTripIds.has(flight.tripId))
-    .reduce((total, flight) => total + flight.flightCount, 0)
+// The other half of the line counts TRACKS, and says so, because flightlog.org publishes no
+// per-flight track relationship to say anything more precise. One tracklog exists per trip_id
+// (rqtid=22 returns data_item_count 1), and an aggregated row's flights share that one id, so
+// neither available number is a count of tracked flights: summing `flightCount` over-claims
+// and one-per-row under-claims.
+//
+// Over-claiming is measured, not hypothetical. Pilot 9377's trip 802531 is the only
+// aggregated-AND-tracked row found across 78 pilots of two clubs. Its row reads flightCount 2,
+// its description reads "#11 og 12", and its tracklog is a single continuous descent from 279m
+// to 83m followed by 135s stationary, with a largest continuous gain of 3.0m — GPS noise, not a
+// second launch. Two flights in the entry, one flight in the track.
+//
+// Counting rows whose trip is tracked needs no inference: it is what the track index can
+// actually answer.
+function trackedRowCount(flights: Flight[], trackedTripIds: Set<number>): number {
+  return flights.filter((flight) => trackedTripIds.has(flight.tripId)).length
 }
 
 function PilotHeader({
@@ -67,7 +72,7 @@ function PilotHeader({
         {[pilot.club, pilot.country].filter(Boolean).join(' · ')}
       </p>
       <p className="text-sm opacity-70">
-        {flightCount} flights shown · {trackCount} with a GPS track
+        {flightCount} flights shown · {trackCount} GPS tracks
       </p>
     </header>
   )
