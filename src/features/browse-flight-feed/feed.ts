@@ -1,4 +1,4 @@
-import type { Flight, Pilot } from '@/lib/flightlog/types'
+import type { Flight, Pilot, TrackIndexEntry } from '@/lib/flightlog/types'
 
 // Each pilot's own recent slice must be at least as large as the merged feed: in the
 // worst case one followed pilot supplies every entry, and slicing a pilot's history
@@ -25,7 +25,14 @@ export type PilotFeedSuccess = {
   pilotId: number
   pilot: Pilot
   flights: Flight[]
-  trackedTripIds: number[]
+  trackedTrips: TrackIndexEntry[]
+  // This pilot's watermark AS IT STOOD the instant their own fetch settled, captured by the
+  // caller (use-flight-feed.ts) BEFORE it ever advances that watermark for this load — carried
+  // on the result itself, rather than in a second map the caller must keep in sync by hand, so
+  // "which watermark goes with which pilot's flights" cannot desynchronise from `results` (see
+  // buildFeedEntries below, which used to take a separate watermarksAtLoad map for exactly this
+  // reason). `null` means this pilot has never been seen before.
+  watermarkAtLoad: string | null
 }
 
 export type PilotFeedFailure = {
@@ -36,10 +43,34 @@ export type PilotFeedFailure = {
 
 export type PilotFeedResult = PilotFeedSuccess | PilotFeedFailure
 
+// The shape fetch-pilot-feed.ts (infra: talks to our own route handler over HTTP, nothing
+// else) can honestly return. It cannot report `watermarkAtLoad` — that's a localStorage read,
+// and this module never touches localStorage — so the caller (use-flight-feed.ts) attaches it
+// right after, from getWatermark, before this ever becomes a real PilotFeedResult.
+export type FetchedPilotFeedSuccess = Omit<PilotFeedSuccess, 'watermarkAtLoad'>
+export type FetchedPilotFeedResult = FetchedPilotFeedSuccess | PilotFeedFailure
+
+// A flight's "new since last visit" status is one of three states, never collapsed to two:
+//   - 'new': tracked, and its ts is newer than the pilot's watermark at the start of this load.
+//   - 'not-new': tracked, and its ts is at or before the watermark.
+//   - 'unknown': untracked — flightlog.org's rqtid=21 has no row, and therefore no timestamp,
+//     for a flight with no uploaded GPS track (confirmed live: a pilot with real flights and
+//     zero uploaded tracks gets a 200 with an empty data_items array). "We cannot tell" and
+//     "this is not new" are different claims — collapsing this into 'not-new' would render an
+//     unchecked flight as confidently checked, which this repo has shipped five times already
+//     for a structurally identical reason (#25, #6, #32, #8, #59). See classifyNewness.
+export type FlightNewness = 'new' | 'not-new' | 'unknown'
+
 export type FeedEntry = {
   pilot: Pilot
   flight: Flight
   hasTrack: boolean
+  newness: FlightNewness
+  // The tracked flight's own `ts`, or null when hasTrack is false. Carried on the entry (not
+  // just folded into `newness`) so a caller can find the newest ts among the entries actually
+  // SHOWN, per pilot, after the merge — see shownTrackedTsByPilot, which is what
+  // use-flight-feed.ts advances each pilot's stored watermark to.
+  trackedAt: string | null
 }
 
 export type RecentFlightsSlice = {
@@ -70,7 +101,7 @@ function yearOf(flight: Flight): number {
  *
  * The slice-not-history half is the traffic-safety property recorded in
  * docs/flightlog-api.md: resolving GPS tracks costs one request per pilot per year (see
- * getTrackedTripIds in lib/flightlog/tracks.ts). But the slice alone does NOT bound the
+ * getTrackedTripEntries in lib/flightlog/tracks.ts). But the slice alone does NOT bound the
  * year count: an infrequent pilot's RECENT_FLIGHTS_PER_PILOT most recent flights can still
  * span as many distinct years as the slice is deep (one flight a year for 30 years slices
  * to 30 years, not "one or two"). The explicit MAX_YEARS_PER_PILOT cap below is what
@@ -90,31 +121,51 @@ export function sliceRecentFlights(
 
 /**
  * Orchestrates one pilot's slice of the route's response: slices the already-fetched
- * logbook, then resolves which of the sliced flights have a GPS track via the injected
- * `resolveTrackedTripIds` (in production, getTrackedTripIds — see route.ts). Kept here
- * rather than inline in the route handler, and infra-free (no 'server-only'/'next/cache'
- * import) specifically so it can be unit tested with a stub in check-feed.mts: the years
- * passed to `resolveTrackedTripIds` coming from the SLICE, not the pilot's full history, is
- * exactly the traffic-safety property this function exists to keep correct.
+ * logbook, then resolves which of the sliced flights have a GPS track (and each one's `ts`)
+ * via the injected `resolveTrackedTrips` (in production, getTrackedTripEntries — see
+ * route.ts). Kept here rather than inline in the route handler, and infra-free (no
+ * 'server-only'/'next/cache' import) specifically so it can be unit tested with a stub in
+ * check-feed.mts: the years passed to `resolveTrackedTrips` coming from the SLICE, not the
+ * pilot's full history, is exactly the traffic-safety property this function exists to
+ * keep correct.
  */
 export async function loadRecentFlightsForPilot(
   pilotId: number,
   logbook: { pilot: Pilot; flights: Flight[] },
-  resolveTrackedTripIds: (pilotId: number, years: number[]) => Promise<Set<number>>,
+  resolveTrackedTrips: (pilotId: number, years: number[]) => Promise<TrackIndexEntry[]>,
   limit: number = RECENT_FLIGHTS_PER_PILOT,
-): Promise<{ pilot: Pilot; flights: Flight[]; trackedTripIds: number[] }> {
+): Promise<{ pilot: Pilot; flights: Flight[]; trackedTrips: TrackIndexEntry[] }> {
   const recent = sliceRecentFlights(logbook.flights, limit)
-  const trackedTripIds = await resolveTrackedTripIds(pilotId, recent.years)
-  return { pilot: logbook.pilot, flights: recent.flights, trackedTripIds: [...trackedTripIds] }
+  const trackedTrips = await resolveTrackedTrips(pilotId, recent.years)
+  return { pilot: logbook.pilot, flights: recent.flights, trackedTrips }
+}
+
+// Strictly greater-than, not greater-or-equal. The reason is NOT flightlog.org's own `ts=`
+// query param semantics on the track-index request (tracks.ts hardcodes `ts=0` and fetches a
+// whole year, then filters locally — the upstream param's own inclusivity is never exercised
+// on this path). It's simpler than that: the watermark stores the newest `ts` this pilot has
+// already had advanced to (see shownTrackedTsByPilot/advanceWatermark), so a flight whose own
+// `ts` exactly equals the watermark is the flight that watermark was LAST set from — already
+// seen, by construction. `watermarkAtLoad === null` (this pilot has never been seen before)
+// means everything trackable is new, not nothing — the honest reading of "no watermark yet".
+function classifyNewness(trackedAt: string | null, watermarkAtLoad: string | null): FlightNewness {
+  if (trackedAt === null) return 'unknown'
+  if (watermarkAtLoad === null) return 'new'
+  return trackedAt > watermarkAtLoad ? 'new' : 'not-new'
 }
 
 function toFeedEntries(result: PilotFeedSuccess): FeedEntry[] {
-  const trackedTripIds = new Set(result.trackedTripIds)
-  return result.flights.map((flight) => ({
-    pilot: result.pilot,
-    flight,
-    hasTrack: trackedTripIds.has(flight.tripId),
-  }))
+  const trackedAtByTripId = new Map(result.trackedTrips.map((entry) => [entry.tripId, entry.updatedAt]))
+  return result.flights.map((flight) => {
+    const trackedAt = trackedAtByTripId.get(flight.tripId) ?? null
+    return {
+      pilot: result.pilot,
+      flight,
+      hasTrack: trackedAt !== null,
+      newness: classifyNewness(trackedAt, result.watermarkAtLoad),
+      trackedAt,
+    }
+  })
 }
 
 /**
@@ -122,6 +173,10 @@ function toFeedEntries(result: PilotFeedSuccess): FeedEntry[] {
  * successful results, sorts newest first across ALL pilots (not per pilot), then slices
  * to the feed size. Failed pilots contribute no entries here — see failedPilotResults,
  * which surfaces them instead of letting them disappear silently.
+ *
+ * Each success result carries its own `watermarkAtLoad` (see PilotFeedSuccess) — read at the
+ * start of this load, before any pilot's watermark advances — so classification here can never
+ * observe a watermark that has already moved past what it's being compared against.
  */
 export function buildFeedEntries(results: PilotFeedResult[], limit: number = FEED_SIZE): FeedEntry[] {
   const entries = results
@@ -129,6 +184,41 @@ export function buildFeedEntries(results: PilotFeedResult[], limit: number = FEE
     .flatMap(toFeedEntries)
   entries.sort((a, b) => compareFlightsNewestFirst(a.flight, b.flight))
   return entries.slice(0, limit)
+}
+
+// The count the UI surfaces (see index.tsx) — among the flights actually shown, not among
+// every flight fetched, since only shown flights are what "you've now seen this" can honestly
+// mean. Counts 'new' only: 'unknown' (untracked) flights are neither new nor not-new, and must
+// not inflate this number one way or the other — see FlightNewness's doc comment.
+export function countNewEntries(entries: readonly FeedEntry[]): number {
+  return entries.filter((entry) => entry.newness === 'new').length
+}
+
+// The per-pilot advance candidate for use-flight-feed.ts's watermark update, derived from
+// entries actually RENDERED in the merged, FEED_SIZE-truncated feed — never from every flight
+// fetched. A flight truncated out of the merge, or belonging to a pilot whose slice never made
+// the cut, must not be marked "seen": the user never saw it (this was the bug — a fetched-but-
+// unrendered flight silently advanced the watermark past itself, with no way to un-see it).
+// Only entries with a resolved track ts (trackedAt !== null) can advance anything; an 'unknown'
+// entry has no ts to advance to.
+export function shownTrackedTsByPilot(entries: readonly FeedEntry[]): Map<number, string> {
+  const maxByPilot = new Map<number, string>()
+  for (const entry of entries) {
+    if (entry.trackedAt === null) continue
+    const pilotId = entry.pilot.userId
+    const current = maxByPilot.get(pilotId)
+    if (current === undefined || entry.trackedAt > current) maxByPilot.set(pilotId, entry.trackedAt)
+  }
+  return maxByPilot
+}
+
+// Whether ANY successfully-loaded pilot had a recorded watermark before this load — false only
+// when every one of them is being seen for the very first time. Drives the "since your last
+// visit" caption (see index.tsx's NewSinceLastVisitNotice): a genuine first-time visitor has no
+// "last visit" to report a count against, however many flights read as 'new' by construction of
+// classifyNewness's null-watermark case above.
+export function anyPilotHasPriorWatermark(results: readonly PilotFeedResult[]): boolean {
+  return results.some((result) => result.status === 'success' && result.watermarkAtLoad !== null)
 }
 
 export function failedPilotResults(results: PilotFeedResult[]): PilotFeedFailure[] {

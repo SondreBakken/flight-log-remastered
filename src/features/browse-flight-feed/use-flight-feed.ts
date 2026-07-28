@@ -2,8 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { runWithConcurrencyLimit, type Settled } from '@/lib/concurrency/with-limit'
+import { getWatermark, recordSeen } from '@/lib/watermark-store/storage'
 import { fetchPilotFeed } from './fetch-pilot-feed'
-import { buildFeedEntries, failedPilotResults, FEED_SIZE, type FeedEntry, type PilotFeedFailure, type PilotFeedResult } from './feed'
+import {
+  anyPilotHasPriorWatermark,
+  buildFeedEntries,
+  failedPilotResults,
+  FEED_SIZE,
+  shownTrackedTsByPilot,
+  type FeedEntry,
+  type FetchedPilotFeedResult,
+  type PilotFeedFailure,
+  type PilotFeedResult,
+} from './feed'
 
 // Low single digits: enough that a fast pilot doesn't sit queued behind a slow one, far
 // below the ~200-requests-in-a-few-minutes threshold that silently kills a flightlog.org
@@ -17,7 +28,7 @@ export const CONCURRENCY_LIMIT = 4
 // generic utility that does not assume that — this turns whatever it hands back into the
 // PilotFeedResult this hook actually needs, converting an unexpected rejection into a
 // failure entry instead of losing it.
-function toPilotFeedResult(pilotId: number, outcome: Settled<PilotFeedResult>): PilotFeedResult {
+function toFetchedResult(pilotId: number, outcome: Settled<FetchedPilotFeedResult>): FetchedPilotFeedResult {
   if (outcome.ok) return outcome.value
   return {
     status: 'error',
@@ -30,6 +41,10 @@ export type FlightFeedResults = {
   isLoading: boolean
   entries: FeedEntry[]
   failedPilots: PilotFeedFailure[]
+  // Whether any followed pilot had a watermark recorded before this load — see
+  // anyPilotHasPriorWatermark. Lets the caption distinguish a genuine first visit (nothing to
+  // report "since your last visit" against) from an established one.
+  hasSeenBefore: boolean
 }
 
 // Assumes `pilotIds` is non-empty and stable for the component instance's lifetime: the
@@ -51,6 +66,11 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
     // actually matters. `cancelled` alone only suppressed the resulting setState, it never
     // stopped the request itself.
     const controller = new AbortController()
+    // Mirrors `results` exactly (same pushes, same order) but owned by this effect run
+    // rather than React state, so the watermark advance below can read the FINAL collected
+    // results synchronously once every pilot has settled, without racing a setState that
+    // may not have committed yet.
+    const collected: PilotFeedResult[] = []
 
     runWithConcurrencyLimit(
       pilotIds,
@@ -58,7 +78,16 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
       (pilotId) => fetchPilotFeed(pilotId, controller.signal),
       (pilotId, outcome) => {
         if (cancelled) return
-        setResults((previous) => [...previous, toPilotFeedResult(pilotId, outcome)])
+        const fetched = toFetchedResult(pilotId, outcome)
+        // Read (getWatermark), not write: the write side — advancing this pilot's stored
+        // watermark — happens once, below, only after every pilot has settled AND only for
+        // flights that actually end up rendered (see the .finally() block and blocking
+        // finding #1: advancing here, per pilot, over every flight FETCHED silently marked
+        // flights the user never saw as seen forever, with no undo).
+        const result: PilotFeedResult =
+          fetched.status === 'success' ? { ...fetched, watermarkAtLoad: getWatermark(pilotId) } : fetched
+        collected.push(result)
+        setResults((previous) => [...previous, result])
       },
     )
       .catch((error: unknown) => {
@@ -69,7 +98,16 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
         if (!cancelled) console.error('flight feed: concurrency pool failed', error)
       })
       .finally(() => {
-        if (!cancelled) setIsLoading(false)
+        if (cancelled) return
+        // "The user has seen this flight" can only honestly mean a flight that made it into
+        // the merged, FEED_SIZE-truncated feed actually rendered — see shownTrackedTsByPilot.
+        // Advancing once here (not per pilot, on each fetch settling) trades a slow pilot
+        // briefly holding up every watermark's advance for correctness: a watermark that
+        // silently swallows an unseen flight, with no undo, is worse than one that advances a
+        // moment later once the whole load has actually settled.
+        const shownEntries = buildFeedEntries(collected, FEED_SIZE)
+        for (const [pilotId, ts] of shownTrackedTsByPilot(shownEntries)) recordSeen(pilotId, ts)
+        setIsLoading(false)
       })
 
     return () => {
@@ -86,5 +124,6 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
     isLoading,
     entries: buildFeedEntries(results, FEED_SIZE),
     failedPilots: failedPilotResults(results),
+    hasSeenBefore: anyPilotHasPriorWatermark(results),
   }
 }

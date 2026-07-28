@@ -23,6 +23,7 @@ pnpm run check:scoring                    # scoring-overlay geometries against s
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
+pnpm run check:watermark-store            # per-pilot "new since last visit" watermark, pure core + storage adapter
 pnpm run check:request-gate               # outbound request gate: concurrency cap, in-flight tracking
 pnpm test                                 # Vitest: components, jsdom + React Testing Library
 pnpm lint                                 # ESLint
