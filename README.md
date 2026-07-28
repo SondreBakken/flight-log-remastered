@@ -256,7 +256,7 @@ Routes:
 - `/pilots/search` find a pilot by name, with a follow button per result
 - `/flights/[tripId]` track on a map plus flight statistics
 - `/countries` every country, linking into its club list
-- `/countries/[countryId]` clubs in that country, with each club's total flight count, linking
+- `/countries/[countryId]` clubs in that country, with each club's member count, linking
   into each club's own page
 - `/countries/[countryId]/clubs/[clubId]` a single club: description, coordinates, member
   roster (every member, each with a follow button), and a pilot-stats leaderboard sortable by

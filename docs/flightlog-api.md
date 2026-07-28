@@ -475,7 +475,12 @@ honeypot copy, same as every other page) around one results block:
   not a positional one.
 - The stray `</a>` closing the second `<td>` (no matching open tag) is real markup, not a transcription
   error — another malformed-HTML case like the flight rows, needs cheerio.
-- Second `<td>` is a plain integer, the club's total flight count — not a link, not a member count.
+- Second `<td>` is a plain integer, the club's MEMBER count — not a link, and despite this
+  doc's own earlier claim (and this app's own earlier reading of it, #66), not a flight count.
+  Confirmed against `a=26`'s own explicit `Members` field and that page's roster row count for
+  the same club: Voss (51) reads 1271 on all three, Oslo (33) reads 677 on all three. No cheap
+  source of a genuine per-club flight total exists on this page or `a=26`; `rqtid=1` sums to
+  one (Voss: 10309, nowhere near 1271) but only via a second, per-club request.
 - Club names are not guaranteed trimmed (`Oslo Paragliderklubb ` has a trailing space in the source),
   contain non-ASCII (`Ålesund Paragliderklubb`), and contain HTML entities (`Alta Hang &amp;
   Paragliderklubb`).

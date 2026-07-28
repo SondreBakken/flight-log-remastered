@@ -165,6 +165,28 @@ console.log(`a26-33-club.html: name=${osloDetail?.name} members=${osloDetail?.me
 assert(osloDetail?.memberCount === 677, `a26-33-club.html: Members reads 677 (got ${osloDetail?.memberCount})`)
 assert(osloDetail?.coordinatesText === null, `a26-33-club.html: a club with no Coordinates row parses coordinatesText as null, not a throw (got ${osloDetail?.coordinatesText})`)
 
+// #66: clubs-160.html's own `a=25` column agreed with itself, its type, and its header — and
+// all three disagreed with the data (1271 read as Voss's FLIGHT count, when it is Voss's
+// MEMBER count). Internal consistency couldn't catch that; only a second, independently
+// labelled source can — `a=26`'s own explicit `Members` field for the SAME club, fetched and
+// parsed by an entirely different parser above. Comparing `clubs` (parseClubs, `a=25`) against
+// `vossDetail`/`osloDetail` (parseClubDetail, `a=26`) crosses that boundary; comparing
+// parseClubs against a fixture-derived expectation, or against itself, would have passed on
+// the original bug too.
+const vossListRow = clubs.find((club) => club.clubId === 51)
+const osloListRow = clubs.find((club) => club.clubId === 33)
+console.log(
+  `clubs-160.html vs a26: Voss memberCount=${vossListRow?.memberCount} (a26 Members=${vossDetail?.memberCount}), Oslo memberCount=${osloListRow?.memberCount} (a26 Members=${osloDetail?.memberCount})`,
+)
+assert(
+  vossListRow?.memberCount === vossDetail?.memberCount,
+  `clubs-160.html: Voss's a=25 memberCount (${vossListRow?.memberCount}) matches a=26's own Members field (${vossDetail?.memberCount}), not flightlog.org's 10309-flight total`,
+)
+assert(
+  osloListRow?.memberCount === osloDetail?.memberCount,
+  `clubs-160.html: Oslo's a=25 memberCount (${osloListRow?.memberCount}) matches a=26's own Members field (${osloDetail?.memberCount})`,
+)
+
 // Øø Eiken (37): a REAL club with zero members — the case rqtid=1 alone (below) cannot tell
 // apart from a nonexistent club_id, and the reason a=26 is this app's only source of truth
 // for that distinction.

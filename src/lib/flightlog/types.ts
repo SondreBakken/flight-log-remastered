@@ -142,10 +142,18 @@ export type Country = {
   name: string
 }
 
+// From `a=25` (see docs/flightlog-api.md): despite the column heading flightlog.org itself
+// renders and despite this app's own earlier misreading of it (#66), the second `<td>` is the
+// club's MEMBER count, not a flight count — confirmed against `a=26`'s own explicit `Members`
+// field and that page's roster row count, both of which match this number exactly for every
+// club sampled (Voss: 1271/1271/1271, Oslo: 677/677/677). No cheap source of a genuine
+// per-club flight total exists anywhere already fetched; `rqtid=1` sums to one (Voss: 10309),
+// but only via a second, per-club request this app's country page — up to 91 clubs for Norway
+// alone — deliberately does not make (see getClubs's own doc comment and #4/#29).
 export type Club = {
   clubId: number
   name: string
-  flightCount: number
+  memberCount: number
 }
 
 // From `a=26` (see docs/flightlog-api.md): every field the club-detail info table renders,

@@ -8,13 +8,30 @@ describe('CountryClubs', () => {
       <CountryClubs
         countryId={160}
         countryName="Norway"
-        clubs={[{ clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 }]}
+        clubs={[{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }]}
       />,
     )
 
     // getByRole/getByText throw if not found, so their return alone is the assertion.
     screen.getByRole('table')
     screen.getByText('Jetta Luftsportsklubb')
+  })
+
+  // #66: this column holds `Club.memberCount` (a=25's own value, confirmed against a=26's
+  // explicit Members field — see parse-clubs.ts and check-parsers.mts), not a flight count —
+  // the header must say so, not the "Flights" label this app rendered before the defect was
+  // caught.
+  it('labels the count column "Members", not "Flights"', () => {
+    render(
+      <CountryClubs
+        countryId={160}
+        countryName="Norway"
+        clubs={[{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }]}
+      />,
+    )
+
+    screen.getByRole('columnheader', { name: 'Members' })
+    expect(screen.queryByRole('columnheader', { name: 'Flights' })).toBeNull()
   })
 
   it('links back to /countries, the actual index route, not a typo of it', () => {
@@ -36,8 +53,8 @@ describe('CountryClubs', () => {
         countryId={160}
         countryName="Norway"
         clubs={[
-          { clubId: 77, name: 'Bergen Paragliderklubb', flightCount: 15 },
-          { clubId: 32, name: 'Jetta Luftsportsklubb', flightCount: 18 },
+          { clubId: 77, name: 'Bergen Paragliderklubb', memberCount: 15 },
+          { clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 },
         ]}
       />,
     )
