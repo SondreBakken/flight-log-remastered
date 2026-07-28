@@ -37,10 +37,37 @@ export type TrackStats = {
   minClimb: string | null
 }
 
+// The five single-LineString scoring geometries flightlog.org computes from a track, keyed
+// by the KML's own `Metadata/@type` value (see parse-track.ts). Triangles (`distance_flat_
+// triangle`/`distance_fai_triangle`) are deliberately excluded: they're MultiGeometry with a
+// different turnpoint correspondence and are out of scope (#58).
+export type ScoringGeometryKind =
+  | 'distance_5_point'
+  | 'distance_4_point'
+  | 'distance_3_point'
+  | 'distance_open'
+  | 'distance_out_and_return'
+
+// `name` is the KML's own English `<name>` value, used verbatim rather than a name invented
+// here. `turnpointIndices` are 0-based indices into this same track's `points` array (see
+// `<FsInfo track_idx>` in parse-track.ts) — not a separate coordinate list — which is what
+// lets a turnpoint reuse the map/barogram hover identity #14 built (see
+// show-flight-track/track-hover.ts) instead of needing its own proximity matching.
+export type ScoringGeometry = {
+  kind: ScoringGeometryKind
+  name: string
+  distanceKm: number
+  turnpointIndices: number[]
+}
+
 export type Track = {
   tripId: number
   points: TrackPoint[]
   stats: TrackStats
+  // null collapses all three of a geometry's real absence shapes (placemark missing
+  // entirely, present as a metadata-only stub, or present but degenerate/zero-length) into
+  // one "not available" state — see parse-track.ts's parseScoringGeometry.
+  scoring: Record<ScoringGeometryKind, ScoringGeometry | null>
 }
 
 export type TrackIndexEntry = {

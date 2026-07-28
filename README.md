@@ -19,6 +19,7 @@ pnpm run check:clubs-prerender            # clubs page is prerendered for the cu
 pnpm run check:barogram                   # barogram downsampling and scaling math
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
+pnpm run check:scoring                    # scoring-overlay geometries against saved KML fixtures; SKIPs (exit 0) if fixtures/ is absent
 pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
@@ -165,6 +166,18 @@ mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
+# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15):
+# 233524 is the only sampled flight with real (non-degenerate) triangles; 235690 is missing 3
+# scoring placemarks entirely; 991729 and 883027 are short flights with degenerate 5pt/4pt
+# geometries; 742436 and 795416 are long XC flights. Any trip id with a GPS track works for
+# rqtid=19 — these particular ids just happen to already exercise every absence/degenerate shape
+# check:scoring pins against.
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=233524" -o fixtures/track-233524.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=235690" -o fixtures/track-235690.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=991729" -o fixtures/track-991729.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=883027" -o fixtures/track-883027.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=742436" -o fixtures/track-742436.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=795416" -o fixtures/track-795416.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=160" -o fixtures/clubs-160.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=25&country_id=29" -o fixtures/clubs-29.html
