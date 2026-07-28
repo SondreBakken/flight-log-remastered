@@ -13,6 +13,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
+import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 import {
   buildTakeoffsMapData,
@@ -66,24 +67,6 @@ export function unclusteredCategoryFilter(category: string): ExpressionSpecifica
 
 function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
-}
-
-// track-map.tsx gates its own window handle on NODE_ENV !== 'production', because its route
-// (flights/[tripId]) is never prerendered and is safe to browser-test against `next dev`. This
-// route's data is the opposite: it's the prerendered takeoffs asset check-takeoffs-prerender.mts
-// and verify-takeoffs.mts both insist on testing against a real `pnpm run build && pnpm run
-// start` — and `next start` always runs with NODE_ENV=production, unconditionally, regardless
-// of what the environment set beforehand. A NODE_ENV gate here would silently strip this hook
-// on exactly the build scripts/verify-sites-map.mts is required to run against. An explicit,
-// opt-in query param instead keeps the hook off ORDINARY production navigation — nobody lands
-// on `?__verifyMap` by accident. It does not keep it off production outright: anyone with the
-// URL (or who appends the param themselves) still enables it on real production output.
-// Severity of that gap is low, not zero: the data behind the handle is already public
-// (flightlog.org's own takeoffs list), and reaching it at all requires arbitrary script
-// execution on the page, which needing this specific query param doesn't meaningfully raise
-// or lower.
-function isMapDebugEnabled(): boolean {
-  return typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('__verifyMap')
 }
 
 function siteBounds(features: TakeoffSiteFeature[]): LngLatBounds | null {
@@ -278,6 +261,13 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
       fitBoundsOptions: { padding: 32, maxZoom: 12 },
     })
     mapRef.current = map
+    // See src/lib/maplibre/map-debug.ts for why this is a query param, not a NODE_ENV gate:
+    // this route's data is the prerendered takeoffs asset check-takeoffs-prerender.mts and
+    // verify-takeoffs.mts both insist on testing against a real `pnpm run build && pnpm run
+    // start`, which a NODE_ENV gate can't survive. Severity of the residual exposure is low, not
+    // zero: the data behind the handle is already public (flightlog.org's own takeoffs list),
+    // and reaching it at all requires arbitrary script execution on the page, which needing this
+    // specific query param doesn't meaningfully raise or lower.
     if (isMapDebugEnabled()) {
       window.__takeoffsMap = map
       window.__takeoffsMapData = mapData

@@ -40,11 +40,15 @@ your last build.
 `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`) are a different kind of check: they
 drive a real headless browser against a running app, so they are deliberately **not** part of
 `pnpm run check` or any other automated gate — there is nothing in this repo that starts a server,
-waits for it, and tears it down again. Run them by hand after touching the relevant feature. Most run
-against `pnpm dev` (e.g. `pnpm exec tsx scripts/verify-track-hover.mts`); `verify-takeoffs.mts` and
-`verify-sites-map.mts` are the exceptions — both exercise the prerendered static takeoffs artifact
-`check:takeoffs-prerender` proves exists, which only exists after `pnpm run build && pnpm run start`,
-so they must run against that, never against `pnpm dev`.
+waits for it, and tears it down again. Run them by hand after touching the relevant feature.
+`verify-map.mts` and `verify-feed.mts` are the only two that still run against `pnpm dev` (e.g.
+`pnpm exec tsx scripts/verify-feed.mts`). Every other verify script must run against `pnpm run
+build && pnpm run start`, never `pnpm dev`: `verify-takeoffs.mts` and `verify-sites-map.mts` exercise
+the prerendered static takeoffs artifact `check:takeoffs-prerender` proves exists, which only exists
+after a real build; `verify-track-gradient.mts` and `verify-track-hover.mts` (#47) depend on
+`window.__flightTrackMap`, which is gated behind the `?__verifyMap` query param rather than
+`NODE_ENV` precisely so it survives into a production bundle, where a `NODE_ENV`-gated handle
+would silently be dead-code-eliminated — see `src/lib/maplibre/map-debug.ts`.
 
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches

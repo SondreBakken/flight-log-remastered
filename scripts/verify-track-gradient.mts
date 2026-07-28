@@ -5,7 +5,13 @@ import { chromium } from 'playwright'
 // canvas. See TrackMap's assignment of window.__flightTrackMap for why this can reach
 // into the live map instance instead of trusting a screenshot alone (issue #21: raster
 // tiles intermittently do not appear in captures for reasons unrelated to this change).
-const url = process.argv[2] ?? 'http://localhost:3005/flights/1001428'
+//
+// Run against `pnpm run build && pnpm run start`, never `pnpm dev` (#47): the handle above is
+// gated behind the `__verifyMap` query param, not NODE_ENV, precisely so it survives into a
+// production bundle — dev mode is the least likely place to reproduce a bundler-specific
+// failure (see README's maplibre-gl v6/Turbopack note), and until now it was the only mode
+// this script had ever run against.
+const url = process.argv[2] ?? 'http://localhost:3000/flights/1001428?__verifyMap'
 const out = process.argv[3] ?? 'verify-track-gradient.png'
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
