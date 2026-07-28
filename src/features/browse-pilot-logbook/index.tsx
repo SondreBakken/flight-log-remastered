@@ -12,12 +12,38 @@ type PilotLogbookProps = {
 export default function PilotLogbook({ pilot, flights, trackedTripIds }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
-      <PilotHeader pilot={pilot} flightCount={flights.length} trackCount={trackedTripIds.size} />
+      <PilotHeader
+        pilot={pilot}
+        flightCount={totalFlightCount(flights)}
+        trackCount={trackedFlightCount(flights, trackedTripIds)}
+      />
       {flights.length === 0 ? <EmptyLogbook /> : (
         <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
       )}
     </section>
   )
+}
+
+// `flights.length` counts TABLE ROWS, not flights — a row aggregates same-day, same-glider
+// flights (#68's `flightCount` field), so pilot 12677's four rows (flightCount 1, 2, 6, 1)
+// are ten flights, not four (#70, confirmed against rqtid=1's own "Flights" column, which
+// reports 10). Summing `flightCount` is what makes "N flights shown" true of the pilot's
+// flying rather than of the table's row count.
+function totalFlightCount(flights: Flight[]): number {
+  return flights.reduce((total, flight) => total + flight.flightCount, 0)
+}
+
+// Same fix, same reasoning, for the OTHER half of the header line: `trackedTripIds.size`
+// counts tracked ROWS, which undercounts identically once a tracked row is an aggregate.
+// A GPS track is recorded per trip_id (rqtid=21/19, one continuous tracklog per trip), and an
+// aggregated row's flights share that one trip_id — flightlog.org has no per-flight track
+// breakdown to divide it by — so a tracked row's whole `flightCount` is honestly "covered by
+// a GPS track", not just one flight of it. Fixing one half of the line and not the other
+// would leave it stating two different units side by side with nothing announcing the switch.
+function trackedFlightCount(flights: Flight[], trackedTripIds: Set<number>): number {
+  return flights
+    .filter((flight) => trackedTripIds.has(flight.tripId))
+    .reduce((total, flight) => total + flight.flightCount, 0)
 }
 
 function PilotHeader({
