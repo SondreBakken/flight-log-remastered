@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import TakeoffDirectory from './index'
+import TakeoffDirectory, { resolveUserLocation } from './index'
 import { MAX_RENDERED_RESULTS, type RegionOption } from './select-visible-takeoffs'
+import * as selectVisibleTakeoffsModule from './select-visible-takeoffs'
 
 // Stubs the real network boundary (global fetch), not the hook — mocking the hook would let a
 // default export that never calls it, and instead returns a hardcoded state, pass this suite
@@ -41,12 +42,14 @@ const REGIONS: RegionOption[] = [
 // one exercises the real, absent API ('unavailable') rather than silently reusing a leftover
 // mock from a previous test.
 type FakeGeolocation = { watchPosition: ReturnType<typeof vi.fn>; clearWatch: ReturnType<typeof vi.fn> }
-function installFakeGeolocation(behavior: 'granted' | 'denied' | (() => void)): FakeGeolocation {
+function installFakeGeolocation(behavior: 'granted' | 'denied' | 'timeout' | (() => void)): FakeGeolocation {
   const fake: FakeGeolocation = {
     watchPosition: vi.fn((onSuccess: (p: GeolocationPosition) => void, onError: (e: GeolocationPositionError) => void) => {
       if (behavior === 'granted') onSuccess({ coords: { latitude: 60.0, longitude: 10.0 } } as GeolocationPosition)
       else if (behavior === 'denied')
         onError({ code: 1, message: 'denied', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 })
+      else if (behavior === 'timeout')
+        onError({ code: 3, message: 'timeout', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 })
       else behavior()
       return 1
     }),
@@ -67,6 +70,28 @@ afterEach(() => {
   vi.unstubAllGlobals()
   Object.defineProperty(window.navigator, 'geolocation', { value: undefined, configurable: true, writable: true })
   window.history.replaceState(null, '', '/')
+})
+
+describe('resolveUserLocation', () => {
+  // Mutation: dropping the `nearbyEnabled` half of this check, so a stale 'granted' status
+  // (which handleNearbyToggle's own stopNearby call is what normally clears — see
+  // use-nearby.test.ts's own stopNearby coverage) keeps applying distance sort even after the
+  // user unchecked the box. Tested directly, independent of stopNearby, so this stays pinned
+  // even if the reset path it usually relies on changes shape.
+  it('is null when nearby is disabled, even though status is "granted" and a location is known', () => {
+    expect(resolveUserLocation(false, 'granted', { lat: 60, lon: 10 })).toBeNull()
+  })
+
+  it('is the real location when nearby is enabled and status is "granted"', () => {
+    expect(resolveUserLocation(true, 'granted', { lat: 60, lon: 10 })).toEqual({ lat: 60, lon: 10 })
+  })
+
+  it.each(['idle', 'pending', 'denied', 'unavailable', 'timeout'] as const)(
+    'is null while enabled but status is "%s", not yet a real location',
+    (status) => {
+      expect(resolveUserLocation(true, status, { lat: 60, lon: 10 })).toBeNull()
+    },
+  )
 })
 
 describe('TakeoffDirectory — input-driven filtering', () => {
@@ -261,7 +286,7 @@ describe('TakeoffDirectory — wind filter', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
 
     await waitFor(() => expect(screen.queryByText('NoWindRecorded')).toBeNull())
-    await screen.findByText(/1 matching site has no recorded wind direction and is excluded/i)
+    await screen.findByText(/1 otherwise-matching site has no recorded wind and is excluded/i)
   })
 
   it('shows no exclusion notice while the wind filter is "Any wind", even though unknown-wind sites are present', async () => {
@@ -357,6 +382,48 @@ describe('TakeoffDirectory — wind filter', () => {
     fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'all' } })
     expect(window.location.search).toBe('')
   })
+
+  // D4: the select falling back to "Any wind" for an invalid param (pinned above) is only
+  // half the fix — the address bar must stop claiming a filter that was never actually
+  // applied, otherwise re-sharing the link propagates the same invalid `?wind=` forever.
+  it('corrects an invalid ?wind= param out of the address bar on mount, not just out of the select', async () => {
+    window.history.replaceState(null, '', '/?wind=northwest')
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FacesNorth')
+
+    expect(window.location.search).toBe('')
+  })
+
+  // Sibling case: a mount-time sync that ALWAYS wrote the wind param (rather than only
+  // correcting an invalid one) would strip a legitimate, already-correct link right back
+  // down — pin that a valid param survives mount untouched.
+  it('leaves a valid ?wind= param in the address bar untouched on mount', async () => {
+    window.history.replaceState(null, '', '/?wind=N')
+    stubFetch([makeRow(1, 'FacesNorth', 1, { wind: 128 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FacesNorth')
+
+    expect(window.location.search).toBe('?wind=N')
+  })
+
+  // Mutation: the whole empty-state wind exclusion clause deleted. Nothing above exercises
+  // the EMPTY state's own copy of this notice — only the non-empty list view's — so a
+  // regression here would previously have rendered a bare "No takeoffs match…" with no
+  // mention of the sites the wind filter silently dropped.
+  it('surfaces the wind exclusion notice on the EMPTY state too, not only the populated list', async () => {
+    stubFetch([makeRow(1, 'NoWindRecorded', 1, { wind: 0 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('NoWindRecorded')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /wind direction/i }), { target: { value: 'N' } })
+
+    await screen.findByText(/No takeoffs recorded that work in N\./)
+    screen.getByText(/1 otherwise-matching site has no recorded wind and is excluded/i)
+  })
 })
 
 describe('TakeoffDirectory — nearby', () => {
@@ -425,5 +492,115 @@ describe('TakeoffDirectory — nearby', () => {
 
     await waitFor(() => expect(screen.queryByText('NearButWrongWind')).toBeNull())
     screen.getByText('FarButRightWind')
+  })
+
+  // Mutation: formatDistanceKm dividing by 100 instead of 1000, rendering every distance ten
+  // times too large. One degree of latitude along a meridian is R * (π/180) metres exactly
+  // (same closed form distance.test.ts pins independently), which for lon held fixed at 10
+  // works out to 111.2 km regardless of which latitude it's measured from — a real,
+  // independently-computable figure, not derived by calling the code under test.
+  it('renders the real distance in km, to one decimal place, not a scaled or truncated figure', async () => {
+    installFakeGeolocation('granted') // resolves to lat: 60.0, lon: 10.0
+    stubFetch([makeRow(1, 'OneDegreeNorth', 1, { lat: 61.0, lon: 10.0 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('OneDegreeNorth')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
+
+    await screen.findByText('111.2 km')
+  })
+
+  // D1: the nearby filter must never invent a distance for a takeoff with no recorded
+  // position (lat=0/lon=0 — see hasKnownLocation in select-visible-takeoffs.ts). Also pins
+  // the `distanceMetres !== null` render guard: dropping it would attempt to format a null
+  // distance instead of omitting the figure entirely.
+  it('shows no distance for a takeoff with no recorded location, and surfaces how many were affected', async () => {
+    installFakeGeolocation('granted') // resolves to lat: 60.0, lon: 10.0
+    stubFetch([makeRow(1, 'HasCoords', 1, { lat: 61.0, lon: 10.0 }), makeRow(2, 'NoCoords', 1, { lat: 0, lon: 0 })])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('HasCoords')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
+
+    await screen.findByText('111.2 km')
+    const noCoordsRow = screen.getByText('NoCoords').closest('li')
+    expect(noCoordsRow).not.toBeNull()
+    expect(within(noCoordsRow!).queryByText(/km/)).toBeNull()
+    await screen.findByText(/1 matching site has no recorded location and is shown without a distance/i)
+  })
+
+  // D2: unchecking must actually stop the watch (see use-nearby.test.ts's own stopNearby
+  // coverage for the hook-level guarantee) — this is the component-level proof that the
+  // checkbox is actually wired to it, and that distance sort itself stops applying, closing
+  // both the leaked-watch bug and the "userLocation ignores the enabled flag" mutation in one
+  // observable behaviour.
+  it('unchecking nearby stops the watch and falls back to alphabetical order with no distances shown', async () => {
+    const fake = installFakeGeolocation('granted') // resolves to lat: 60.0, lon: 10.0
+    stubFetch([
+      makeRow(1, 'FarSite', 1, { lat: 69.65, lon: 18.96 }),
+      makeRow(2, 'NearSite', 1, { lat: 60.0, lon: 10.0 }),
+    ])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('FarSite')
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
+    await waitFor(() => {
+      const names = screen.getAllByRole('listitem').map((li) => li.textContent)
+      expect(names[0]).toContain('NearSite')
+    })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
+
+    expect(fake.clearWatch).toHaveBeenCalledWith(1)
+    await waitFor(() => {
+      const names = screen.getAllByRole('listitem').map((li) => li.textContent)
+      expect(names[0]).toContain('FarSite') // alphabetical once more
+    })
+    expect(screen.queryByText(/km/)).toBeNull()
+  })
+
+  // D3: a timeout is a real, distinct outcome — not the same claim as "unavailable in this
+  // browser" — and the user must be able to retry rather than being stuck on a status that
+  // never changes again.
+  it('reports a timeout distinctly from "unavailable", and a re-check retries the request', async () => {
+    installFakeGeolocation('timeout')
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i }))
+    await screen.findByText(/timed out/i)
+    expect(screen.queryByText(/location unavailable in this browser/i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i })) // uncheck
+    const fake = installFakeGeolocation('granted') // swap in a browser that now answers
+    fireEvent.click(screen.getByRole('checkbox', { name: /sort by distance/i })) // re-check
+
+    await waitFor(() => expect(fake.watchPosition).toHaveBeenCalledTimes(1))
+  })
+
+  // Mutation: undoing #9's memoised fold (see foldTakeoffNames' own doc comment for the
+  // measured ~8.3ms cost over 6012 real names) makes it re-run on every keystroke instead of
+  // once per fetched dataset. Spying on the exported function directly, rather than timing
+  // the suite, is what makes this assertion exact rather than a flaky duration threshold.
+  it('folds every takeoff name once per fetched dataset, not once per keystroke', async () => {
+    const foldSpy = vi.spyOn(selectVisibleTakeoffsModule, 'foldTakeoffNames')
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+    const callsAfterMount = foldSpy.mock.calls.length
+    expect(callsAfterMount).toBeGreaterThan(0)
+
+    fireEvent.change(screen.getByRole('textbox', { name: /takeoff name/i }), { target: { value: 'a' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /takeoff name/i }), { target: { value: 'al' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /takeoff name/i }), { target: { value: 'alp' } })
+    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+
+    expect(foldSpy.mock.calls.length).toBe(callsAfterMount)
+    foldSpy.mockRestore()
   })
 })

@@ -113,6 +113,14 @@ export type VisibleTakeoffs = {
   // silently dropping these behind a wind query is not acceptable, so this count exists
   // specifically so the caller can surface it, distinct from the ordinary "0 matches" case.
   windUnknownCount: number
+  // How many takeoffs that already passed the name/region/wind filters carry a placeholder
+  // position (see hasKnownLocation) and are therefore shown WITHOUT a distance while nearby
+  // sort is active — 0 whenever userLocation is null, since nothing is being sorted by
+  // distance at all in that case. Same decision as windUnknownCount above, applied to the
+  // same shape of problem: 1948 of Norway's 6012 takeoffs (32.4%) carry lat=0/lon=0, nearly
+  // twice as common as missing wind, so pretending they have a real distance is not an edge
+  // case to skip.
+  locationUnknownCount: number
 }
 
 // Pure — attaches each takeoff's great-circle distance from `from`, reusing the same haversine
@@ -124,6 +132,15 @@ function withDistanceFrom(takeoffs: TakeoffDirectoryEntry[], from: GeoPoint): Lo
 
 function withoutDistance(takeoffs: TakeoffDirectoryEntry[]): TakeoffMatch[] {
   return takeoffs.map((takeoff) => ({ ...takeoff, distanceMetres: null }))
+}
+
+// flightlog.org's placeholder for "no coordinates ever recorded" — 0,0 sits in the Gulf of
+// Guinea, nowhere near any real takeoff, so treating it as an actual position would report a
+// confident, wrong distance (thousands of km) as fact. 1948 of Norway's 6012 takeoffs (32.4%)
+// carry this placeholder — more than twice as common as missing wind (991), which this branch
+// already refused to silently drop (see windUnknownCount above).
+function hasKnownLocation(takeoff: TakeoffDirectoryEntry): boolean {
+  return takeoff.lat !== 0 || takeoff.lon !== 0
 }
 
 // Nearest-first once a location is known. Takes LocatedTakeoff, not TakeoffMatch, so
@@ -139,6 +156,19 @@ function sortByDistance(takeoffs: LocatedTakeoff[]): LocatedTakeoff[] {
 // unavailable; see #12's decision that all of those are normal, not error, states).
 function sortAlphabetically<T extends TakeoffDirectoryEntry>(takeoffs: T[]): T[] {
   return [...takeoffs].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Nearby sort's own composition rule, mirroring the wind filter's "compose, never silently
+// drop" decision: a takeoff with a real position sorts nearest-first as normal; one with a
+// placeholder position (see hasKnownLocation) has no real distance to sort BY, so it is never
+// fabricated one — it's appended after every located takeoff instead, in its own alphabetical
+// order rather than fetch order (every placeholder currently computes to the SAME wrong
+// distance from any user location, so without this they'd all tie and fall back to whatever
+// order flightlog.org happened to serve them in).
+function sortByDistanceThenUnknownLocationLast(takeoffs: TakeoffDirectoryEntry[], from: GeoPoint): TakeoffMatch[] {
+  const located = takeoffs.filter(hasKnownLocation)
+  const unlocated = takeoffs.filter((takeoff) => !hasKnownLocation(takeoff))
+  return [...sortByDistance(withDistanceFrom(located, from)), ...sortAlphabetically(withoutDistance(unlocated))]
 }
 
 // Pure — no DOM, no fetch, so the whole filter/sort/cap/truncate pipeline is one thing to
@@ -159,7 +189,10 @@ function sortAlphabetically<T extends TakeoffDirectoryEntry>(takeoffs: T[]): T[]
 //    always the first MAX_RENDERED_RESULTS of the REAL, fully-filtered match set, not a slice
 //    of a smaller or differently-ordered one. Which 200 of an over-the-cap match set get shown
 //    is a user-visible decision (nearest 200, or alphabetically-first 200), not an accident of
-//    fetch order.
+//    fetch order. A takeoff with a placeholder position (lat=0/lon=0, see hasKnownLocation)
+//    never receives a fabricated distance here — it sorts alphabetically after every located
+//    takeoff instead, and locationUnknownCount records how many, same shape as
+//    windUnknownCount above.
 // 4. Cap and report truncation, over the post-filter, post-sort count — adding wind or nearby
 //    never makes the truncation notice lie about what "the rest" actually is.
 export function selectVisibleTakeoffs(
@@ -184,8 +217,10 @@ export function selectVisibleTakeoffs(
       ? nameAndRegionMatched
       : nameAndRegionMatched.filter((takeoff) => windIncludesDirection(takeoff.wind, windFilter))
 
+  const locationUnknownCount = userLocation ? windMatched.filter((takeoff) => !hasKnownLocation(takeoff)).length : 0
+
   const sorted: TakeoffMatch[] = userLocation
-    ? sortByDistance(withDistanceFrom(windMatched, userLocation))
+    ? sortByDistanceThenUnknownLocationLast(windMatched, userLocation)
     : sortAlphabetically(withoutDistance(windMatched))
 
   return {
@@ -193,5 +228,6 @@ export function selectVisibleTakeoffs(
     totalMatchCount: sorted.length,
     isTruncated: sorted.length > MAX_RENDERED_RESULTS,
     windUnknownCount,
+    locationUnknownCount,
   }
 }

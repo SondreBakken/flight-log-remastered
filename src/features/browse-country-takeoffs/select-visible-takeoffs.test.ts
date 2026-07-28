@@ -339,6 +339,87 @@ describe('selectVisibleTakeoffs — nearby (distance) sort', () => {
     expect(result.totalMatchCount).toBe(MAX_RENDERED_RESULTS + 10)
     expect(result.isTruncated).toBe(true)
   })
+
+  // D1: flightlog.org's own placeholder for "no coordinates ever recorded" — 0,0 sits in the
+  // Gulf of Guinea, thousands of km from anywhere in the real fixture, so a real haversine
+  // distance to it is a confident, wrong number, not a rounding error. Real coordinates
+  // deliberately avoid 0,0 too, so a mutation that stopped special-casing the placeholder
+  // couldn't accidentally pass by coincidence.
+  function placeholderCoordTakeoff(takeoffId: number, name: string): TakeoffDirectoryEntry {
+    return makeTakeoff({ takeoffId, name, lat: 0, lon: 0 })
+  }
+
+  it('never attaches a distance to a takeoff with placeholder (0,0) coordinates', () => {
+    const takeoffs = [distanceFixture()[0], placeholderCoordTakeoff(99, 'NoCoords')]
+
+    const result = select(takeoffs, '', 'all', 'all', { lat: 60.39, lon: 5.33 })
+
+    expect(result.matches.find((t) => t.takeoffId === 99)?.distanceMetres).toBeNull()
+  })
+
+  it('sorts placeholder-coordinate takeoffs after every located one, regardless of the fabricated Gulf-of-Guinea distance', () => {
+    const takeoffs = [placeholderCoordTakeoff(99, 'NoCoords'), ...distanceFixture()]
+
+    const result = select(takeoffs, '', 'all', 'all', { lat: 69.65, lon: 18.95 }) // near Tromsø
+
+    // From near Tromsø the real order is Tromso, Oslo, Bergen (see the "genuinely ascending"
+    // test above) — the placeholder must land after all three, not interleaved by a distance
+    // that was never real.
+    expect(result.matches.map((t) => t.takeoffId)).toEqual([3, 2, 1, 99])
+  })
+
+  it('orders multiple placeholder-coordinate takeoffs alphabetically among themselves, not by fetch order', () => {
+    const takeoffs = [placeholderCoordTakeoff(2, 'Zulu'), placeholderCoordTakeoff(1, 'Alpha')]
+
+    const result = select(takeoffs, '', 'all', 'all', { lat: 60.39, lon: 5.33 })
+
+    expect(result.matches.map((t) => t.name)).toEqual(['Alpha', 'Zulu'])
+  })
+
+  it('counts matching takeoffs with no known location via locationUnknownCount', () => {
+    const takeoffs = [distanceFixture()[0], placeholderCoordTakeoff(99, 'NoCoords'), placeholderCoordTakeoff(98, 'AlsoNoCoords')]
+
+    const result = select(takeoffs, '', 'all', 'all', { lat: 60.39, lon: 5.33 })
+
+    expect(result.locationUnknownCount).toBe(2)
+  })
+
+  it('locationUnknownCount is 0 when no user location is supplied, since nothing is being sorted by distance', () => {
+    const takeoffs = [placeholderCoordTakeoff(99, 'NoCoords')]
+
+    const result = select(takeoffs, '', 'all', 'all')
+
+    expect(result.locationUnknownCount).toBe(0)
+  })
+
+  it('locationUnknownCount only counts takeoffs that already passed the wind filter', () => {
+    const takeoffs = [
+      makeTakeoff({ takeoffId: 1, name: 'WrongWindNoCoords', lat: 0, lon: 0, wind: 8 }), // S only, excluded by wind
+      makeTakeoff({ takeoffId: 2, name: 'RightWindNoCoords', lat: 0, lon: 0, wind: 128 }), // N only, survives
+    ]
+
+    const result = select(takeoffs, '', 'all', 'N', { lat: 60.39, lon: 5.33 })
+
+    expect(result.locationUnknownCount).toBe(1)
+  })
+
+  // D1: isTruncated and totalMatchCount must reflect the WIND-narrowed set, the same
+  // requirement windUnknownCount's own composition tests already pin for the count alone —
+  // here the set starts well over the cap, and the wind filter alone brings it back under,
+  // so a mutation that computed either figure from the pre-wind set (instead of windMatched)
+  // would report truncation, or a total, that no longer matches what's actually rendered.
+  it('isTruncated and totalMatchCount reflect the wind-narrowed set, not the pre-wind one', () => {
+    const facingNorth = Array.from({ length: 5 }, (_, i) => makeTakeoff({ takeoffId: i, name: `North${i}`, wind: 128 }))
+    const facingSouth = Array.from({ length: MAX_RENDERED_RESULTS + 20 }, (_, i) =>
+      makeTakeoff({ takeoffId: 1000 + i, name: `South${i}`, wind: 8 }),
+    )
+
+    const result = select([...facingNorth, ...facingSouth], '', 'all', 'N')
+
+    expect(result.totalMatchCount).toBe(5)
+    expect(result.isTruncated).toBe(false)
+    expect(result.matches).toHaveLength(5)
+  })
 })
 
 describe('parseWindFilterParam', () => {

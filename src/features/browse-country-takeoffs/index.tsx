@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
@@ -32,6 +32,15 @@ const NO_TAKEOFFS: TakeoffDirectoryEntry[] = []
 
 function formatDistanceKm(distanceMetres: number): string {
   return `${(distanceMetres / 1000).toFixed(1)} km`
+}
+
+// Extracted so the "must respect the checkbox, not just a stale granted status" rule is
+// pinned directly, independent of whatever else happens to reset `status` elsewhere (see
+// handleNearbyToggle's own stopNearby call) — distance sorting is layered on top of a list
+// that already works, applying only once BOTH the user asked for it AND a real location is in
+// hand, never from either alone.
+export function resolveUserLocation(nearbyEnabled: boolean, nearbyStatus: NearbyStatus, location: GeoPoint | null): GeoPoint | null {
+  return nearbyEnabled && nearbyStatus === 'granted' ? location : null
 }
 
 // Keeps the address bar in sync with the wind filter without pulling Next's router into a
@@ -89,10 +98,30 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
     syncWindFilterToUrl(next)
   }, [])
 
+  // Corrects the address bar once on mount for a link that arrived with an invalid `?wind=`
+  // value (hand-edited, stale, or malicious) — readWindFilterFromUrl's lazy initialiser above
+  // already falls back to 'all' for STATE, but never touches the URL itself, so re-sharing the
+  // link would keep propagating a parameter the directory never actually honoured. A valid
+  // param makes this a no-op replaceState call to the URL it's already at.
+  useEffect(() => {
+    syncWindFilterToUrl(windFilter)
+    // Mount-only correction; every later change already goes through
+    // handleWindFilterChange's own sync above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleNearbyToggle = useCallback(
     (checked: boolean) => {
       setNearbyEnabled(checked)
-      if (checked && nearby.status === 'idle') nearby.requestNearby()
+      if (checked) {
+        if (nearby.status === 'idle') nearby.requestNearby()
+      } else {
+        // Unchecking must actually stop the watch, not just stop READING from it — see
+        // use-nearby's own stopNearby doc comment. Resetting to 'idle' here is also what lets
+        // a later re-check retry cleanly after a 'denied', 'unavailable' or 'timeout' rest,
+        // none of which requestNearby's own 'idle' gate would otherwise ever revisit.
+        nearby.stopNearby()
+      }
     },
     [nearby],
   )
@@ -101,7 +130,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
   // once a real location is in hand, never while pending, denied, or unavailable, matching
   // #12's decision that geolocation refusal, unavailability, and delay are all normal paths,
   // not error states that should block or degrade the rest of the directory.
-  const userLocation: GeoPoint | null = nearbyEnabled && nearby.status === 'granted' ? nearby.location : null
+  const userLocation: GeoPoint | null = resolveUserLocation(nearbyEnabled, nearby.status, nearby.location)
 
   const takeoffs = state.status === 'success' ? state.takeoffs : NO_TAKEOFFS
   // Only the dropdown needs this: a <select> can't fall back to a label the way a rendered
@@ -153,6 +182,7 @@ function NearbyStatusHint({ enabled, status }: { enabled: boolean; status: Nearb
   if (!enabled) return null
   if (status === 'pending') return <span className="text-xs opacity-70">Locating…</span>
   if (status === 'denied') return <span className="text-xs opacity-70">Location permission denied — showing all sites</span>
+  if (status === 'timeout') return <span className="text-xs opacity-70">Location request timed out — uncheck and check again to retry</span>
   if (status === 'unavailable') return <span className="text-xs opacity-70">Location unavailable in this browser</span>
   return null
 }
@@ -235,6 +265,30 @@ function SearchControls({
   )
 }
 
+// #12's decision (see buildEmptyStateMessage below for the sibling composition rule): excluding
+// sites with no recorded wind must never be silent, and the list view's own notice and the
+// empty state's appended clause must say exactly the same thing about it — a single shared
+// string is what makes that true BY CONSTRUCTION, rather than by two hand-kept-in-sync copies
+// (see #12's own review, which caught them having drifted: "matching" on one side, the more
+// precise "otherwise-matching" — these sites already passed name/region, wind is the only
+// reason they're gone — on the other).
+function windExclusionMessage(windUnknownCount: number): string {
+  const siteWord = windUnknownCount === 1 ? 'site has' : 'sites have'
+  const isAre = windUnknownCount === 1 ? 'is' : 'are'
+  return `${windUnknownCount} otherwise-matching ${siteWord} no recorded wind and ${isAre} excluded.`
+}
+
+// D1's decision, the same shape as windExclusionMessage above applied to the nearby sort
+// instead of the wind filter: a site with no recorded position (see hasKnownLocation in
+// select-visible-takeoffs.ts) never gets a fabricated distance, but it also isn't dropped from
+// the list the way a wind-filtered-out site is — nearby only ever SORTS, it never removes a
+// match — so the wording says "shown without a distance", not "excluded".
+function locationUnknownMessage(locationUnknownCount: number): string {
+  const siteWord = locationUnknownCount === 1 ? 'site has' : 'sites have'
+  const isAre = locationUnknownCount === 1 ? 'is' : 'are'
+  return `${locationUnknownCount} matching ${siteWord} no recorded location and ${isAre} shown without a distance, after the located sites.`
+}
+
 function TakeoffResults({
   state,
   takeoffs,
@@ -261,7 +315,7 @@ function TakeoffResults({
   // dataset, not once per keystroke. See foldTakeoffNames' own doc comment for the measured
   // cost this avoids.
   const foldedNames = useMemo(() => foldTakeoffNames(takeoffs), [takeoffs])
-  const { matches, totalMatchCount, isTruncated, windUnknownCount } = useMemo(
+  const { matches, totalMatchCount, isTruncated, windUnknownCount, locationUnknownCount } = useMemo(
     () => selectVisibleTakeoffs(takeoffs, foldedNames, query, regionFilter, windFilter, userLocation),
     [takeoffs, foldedNames, query, regionFilter, windFilter, userLocation],
   )
@@ -287,10 +341,12 @@ function TakeoffResults({
           whenever a real direction is selected and at least one otherwise-matching site was
           dropped for lacking data, distinct from the ordinary truncation notice above. */}
       {windFilter !== 'all' && windUnknownCount > 0 && (
-        <p className="text-sm opacity-70">
-          {windUnknownCount} matching {windUnknownCount === 1 ? 'site has' : 'sites have'} no recorded wind direction and{' '}
-          {windUnknownCount === 1 ? 'is' : 'are'} excluded from this filter.
-        </p>
+        <p className="text-sm opacity-70">{windExclusionMessage(windUnknownCount)}</p>
+      )}
+      {/* D1: a site with no recorded position must never be shown with a fabricated distance
+          while nearby sort is active — see locationUnknownMessage's own doc comment. */}
+      {userLocation !== null && locationUnknownCount > 0 && (
+        <p className="text-sm opacity-70">{locationUnknownMessage(locationUnknownCount)}</p>
       )}
       {/* Name rendered as plain text, not a Link — a site page to link to is #11, not this
           route, and #4/#6 already established the pattern of leaving that affordance out
@@ -352,13 +408,7 @@ function EmptyState({
   return (
     <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
       {message}
-      {windFilter !== 'all' && windUnknownCount > 0 && (
-        <>
-          {' '}
-          {windUnknownCount} otherwise-matching {windUnknownCount === 1 ? 'site has' : 'sites have'} no recorded wind and{' '}
-          {windUnknownCount === 1 ? 'is' : 'are'} excluded.
-        </>
-      )}
+      {windFilter !== 'all' && windUnknownCount > 0 && <> {windExclusionMessage(windUnknownCount)}</>}
     </p>
   )
 }

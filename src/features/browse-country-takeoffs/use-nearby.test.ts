@@ -23,6 +23,7 @@ function removeGeolocation(): void {
 
 const PERMISSION_DENIED_ERROR = { code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }
 const POSITION_UNAVAILABLE_ERROR = { code: 2, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }
+const TIMEOUT_ERROR = { code: 3, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }
 
 function fakePosition(lat: number, lon: number): GeolocationPosition {
   return { coords: { latitude: lat, longitude: lon } } as GeolocationPosition
@@ -180,5 +181,78 @@ describe('useNearby', () => {
     unmount()
 
     expect(fake.clearWatch).toHaveBeenCalledWith(42)
+  })
+
+  // D3: a TIMEOUT error (the common indoor case at the 15 second ceiling below) is not a
+  // browser incapability — collapsing it into 'unavailable' the way a POSITION_UNAVAILABLE
+  // error legitimately does would tell the user something false.
+  it('transitions to "timeout", distinct from "unavailable", when the browser reports TIMEOUT', () => {
+    const fake = installFakeGeolocation()
+    fake.watchPosition.mockImplementation((_onSuccess: unknown, onError: (e: typeof TIMEOUT_ERROR) => void) => {
+      onError(TIMEOUT_ERROR)
+      return 1
+    })
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+
+    expect(result.current.status).toBe('timeout')
+  })
+
+  // Pins the deletion of the 15 second ceiling itself — a request with no timeout at all
+  // would hang on "pending" forever if the browser never answers, rather than resting at
+  // 'timeout' the way #12 promises this control always does.
+  it('requests position with a 15 second timeout, not an unbounded wait', () => {
+    const fake = installFakeGeolocation()
+    fake.watchPosition.mockImplementation(() => 1)
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+
+    const options = fake.watchPosition.mock.calls[0][2] as PositionOptions
+    expect(options.timeout).toBe(15_000)
+  })
+
+  // D2: unchecking "nearby" must actually stop the watch, not just stop reading from it — a
+  // stale watchId left running after the user opts out is a real, allocating, invalidating
+  // subscription for the rest of the page's lifetime.
+  it('stopNearby clears the active watch and resets to idle with no location', () => {
+    const fake = installFakeGeolocation()
+    fake.watchPosition.mockImplementation((onSuccess: (p: GeolocationPosition) => void) => {
+      onSuccess(fakePosition(60.39, 5.32))
+      return 7
+    })
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+    expect(result.current.status).toBe('granted')
+
+    act(() => result.current.stopNearby())
+
+    expect(fake.clearWatch).toHaveBeenCalledWith(7)
+    expect(result.current.status).toBe('idle')
+    expect(result.current.location).toBeNull()
+  })
+
+  // D3's other half: re-requesting after a denial, a timeout, or an unavailable browser must
+  // actually retry, not silently no-op forever because requestNearby only ever fires from
+  // 'idle' — stopNearby resetting to 'idle' (see the test above) is what makes a fresh
+  // watchPosition call reachable again here.
+  it('requestNearby fires again after stopNearby, even though the previous attempt was denied', () => {
+    const fake = installFakeGeolocation()
+    fake.watchPosition.mockImplementation((_onSuccess: unknown, onError: (e: typeof PERMISSION_DENIED_ERROR) => void) => {
+      onError(PERMISSION_DENIED_ERROR)
+      return 1
+    })
+
+    const { result } = renderHook(() => useNearby())
+    act(() => result.current.requestNearby())
+    expect(result.current.status).toBe('denied')
+    act(() => result.current.stopNearby())
+    expect(fake.watchPosition).toHaveBeenCalledTimes(1)
+
+    act(() => result.current.requestNearby())
+
+    expect(fake.watchPosition).toHaveBeenCalledTimes(2)
   })
 })
