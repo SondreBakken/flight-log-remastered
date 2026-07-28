@@ -9,12 +9,19 @@ import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 // has no WebGL context, the same reason track-map.tsx has no unit test of its own (see
 // scripts/verify-*.mts instead). Stubbed here so this suite can assert the SWITCH into map
 // view and what it's handed, without needing a real GL context; the map's own rendering is
-// covered by scripts/verify-sites-map.mts against a live browser instead.
-vi.mock('./takeoffs-map', () => ({
-  TakeoffsMap: ({ takeoffs }: { takeoffs: TakeoffDirectoryEntry[] }) => (
-    <div data-testid="stub-takeoffs-map">{takeoffs.length} sites on the map</div>
-  ),
-}))
+// covered by scripts/verify-sites-map.mts against a live browser instead. TakeoffsMapLegend
+// passes through the real implementation — it's a plain component with no GL dependency, and
+// this directory now composes it directly alongside TakeoffsMap (see index.tsx's own comment
+// on why that composition, not a mode flag inside TakeoffsMap, is what renders the legend).
+vi.mock('@/components/takeoffs-map', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/takeoffs-map')>()
+  return {
+    ...actual,
+    TakeoffsMap: ({ takeoffs }: { takeoffs: TakeoffDirectoryEntry[] }) => (
+      <div data-testid="stub-takeoffs-map">{takeoffs.length} sites on the map</div>
+    ),
+  }
+})
 
 // Stubs the real network boundary (global fetch), not the hook — mocking the hook would let a
 // default export that never calls it, and instead returns a hardcoded state, pass this suite
@@ -107,6 +114,19 @@ describe('resolveUserLocation', () => {
 })
 
 describe('TakeoffDirectory — input-driven filtering', () => {
+  // Pins the actual interpolation, not just that a link exists: two rows with distinct
+  // takeoffIds, rendered under a distinctive countryId, so neither "wrong country" nor "fixed
+  // takeoff id" (e.g. always linking row 2's id) could pass by coincidence.
+  it("links each row to its OWN takeoffId under the page's own countryId, not a wrong or fixed one", async () => {
+    stubFetch([makeRow(4242, 'Alpha', 1), makeRow(5353, 'Beta', 1)])
+
+    render(<TakeoffDirectory countryId={777} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    expect(screen.getByRole('link', { name: 'Alpha' }).getAttribute('href')).toBe('/countries/777/takeoffs/4242')
+    expect(screen.getByRole('link', { name: 'Beta' }).getAttribute('href')).toBe('/countries/777/takeoffs/5353')
+  })
+
   it('narrows the rendered rows as the user types, folding Norwegian characters along the way', async () => {
     stubFetch([makeRow(1, 'Bodø', 1), makeRow(2, 'Ålesund', 2), makeRow(3, 'Oslo', 1)])
 

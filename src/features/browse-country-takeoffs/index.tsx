@@ -1,10 +1,12 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
-import { TakeoffsMap } from './takeoffs-map'
+import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
+import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-geojson'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
 import {
@@ -169,7 +171,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
         <TakeoffCountSummary state={state} />
       </header>
       {view === 'map' ? (
-        <TakeoffsMapSection state={state} takeoffs={takeoffs} />
+        <TakeoffsMapSection state={state} takeoffs={takeoffs} countryId={countryId} />
       ) : (
         <>
           <SearchControls
@@ -193,6 +195,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
             windFilter={windFilter}
             userLocation={userLocation}
             regions={regions}
+            countryId={countryId}
           />
         </>
       )}
@@ -231,10 +234,34 @@ function classes(...values: Array<string | false | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
 
-function TakeoffsMapSection({ state, takeoffs }: { state: TakeoffsState; takeoffs: TakeoffDirectoryEntry[] }) {
+// TakeoffsMap no longer renders its own legend (see that component's own doc comment on why —
+// a mode flag was explicitly rejected) — this directory is the caller that actually wants one,
+// so it composes the two itself. buildTakeoffsMapData runs a second time here (once more inside
+// TakeoffsMap's own useMemo) rather than lifting mapData into a shared prop between the two:
+// it's measured at 1.75ms for the whole Norway dataset (see that function's own doc comment),
+// cheap enough that keeping TakeoffsMap's existing `takeoffs` prop contract simple wins over
+// avoiding the duplicate computation.
+function TakeoffsMapSection({
+  state,
+  takeoffs,
+  countryId,
+}: {
+  state: TakeoffsState
+  takeoffs: TakeoffDirectoryEntry[]
+  countryId: number
+}) {
   if (state.status === 'loading') return <p className="text-sm opacity-70">Loading takeoffs…</p>
   if (state.status === 'error') return <p className="text-sm text-red-600">{state.message}</p>
-  return <TakeoffsMap takeoffs={takeoffs} />
+
+  // Only alongside the real map, not TakeoffsMap's own "no takeoffs with a recorded location"
+  // placeholder — a legend for a map that isn't there reads as confusing, not helpful.
+  const mapData = buildTakeoffsMapData(takeoffs)
+  return (
+    <div className="flex flex-col gap-2">
+      <TakeoffsMap takeoffs={takeoffs} countryId={countryId} />
+      {mapData.plottedCount > 0 && <TakeoffsMapLegend mapData={mapData} />}
+    </div>
+  )
 }
 
 function TakeoffCountSummary({ state }: { state: TakeoffsState }) {
@@ -367,6 +394,7 @@ function TakeoffResults({
   windFilter,
   userLocation,
   regions,
+  countryId,
 }: {
   state: TakeoffsState
   takeoffs: TakeoffDirectoryEntry[]
@@ -375,6 +403,7 @@ function TakeoffResults({
   windFilter: WindFilter
   userLocation: GeoPoint | null
   regions: RegionOption[]
+  countryId: number
 }) {
   // All hooks run on every render regardless of state.status, so the branches below (which
   // return early) never change how many hooks this component calls — the values they compute
@@ -418,22 +447,28 @@ function TakeoffResults({
       {userLocation !== null && locationUnknownCount > 0 && (
         <p className="text-sm opacity-70">{locationUnknownMessage(locationUnknownCount)}</p>
       )}
-      {/* Name rendered as plain text, not a Link — a site page to link to is #11, not this
-          route, and #4/#6 already established the pattern of leaving that affordance out
-          rather than linking to a route that doesn't exist yet. */}
+      {/* #11's detail route now exists — the name links there, replacing the plain text #4/#6
+          left in place while it didn't. */}
       <ul className="flex flex-col divide-y divide-black/5 dark:divide-white/10">
         {matches.map((takeoff) => (
-          <TakeoffRow key={takeoff.takeoffId} takeoff={takeoff} regionName={regionNameById.get(takeoff.regionId) ?? UNREGIONED_LABEL} />
+          <TakeoffRow
+            key={takeoff.takeoffId}
+            takeoff={takeoff}
+            regionName={regionNameById.get(takeoff.regionId) ?? UNREGIONED_LABEL}
+            countryId={countryId}
+          />
         ))}
       </ul>
     </div>
   )
 }
 
-function TakeoffRow({ takeoff, regionName }: { takeoff: TakeoffMatch; regionName: string }) {
+function TakeoffRow({ takeoff, regionName, countryId }: { takeoff: TakeoffMatch; regionName: string; countryId: number }) {
   return (
     <li className="flex justify-between gap-4 py-2 text-sm">
-      <span>{takeoff.name}</span>
+      <Link className="underline underline-offset-2" href={`/countries/${countryId}/takeoffs/${takeoff.takeoffId}`}>
+        {takeoff.name}
+      </Link>
       <span className="flex gap-3 opacity-70">
         {takeoff.distanceMetres !== null && <span>{formatDistanceKm(takeoff.distanceMetres)}</span>}
         <span>{regionName}</span>

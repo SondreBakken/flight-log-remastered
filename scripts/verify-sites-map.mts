@@ -6,8 +6,8 @@ import {
   UNCLUSTERED_ALL_LAYER_ID,
   UNCLUSTERED_SOME_LAYER_ID,
   WIND_RAY_LAYER_ID,
-} from '../src/features/browse-country-takeoffs/site-layer-ids'
-import { RAY_MIN_ZOOM } from '../src/features/browse-country-takeoffs/build-takeoffs-geojson'
+} from '../src/components/takeoffs-map/site-layer-ids'
+import { RAY_MIN_ZOOM } from '../src/components/takeoffs-map/build-takeoffs-geojson'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
 // literally happened here (a clean build once coexisted with a completely blank one, see
@@ -35,7 +35,7 @@ const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs?__v
 // Norway's full fixture (fixtures/takeoffs-160.html, same one check:takeoffs-prerender and
 // verify-takeoffs.mts pin): 6012 rows total. 1948 carry the full lat=0/lon=0 placeholder
 // (#12's hazard, reused here rather than rediscovered — see hasKnownLocation in
-// select-visible-takeoffs.ts) plus 7 more with a DIFFERENT corruption shape D1 also excludes:
+// src/lib/flightlog/has-known-location.ts) plus 7 more with a DIFFERENT corruption shape D1 also excludes:
 // one axis reset to exactly 0 while the other still holds a real-looking value, or both axes
 // corrupted to a small non-zero remainder near Null Island (see hasKnownLocation's own doc
 // comment for the exact seven takeoff ids and coordinates). 1955 total. Exact counts, not a

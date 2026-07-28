@@ -14,12 +14,12 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
-import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 import {
   buildTakeoffsMapData,
   RAY_MIN_ZOOM,
   rayLengthDegreesAtZoom,
   rescaleRayLength,
+  type TakeoffMapEntry,
   type TakeoffSiteFeature,
   type TakeoffsMapData,
 } from './build-takeoffs-geojson'
@@ -34,7 +34,7 @@ import {
 } from './site-layer-ids'
 
 // Re-exported so anything that already imports a layer id from this module (the map component
-// itself is the natural place to look for one) keeps working — the ids themselves moved to
+// itself is the natural place to look for one) keeps working — the ids themselves live in
 // site-layer-ids.ts so scripts/verify-sites-map.mts can import them too without pulling in
 // maplibre-gl or this file's CSS import (see that module's own doc comment).
 export { CLUSTER_LAYER_ID, UNCLUSTERED_NONE_LAYER_ID, UNCLUSTERED_ALL_LAYER_ID, UNCLUSTERED_SOME_LAYER_ID, WIND_RAY_LAYER_ID }
@@ -54,7 +54,11 @@ declare global {
 }
 
 type TakeoffsMapProps = {
-  takeoffs: TakeoffDirectoryEntry[]
+  takeoffs: TakeoffMapEntry[]
+  countryId: number
+  // Controls the sized map container — defaults to a directory-scale viewport
+  // (DEFAULT_SIZE_CLASSES). A caller embedding a single-site map inline (e.g. the takeoff
+  // detail page) passes its own, smaller sizing here instead.
   className?: string
 }
 
@@ -95,17 +99,24 @@ function pointCoordinates(feature: MapGeoJSONFeature): [number, number] {
 // name is upstream flightlog.org content, not something this app controls the shape of.
 // Exported so this stays pinned by a direct unit test (no MapLibre/WebGL context needed to
 // call it — it's plain DOM) rather than only ever exercised through a live map click.
-export function buildSitePopupContent(name: string, windSummary: string): HTMLElement {
+//
+// `detailHref` is a plain `<a>`, not a `next/link` `<Link>` — this element is built imperatively
+// for MapLibre's `Popup.setDOMContent`, entirely outside React's own tree, so there is no
+// component instance for `next/link` to attach client-side routing to here. A plain anchor
+// still navigates correctly; it just costs a full page load rather than a client transition,
+// the same tradeoff any content built outside React already has on this page. `null` means the
+// popup is for the page the visitor is already on (the takeoff detail page's own single-marker
+// map) — plain text instead of a self-link to nowhere new.
+export function buildSitePopupContent(name: string, windSummary: string, detailHref: string | null): HTMLElement {
   const container = document.createElement('div')
   container.className = 'flex flex-col gap-0.5 text-sm'
-  const title = document.createElement('strong')
+  const title = document.createElement(detailHref ? 'a' : 'span')
+  if (detailHref) title.setAttribute('href', detailHref)
+  title.className = classes('font-semibold', detailHref ? 'underline underline-offset-2' : undefined)
   title.textContent = name
   const wind = document.createElement('span')
   wind.className = 'opacity-70'
   wind.textContent = windSummary
-  // #11 (a site detail page) doesn't exist yet — #9 and #4 already established the rule for
-  // this exact situation (see index.tsx's own comment): show what a click would need, never a
-  // link to a route that 404s.
   container.append(title, wind)
   return container
 }
@@ -188,16 +199,37 @@ function wireClusterExpansion(map: MapLibreMap): void {
   })
 }
 
-function wireSitePopups(map: MapLibreMap): void {
+// Exported so the takeoffId/countryId interpolation into the popup's detail link is pinned
+// directly, against a fake map object standing in for MapLibre — the mutation this guards
+// against (`feature.properties?.takeoffId` swapped for some other numeric property, e.g.
+// `regionId`) previously left `tsc`, `eslint` and every test green, since nothing called this
+// function at all.
+export function wireSitePopups(map: MapLibreMap, countryId: number): void {
   const siteLayers = [UNCLUSTERED_NONE_LAYER_ID, UNCLUSTERED_ALL_LAYER_ID, UNCLUSTERED_SOME_LAYER_ID]
   for (const layerId of siteLayers) {
     map.on('click', layerId, (event) => {
       const feature = siteFeatureAt(map, event, layerId)
       if (!feature) return
+      const takeoffId = Number(feature.properties?.takeoffId)
+      // A malformed or missing takeoffId (see #47's own review gap on unguarded numeric
+      // coercion) must never open a popup linking to /takeoffs/NaN — silently skip rather than
+      // render a broken link.
+      if (!Number.isFinite(takeoffId)) {
+        console.error('[TakeoffsMap] site feature is missing a valid takeoffId', feature.properties)
+        return
+      }
       const coordinates = pointCoordinates(feature)
       const name = String(feature.properties?.name ?? '')
       const windSummary = String(feature.properties?.windSummary ?? '')
-      new Popup().setLngLat(coordinates).setDOMContent(buildSitePopupContent(name, windSummary)).addTo(map)
+      const detailHref = `/countries/${countryId}/takeoffs/${takeoffId}`
+      // The single-marker map on a takeoff's own detail page would otherwise link right back to
+      // the page the visitor is already reading — not a mode flag on this function, just a
+      // comparison against the real current URL, so it applies uniformly regardless of caller.
+      const isCurrentPage = typeof window !== 'undefined' && window.location.pathname === detailHref
+      new Popup()
+        .setLngLat(coordinates)
+        .setDOMContent(buildSitePopupContent(name, windSummary, isCurrentPage ? null : detailHref))
+        .addTo(map)
     })
   }
 }
@@ -237,17 +269,23 @@ function wireRayRescaling(map: MapLibreMap, rays: TakeoffsMapData['rays']): void
   map.on('zoomend', rescale)
 }
 
+function mapSizeClasses(className: string | undefined): string {
+  return className ?? DEFAULT_SIZE_CLASSES
+}
+
 // #10's map view: clustered at low zoom (MapLibre's own built-in clustering, see
 // addSitesAndClusters), wind rendered per site (see build-takeoffs-geojson.ts for the three
-// deliberate categories), reusing the same OSM raster style and map-instance-on-window
-// pattern track-map.tsx already established rather than a second map configuration. Takes the
-// already-fetched dataset as a prop — see index.tsx, which holds the one fetch this feature
-// makes (via useTakeoffs) and passes it to both the list and this map, so switching views
-// never triggers a second network request.
-export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
+// deliberate categories), reusing the same OSM raster style and map-instance-on-window pattern
+// track-map.tsx already established rather than a second map configuration. Shared UI, not a
+// feature: it has two page-owning callers (the takeoffs directory and the takeoff detail page),
+// each composing its own surrounding chrome (the directory renders TakeoffsMapLegend alongside
+// it; the detail page does not — a page about one site has no use for a three-category wind
+// key) rather than this component switching on a mode flag for either.
+export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const mapData = useMemo(() => buildTakeoffsMapData(takeoffs), [takeoffs])
+  const sizeClasses = mapSizeClasses(className)
 
   useEffect(() => {
     const container = containerRef.current
@@ -282,7 +320,7 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
     const addLayers = () => {
       addSitesAndClusters(map, mapData)
       wireClusterExpansion(map)
-      wireSitePopups(map)
+      wireSitePopups(map, countryId)
       wireHoverCursor(map)
       wireRayRescaling(map, mapData.rays)
     }
@@ -301,15 +339,14 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
         window.__takeoffsMapData = undefined
       }
     }
-  }, [mapData])
+  }, [mapData, countryId])
 
   if (mapData.plottedCount === 0) {
     return (
       <div
         className={classes(
-          DEFAULT_SIZE_CLASSES,
+          sizeClasses,
           'flex items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20',
-          className,
         )}
       >
         No takeoffs with a recorded location
@@ -317,17 +354,15 @@ export function TakeoffsMap({ takeoffs, className }: TakeoffsMapProps) {
     )
   }
 
-  return (
-    <div className={classes('flex flex-col gap-2', className)}>
-      <div ref={containerRef} className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')} />
-      <TakeoffsMapLegend mapData={mapData} />
-    </div>
-  )
+  return <div ref={containerRef} className={classes(sizeClasses, 'overflow-hidden rounded-md')} />
 }
 
 // Exported so the excluded-count clause (#12/#10's shared "excluding is fine, doing it
 // silently is not" rule) is pinned by rendering this component directly, without mounting the
-// whole map (which needs a real GL context this test suite has none of).
+// whole map (which needs a real GL context this test suite has none of). A separate component
+// from TakeoffsMap itself — see that component's own doc comment on why: each caller composes
+// this alongside the map only when it actually wants a legend, rather than TakeoffsMap deciding
+// that for every caller via a mode flag.
 export function TakeoffsMapLegend({ mapData }: { mapData: TakeoffsMapData }) {
   return (
     <div className="flex flex-col gap-1 text-xs opacity-70">

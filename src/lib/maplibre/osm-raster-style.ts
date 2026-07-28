@@ -1,7 +1,7 @@
 import type { MapOptions } from 'maplibre-gl'
 
 // Shared by every MapLibre map in this app (currently show-flight-track/track-map.tsx and
-// browse-country-takeoffs/takeoffs-map.tsx) — see #10's own instruction to reuse the existing
+// components/takeoffs-map) — see #10's own instruction to reuse the existing
 // map setup rather than starting a second configuration. A single OSM raster style kept in
 // one place is what makes that true by construction rather than by two hand-kept-in-sync
 // copies.

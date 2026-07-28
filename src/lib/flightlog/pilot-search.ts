@@ -1,9 +1,9 @@
 import 'server-only'
 import { postFlightlogText, FLIGHTLOG_ORIGIN } from './http'
+import { ENGLISH } from './config'
 import { parsePilotSearch } from './parse-pilot-search'
 import type { PilotSearchResult } from './types'
 
-const ENGLISH = 1
 const PILOT_SEARCH_ACTION = 114
 const PILOT_SEARCH_PATH = `/fl.html?l=${ENGLISH}&a=${PILOT_SEARCH_ACTION}`
 // The real page a browser has open when it submits this form — a=114 itself, confirmed live

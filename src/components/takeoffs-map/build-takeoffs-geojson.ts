@@ -1,11 +1,23 @@
-// Pure — turns the takeoff dataset the browser already holds (see fetch-takeoffs.ts) into the
-// two GeoJSON collections takeoffs-map.tsx feeds MapLibre. No DOM, no map instance, so the two
-// hazards #10 exists to handle are each pinned by a plain unit test rather than only ever
-// exercised through a live map: placeholder coordinates never producing a plotted feature, and
-// wind=0 / wind=255 never producing an ordinary directional ray.
+// Pure — turns a takeoff dataset into the two GeoJSON collections index.tsx (this directory's
+// map component) feeds MapLibre. No DOM, no map instance, so the two hazards #10 exists to
+// handle are each pinned by a plain unit test rather than only ever exercised through a live
+// map: placeholder coordinates never producing a plotted feature, and wind=0 / wind=255 never
+// producing an ordinary directional ray.
 import { decodeWindDirections, OCTANTS_CLOCKWISE, type CompassOctant } from '@/lib/flightlog/wind'
-import { hasKnownLocation } from './select-visible-takeoffs'
-import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+import { hasKnownLocation } from '@/lib/flightlog/has-known-location'
+
+// The minimal shape this map needs from a takeoff — deliberately not a specific feature's wire
+// type (TakeoffDirectoryEntry, Takeoff, …): this module has two page-owning callers in two
+// different features, and importing either one's own type here would make this shared UI
+// component depend sideways on a feature instead of the other way around. Both
+// TakeoffDirectoryEntry and the server-side Takeoff type already satisfy this structurally.
+export type TakeoffMapEntry = {
+  takeoffId: number
+  name: string
+  lat: number
+  lon: number
+  wind: number
+}
 
 // Neither end of the wind byte is a real direction reading (see wind.ts's own decode and
 // #10's issue notes: 991 of Norway's 6012 takeoffs record wind=0, "nothing recorded", and 366
@@ -20,9 +32,9 @@ export type TakeoffSiteProperties = {
   takeoffId: number
   name: string
   windCategory: WindRenderCategory
-  // Precomputed here, not in the map component — takeoffs-map.tsx has no business decoding a
-  // wind byte itself (that's wind.ts's job, reused here, not reinvented there) or composing
-  // English copy for a popup.
+  // Precomputed here, not in the map component — index.tsx has no business decoding a wind
+  // byte itself (that's wind.ts's job, reused here, not reinvented there) or composing English
+  // copy for a popup.
   windSummary: string
 }
 
@@ -78,7 +90,7 @@ function summarizeWind(wind: number, category: WindRenderCategory): string {
   return `Works in ${decodeWindDirections(wind).join(', ')}`
 }
 
-function toSiteFeature(takeoff: TakeoffDirectoryEntry): TakeoffSiteFeature {
+function toSiteFeature(takeoff: TakeoffMapEntry): TakeoffSiteFeature {
   const category = classifyWind(takeoff.wind)
   return {
     type: 'Feature',
@@ -93,11 +105,11 @@ function toSiteFeature(takeoff: TakeoffDirectoryEntry): TakeoffSiteFeature {
 }
 
 // Below this zoom, individual sites are still bundled into clusters (see clusterMaxZoom in
-// takeoffs-map.tsx), so a ray drawn at a bundled site would sit on top of a cluster circle
-// rather than next to the site it belongs to — gating the whole ray layer to the zoom band
-// where sites render individually keeps every visible ray anchored to a marker that's
-// actually on screen. Also doubles as the reference zoom for DEFAULT_RAY_LENGTH_DEGREES
-// below: the zoom a ray first becomes visible at is the zoom it should already look right at.
+// index.tsx), so a ray drawn at a bundled site would sit on top of a cluster circle rather than
+// next to the site it belongs to — gating the whole ray layer to the zoom band where sites
+// render individually keeps every visible ray anchored to a marker that's actually on screen.
+// Also doubles as the reference zoom for DEFAULT_RAY_LENGTH_DEGREES below: the zoom a ray first
+// becomes visible at is the zoom it should already look right at.
 export const RAY_MIN_ZOOM = 9
 
 const WEB_MERCATOR_TILE_PX = 256
@@ -109,9 +121,9 @@ const WEB_MERCATOR_TILE_PX = 256
 // running off every screen edge and reading as a property boundary instead of a symbol). A
 // symbolic mark should hold a constant screen size instead. RAY_LENGTH_PIXELS is that target;
 // rayLengthDegreesAtZoom converts it to the degree length that renders at exactly that many
-// pixels at a given zoom — takeoffs-map.tsx recomputes ray geometry with it on every zoom
-// change (see rescaleRayLength below), the same way MapLibre's own circle-radius stops already
-// keep the site markers a fixed pixel size without this file's help.
+// pixels at a given zoom — index.tsx recomputes ray geometry with it on every zoom change (see
+// rescaleRayLength below), the same way MapLibre's own circle-radius stops already keep the
+// site markers a fixed pixel size without this file's help.
 //
 // rayEndpoint's own cos(latitude) term, below, is a separate, orthogonal correction: it keeps
 // a ray isotropic — equal length on every bearing — at a GIVEN zoom and latitude. This constant
@@ -153,7 +165,7 @@ function rayEndpoint(origin: [number, number], octant: CompassOctant, rayLengthD
 // category check here exists entirely for 'all': without it, wind=255 would decode to all
 // eight octants and draw eight rays, which is exactly the "eight arrows" rendering #10's issue
 // says is not a meaningful reading of "works everywhere".
-function toRayFeatures(takeoff: TakeoffDirectoryEntry, rayLengthDegrees: number): WindRayFeature[] {
+function toRayFeatures(takeoff: TakeoffMapEntry, rayLengthDegrees: number): WindRayFeature[] {
   if (classifyWind(takeoff.wind) !== 'some') return []
   const origin: [number, number] = [takeoff.lon, takeoff.lat]
   return decodeWindDirections(takeoff.wind).map((octant) => ({
@@ -164,7 +176,7 @@ function toRayFeatures(takeoff: TakeoffDirectoryEntry, rayLengthDegrees: number)
 }
 
 export function buildTakeoffsMapData(
-  takeoffs: TakeoffDirectoryEntry[],
+  takeoffs: TakeoffMapEntry[],
   rayLengthDegrees: number = DEFAULT_RAY_LENGTH_DEGREES,
 ): TakeoffsMapData {
   const located = takeoffs.filter(hasKnownLocation)
@@ -178,9 +190,9 @@ export function buildTakeoffsMapData(
 
 // Recomputes every ray's endpoint at a new length, keeping its origin and octant — the cheap
 // half of buildTakeoffsMapData's work (no wind decoding, no placeholder filtering, no site
-// features), so takeoffs-map.tsx can call this on every zoom change to keep rays screen-constant
-// (see rayLengthDegreesAtZoom above) without re-running the whole build — including the
-// placeholder filter and wind classification — on every zoom tick.
+// features), so index.tsx can call this on every zoom change to keep rays screen-constant (see
+// rayLengthDegreesAtZoom above) without re-running the whole build — including the placeholder
+// filter and wind classification — on every zoom tick.
 export function rescaleRayLength(rays: WindRaysGeoJSON, rayLengthDegrees: number): WindRaysGeoJSON {
   return {
     type: 'FeatureCollection',

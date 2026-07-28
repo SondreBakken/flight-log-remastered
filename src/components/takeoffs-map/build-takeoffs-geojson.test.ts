@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildTakeoffsMapData, rayLengthDegreesAtZoom, rescaleRayLength } from './build-takeoffs-geojson'
-import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+import { buildTakeoffsMapData, rayLengthDegreesAtZoom, rescaleRayLength, type TakeoffMapEntry } from './build-takeoffs-geojson'
 
 // Same neutral-default shape select-visible-takeoffs.test.ts uses, for the same reason: wind=0
 // (not 255) as the default so a test that doesn't explicitly set wind doesn't vacuously look
 // like an "all directions" site.
-function makeTakeoff(overrides: Partial<TakeoffDirectoryEntry> & Pick<TakeoffDirectoryEntry, 'takeoffId' | 'name'>): TakeoffDirectoryEntry {
-  return { regionId: 1, lat: 60, lon: 10, wind: 0, ...overrides }
+function makeTakeoff(overrides: Partial<TakeoffMapEntry> & Pick<TakeoffMapEntry, 'takeoffId' | 'name'>): TakeoffMapEntry {
+  return { lat: 60, lon: 10, wind: 0, ...overrides }
 }
 
 describe('buildTakeoffsMapData — the placeholder-coordinate hazard', () => {
@@ -65,10 +64,10 @@ describe('buildTakeoffsMapData — the placeholder-coordinate hazard', () => {
 
 describe('buildTakeoffsMapData — site geometry', () => {
   // A GeoJSON Point's coordinates are [longitude, latitude] — the opposite order from how
-  // TakeoffDirectoryEntry names its own fields. Only the ray's origin (see "every ray belongs
-  // to the takeoff it was built from" below) was ever pinned against this ordering; the site
-  // Point itself was asserted nowhere, so a lat/lon swap here would move every marker to the
-  // wrong hemisphere while every ray — built independently, from the same raw lat/lon — stayed
+  // TakeoffMapEntry names its own fields. Only the ray's origin (see "every ray belongs to the
+  // takeoff it was built from" below) was ever pinned against this ordering; the site Point
+  // itself was asserted nowhere, so a lat/lon swap here would move every marker to the wrong
+  // hemisphere while every ray — built independently, from the same raw lat/lon — stayed
   // exactly where it belonged.
   it('plots the site Point at [lon, lat], not [lat, lon]', () => {
     const data = buildTakeoffsMapData([makeTakeoff({ takeoffId: 1, name: 'Bergen', lat: 60.39, lon: 5.32 })])
