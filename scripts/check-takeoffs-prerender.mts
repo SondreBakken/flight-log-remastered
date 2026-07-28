@@ -13,7 +13,7 @@ import {
 // `generateStaticParams` + `use cache` look like they should do that — see route.ts's own
 // doc comment for why that distinction matters on serverless. This script is what actually
 // pins the claim: it reads Next's own build output rather than trusting the source. See
-// scripts/lib/prerender-manifest-check.mts for why an absent-or-stale `.next` FAILs loudly
+// scripts/lib/prerender-manifest-check.ts for why an absent-or-stale `.next` FAILs loudly
 // here rather than silently skipping — that reasoning, and the freshness guard itself, are
 // shared with check-clubs-prerender.mts verbatim, not repeated per script.
 const { assert, fail, summarize } = createChecker('check:takeoffs-prerender')

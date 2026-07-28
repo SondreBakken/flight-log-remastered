@@ -1,13 +1,10 @@
-import { chromium } from 'playwright'
+import { launchCaptureBrowser, captureUrlScreenshot } from './lib/screenshot'
+
+// Captures the whole page, including a MapLibre WebGL canvas without it going blank — see
+// scripts/lib/screenshot.ts for how and why (#21), and scripts/verify-shot.mts for the
+// pixel-level regression check against this exact capture path.
 const [url, out] = process.argv.slice(2)
-const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
-const bad: string[] = []
-page.on('response', r => { if (r.status() >= 400 && r.url().startsWith('http://localhost')) bad.push(`${r.status()} ${r.url()}`) })
-page.on('pageerror', e => bad.push('pageerror: ' + e.message))
-await page.goto(url, { waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.maplibregl-canvas', { timeout: 8000 }).catch(() => {})
-await page.waitForTimeout(5000)
-await page.screenshot({ path: out, fullPage: true })
-console.log(out, '| problems:', bad.length ? bad : 'none')
+const browser = await launchCaptureBrowser()
+const { badResponses } = await captureUrlScreenshot(browser, url, out)
+console.log(out, '| problems:', badResponses.length ? badResponses : 'none')
 await browser.close()

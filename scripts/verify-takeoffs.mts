@@ -1,4 +1,5 @@
 import { chromium, type Page } from 'playwright'
+import { createReporter } from './lib/verify-report'
 
 // #9's end-to-end proof, superseding #38's row-count-only version: a real browser, navigating
 // to the prerendered takeoffs directory, actually issues a network request for the takeoffs
@@ -23,11 +24,7 @@ const EXPECTED_ROW_COUNT = 6012 // fixtures/takeoffs-160.html, pinned by check:p
 const EXPECTED_WIND_N_TOTAL = 1849
 const MAX_RENDERED_RESULTS = 200 // select-visible-takeoffs.ts's own cap
 
-let overallOk = true
-function report(ok: boolean, label: string): void {
-  console.log(`${ok ? 'ok' : 'FAIL'} - ${label}`)
-  if (!ok) overallOk = false
-}
+const { report, finish } = createReporter()
 
 // The `/of (\d+) matches/` truncation-notice total, read from the page — the one place this
 // script learns the app's actual filtered count, used everywhere a Node-side value (not a
@@ -238,8 +235,4 @@ if (settled) {
 
 await browser.close()
 
-if (!overallOk) {
-  console.error('FAIL - takeoffs directory browser assertion did not pass')
-  process.exit(1)
-}
-console.log('PASS - takeoffs directory browser assertion passed')
+finish('takeoffs directory browser assertion')
