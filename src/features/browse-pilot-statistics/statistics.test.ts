@@ -4,12 +4,11 @@ import {
   breakdownByGlider,
   breakdownBySite,
   flyingDaysByDate,
-  hoursByYear,
   longestFlightByDistance,
   longestFlightByDuration,
+  minutesByYear,
   parseDurationMinutes,
   totalDurationMinutes,
-  totalFlightCount,
 } from './statistics'
 
 let nextTripId = 1
@@ -63,7 +62,7 @@ describe('totalDurationMinutes', () => {
   })
 })
 
-describe('hoursByYear', () => {
+describe('minutesByYear', () => {
   it('groups total minutes by the date prefix year, across multiple years', () => {
     const flights = [
       flight({ date: '2024-06-01', duration: '01:00', flightCount: 1 }),
@@ -71,7 +70,7 @@ describe('hoursByYear', () => {
       flight({ date: '2026-01-15', duration: '02:00', flightCount: 1 }),
     ]
 
-    const result = hoursByYear(flights)
+    const result = minutesByYear(flights)
 
     expect(result.get(2024)).toBe(90)
     expect(result.get(2026)).toBe(120)
@@ -81,7 +80,7 @@ describe('hoursByYear', () => {
   it('excludes rows with no recorded duration from the year total', () => {
     const flights = [flight({ date: '2026-01-01', duration: null, flightCount: 4 })]
 
-    expect(hoursByYear(flights).has(2026)).toBe(false)
+    expect(minutesByYear(flights).has(2026)).toBe(false)
   })
 })
 
@@ -108,6 +107,90 @@ describe('breakdownByGlider', () => {
     const result = breakdownByGlider(flights)
 
     expect(result.get('Unknown glider')).toBe(2)
+  })
+
+  // Real fixture shape (pilot-4549.html): "falcon 4" (lowercase, 17 rows) and "Falcon 4"
+  // (capitalized, 4 rows) are the same wing split across a pure case difference — grouping on
+  // the raw string would report them as two different gliders.
+  it('groups a pure case variant into one row, summing flightCount across both spellings', () => {
+    const flights = [
+      flight({ glider: 'falcon 4', flightCount: 3 }),
+      flight({ glider: 'Falcon 4', flightCount: 2 }),
+    ]
+
+    const result = breakdownByGlider(flights)
+
+    expect(result.size).toBe(1)
+    expect(result.get('falcon 4')).toBe(5)
+  })
+
+  // Real fixture shape (pilot-4549.html, line 487): "Sport 2 135 " carries a trailing space
+  // flightlog.org itself renders — trimming and collapsing whitespace is what lets this merge
+  // with an otherwise-identical spacing, not just a lowercase/uppercase difference.
+  it('groups a whitespace variant (trailing space) into the same row as the trimmed spelling', () => {
+    const flights = [
+      flight({ glider: 'sport 2 135', flightCount: 4 }),
+      flight({ glider: 'Sport 2 135 ', flightCount: 1 }),
+    ]
+
+    const result = breakdownByGlider(flights)
+
+    expect(result.size).toBe(1)
+    expect(result.get('sport 2 135')).toBe(5)
+  })
+
+  // Real fixture shape (pilot-4549.html): "Sport2" (glued, no space) and "Sport 2 135" (spaced,
+  // with a size suffix) look like near-duplicates but are NOT a case/whitespace variant of each
+  // other — collapsing whitespace never INSERTS a space "Sport2" doesn't have. The caveat this
+  // pins: normalization must not attempt to bridge this gap (that would need word-boundary or
+  // fuzzy matching, explicitly out of scope), so these stay two separate rows.
+  it('does not merge "Sport2" with "Sport 2 135" — collapsing whitespace never inserts a missing space', () => {
+    const flights = [
+      flight({ glider: 'Sport2', flightCount: 2 }),
+      flight({ glider: 'Sport 2 135', flightCount: 1 }),
+    ]
+
+    const result = breakdownByGlider(flights)
+
+    expect(result.size).toBe(2)
+    expect(result.get('Sport2')).toBe(2)
+    expect(result.get('Sport 2 135')).toBe(1)
+  })
+
+  // Real fixture shape (pilot-12677.html): "skywalk Mescal 6" (2 rows), "Skywalk Mescal 6" (1
+  // row) and "Mescal skywalk 6" (1 row, WORD ORDER swapped) all name the same wing, but only
+  // the first two are a case variant of each other — the reordered one is a different
+  // normalized key and must stay its own row, per this breakdown's explicit no-word-order-
+  // matching caveat.
+  it('merges case variants but leaves a word-order variant of the same wing as its own row', () => {
+    const flights = [
+      flight({ glider: 'skywalk Mescal 6', flightCount: 1 }),
+      flight({ glider: 'skywalk Mescal 6', flightCount: 1 }),
+      flight({ glider: 'Skywalk Mescal 6', flightCount: 1 }),
+      flight({ glider: 'Mescal skywalk 6', flightCount: 5 }),
+    ]
+
+    const result = breakdownByGlider(flights)
+
+    expect(result.size).toBe(2)
+    // "skywalk Mescal 6" occurred twice, "Skywalk Mescal 6" once — the more frequent original
+    // spelling is what's displayed, not the first one seen and not a normalized form.
+    expect(result.get('skywalk Mescal 6')).toBe(3)
+    expect(result.get('Mescal skywalk 6')).toBe(5)
+  })
+
+  // Ties are broken by which spelling was seen first in the input, not by any other order.
+  it('breaks a tied most-frequent-spelling by first-seen order', () => {
+    const flights = [
+      flight({ glider: 'Skywalk Mescal 6', flightCount: 1 }),
+      flight({ glider: 'skywalk mescal 6', flightCount: 1 }),
+    ]
+
+    const result = breakdownByGlider(flights)
+
+    expect(result.size).toBe(1)
+    expect(result.has('Skywalk Mescal 6')).toBe(true)
+    expect(result.get('Skywalk Mescal 6')).toBe(2)
   })
 })
 
@@ -217,13 +300,5 @@ describe('flyingDaysByDate', () => {
     // flights are different numbers for exactly this reason.
     expect(result.size).toBe(2)
     expect(result.get('2026-07-24')).toBe(6)
-  })
-})
-
-describe('totalFlightCount (re-exported for this feature)', () => {
-  it('sums flightCount across rows, matching the shared implementation', () => {
-    const flights = [flight({ flightCount: 2 }), flight({ flightCount: 6 })]
-
-    expect(totalFlightCount(flights)).toBe(8)
   })
 })

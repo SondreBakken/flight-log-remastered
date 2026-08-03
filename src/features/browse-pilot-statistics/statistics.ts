@@ -1,10 +1,5 @@
+import { flightYear } from '@/lib/flightlog/flight-year'
 import type { Flight } from '@/lib/flightlog/types'
-import { totalFlightCount } from '@/lib/flightlog/flight-count'
-
-// Re-exported (not duplicated) so this feature's derivations and browse-pilot-logbook's
-// header both read the same total-flights implementation — see flight-count.ts's own doc
-// comment for why the two must never drift.
-export { totalFlightCount }
 
 // A row's `duration` is 'H:MM' or 'HH:MM' (see parse-flights.ts's readDuration) — hours is
 // 1-2 digits, minutes always 2. Never fed an aggregated row's group total here as if it were
@@ -24,18 +19,17 @@ export function totalDurationMinutes(flights: Flight[]): number {
   )
 }
 
-function yearOf(flight: Flight): number {
-  return Number(flight.date.slice(0, 4))
-}
-
-export function hoursByYear(flights: Flight[]): Map<number, number> {
-  const minutesByYear = new Map<number, number>()
+// Named for what it returns, not what the component does with it — every caller renamed the
+// old `hoursByYear` result to `minutesByYear` before using it, because the value was always
+// minutes; formatting to hours is the component's job (see formatMinutesAsHours in index.tsx).
+export function minutesByYear(flights: Flight[]): Map<number, number> {
+  const totals = new Map<number, number>()
   for (const flight of flights) {
     if (flight.duration === null) continue
-    const year = yearOf(flight)
-    minutesByYear.set(year, (minutesByYear.get(year) ?? 0) + parseDurationMinutes(flight.duration))
+    const year = flightYear(flight)
+    totals.set(year, (totals.get(year) ?? 0) + parseDurationMinutes(flight.duration))
   }
-  return minutesByYear
+  return totals
 }
 
 const UNKNOWN_GLIDER = 'Unknown glider'
@@ -52,14 +46,76 @@ function sumFlightCountByKey(flights: Flight[], keyOf: (flight: Flight) => strin
   return totals
 }
 
+// Case-fold + collapse-whitespace only — deliberately narrower than fold-search.ts's
+// foldForSearch (which also strips accents and collapses repeated letters for substring
+// search). Those extra folds would over-merge distinct glider model names here; this
+// breakdown groups spelling variants of the SAME label, not fuzzy-matches different ones.
+function normalizeForGrouping(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+// Groups by a normalized key so spelling variants collapse into one row (real fixture data:
+// pilot 4549's "falcon 4" vs "Falcon 4", pilot 12677's "skywalk Mescal 6" vs "Skywalk Mescal
+// 6"), but keys the returned map by whichever ORIGINAL spelling occurred most often among
+// that group's rows (ties broken by first-seen order) — the label shown is one flightlog.org
+// actually rendered, never a synthesized normalized form.
+//
+// Word order is deliberately left unmerged: pilot 12677's "Mescal skywalk 6" normalizes to a
+// different key than "skywalk Mescal 6"/"Skywalk Mescal 6" and stays its own group. Matching
+// "the same wing, words reordered" needs semantic knowledge this function doesn't have —
+// forcing it here risks merging two actually-different gliders that happen to share words in
+// a different order, a worse failure than leaving an obvious near-duplicate split.
+function sumFlightCountByNormalizedKey(
+  flights: Flight[],
+  labelOf: (flight: Flight) => string,
+): Map<string, number> {
+  const groups = new Map<string, { flightCount: number; variantCounts: Map<string, number> }>()
+
+  for (const flight of flights) {
+    const label = labelOf(flight)
+    const key = normalizeForGrouping(label)
+    const group = groups.get(key) ?? { flightCount: 0, variantCounts: new Map<string, number>() }
+    group.flightCount += flight.flightCount
+    group.variantCounts.set(label, (group.variantCounts.get(label) ?? 0) + 1)
+    groups.set(key, group)
+  }
+
+  const totals = new Map<string, number>()
+  for (const group of groups.values()) {
+    totals.set(mostFrequentVariant(group.variantCounts), group.flightCount)
+  }
+  return totals
+}
+
+// `variantCounts` is in first-seen insertion order (Map's own iteration order for a key set
+// via .set()); using strict `>` rather than `>=` means the first variant to reach the current
+// best count keeps that spot, which is exactly the "ties: first seen" rule.
+function mostFrequentVariant(variantCounts: Map<string, number>): string {
+  let best = ''
+  let bestCount = -1
+  for (const [variant, count] of variantCounts) {
+    if (count > bestCount) {
+      best = variant
+      bestCount = count
+    }
+  }
+  return best
+}
+
 // Decision: a null glider is labelled, not filtered out. Filtering would make this
 // breakdown's total silently undercount totalFlightCount for a pilot with any unlabelled
 // row; labelling keeps the two reconcilable and makes the gap visible instead of hidden.
 export function breakdownByGlider(flights: Flight[]): Map<string, number> {
-  return sumFlightCountByKey(flights, (flight) => flight.glider ?? UNKNOWN_GLIDER)
+  return sumFlightCountByNormalizedKey(flights, (flight) => flight.glider ?? UNKNOWN_GLIDER)
 }
 
-// Same decision as breakdownByGlider, applied to `takeoff`.
+// Same null-labelling decision as breakdownByGlider, applied to `takeoff` — but NOT the same
+// case/whitespace normalization. `glider` is free text a pilot typed into a form field, which
+// is where the spelling variants above come from; `takeoff` comes from flightlog.org's own
+// site register (the same names rqtid=11 publishes), so it is expected to already be
+// canonical per pilot. No fixture on hand shows a `takeoff` spelling variant to normalize —
+// if one turns up, add the same normalization here and pin it with a test, the same way
+// breakdownByGlider's variants are pinned below.
 export function breakdownBySite(flights: Flight[]): Map<string, number> {
   return sumFlightCountByKey(flights, (flight) => flight.takeoff ?? UNKNOWN_TAKEOFF)
 }
@@ -87,10 +143,18 @@ function distanceOf(flight: Flight): number | null {
   return flight.distanceKm ?? flight.openDistanceKm
 }
 
-// Unlike longestFlightByDuration, every row is eligible — a row's distance is the flight's
-// own distance regardless of flightCount, never a group total (#68 is a duration-only trap).
-// Falls back to openDistanceKm exactly as formatFlightDistance does, so the two never
-// disagree about which distance a row is "worth".
+// Unlike longestFlightByDuration, every row is eligible here, including aggregated ones
+// (flightCount > 1). Falls back to openDistanceKm exactly as formatFlightDistance does, so the
+// two never disagree about which distance a row is "worth".
+//
+// OPEN ASSUMPTION, not a measured fact like the duration-is-a-group-total claim above: no
+// aggregated row carrying a recorded distanceKm/openDistanceKm has been observed in any
+// fixture or live pull on hand, so whether flightlog.org's distance field is per-flight or
+// (like duration) a group total for such a row is untested, not confirmed either way. This
+// would be falsified by finding one real aggregated row (flightCount > 1) with a non-null
+// distance and a corresponding per-flight distance recorded elsewhere (e.g. a GPS track) that
+// disagrees with treating the row's distance as a single flight's — until then, the all-rows
+// behavior stands on absence of a counterexample, not on positive confirmation.
 export function longestFlightByDistance(flights: Flight[]): Flight | null {
   let longest: Flight | null = null
   let longestKm = -1
