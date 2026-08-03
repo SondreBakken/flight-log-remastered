@@ -131,12 +131,29 @@ const fullSetBad = trackBadResponses(fullSetPage)
 await fullSetPage.goto(`${baseUrl}/flights/1001428?__verifyMap`, { waitUntil: 'domcontentloaded' })
 await waitForMapIdle(fullSetPage)
 
-const fullSetRadios = await readRadios(fullSetPage)
+// A freshly started production server's first live flightlog.org fetch can lose a race against
+// this scene's read: the page comes back with radios: [] and summary: null even though nothing
+// is actually broken. trackBadResponses only sees browser-side requests, so that server-side
+// stall looks identical to this exact cold signature and nothing else. A real client-side
+// regression (bad fetch, 4xx/5xx) shows up in `bad`, so it is deliberately not retried away.
+async function readFullSetState(page: Page, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
+  const radios = await readRadios(page)
+  const summary = await readSummary(page)
+  if (radios.length === 0 && summary === null && bad.length === 0) {
+    console.log('trip 1001428: empty radios + null summary + no bad responses on first read, retrying once for a cold server')
+    await page.waitForTimeout(3000)
+    await page.goto(`${baseUrl}/flights/1001428?__verifyMap`, { waitUntil: 'domcontentloaded' })
+    await waitForMapIdle(page)
+    return { radios: await readRadios(page), summary: await readSummary(page) }
+  }
+  return { radios, summary }
+}
+
+const { radios: fullSetRadios, summary: fullSetSummary } = await readFullSetState(fullSetPage, fullSetBad)
 const fullSetSourceLoaded = await fullSetPage
   .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
   .catch(() => null)
 const fullSetMarkerCount = await readTurnpointMarkerCount(fullSetPage)
-const fullSetSummary = await readSummary(fullSetPage)
 
 console.log('\n=== trip 1001428 (full set) ===')
 console.log('radios:', fullSetRadios)
