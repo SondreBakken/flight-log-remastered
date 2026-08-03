@@ -262,19 +262,21 @@ export function summarizeCalendarYear(
 }
 
 // Same result as summarizeCalendarYear, without ever materializing the year's ~365 date
-// strings — a collapsed year only needs its two totals, not a day-by-day walk. Safe to sum
-// every matching entry with no "today" clip: a collapsed year is never the current year
-// (defaultExpandedCalendarYears always keeps the newest flight-bearing year inside the
-// expanded budget), so there is no not-yet-happened date under this prefix to exclude.
+// strings — a collapsed year only needs its two totals, not a day-by-day walk. Same clip as
+// datesInYear, without materializing the dates: every year is toggleable, including the
+// current one, so a not-yet-happened date under this prefix must still be excluded here.
+// `date > todayIso` works on the plain ISO strings because 'YYYY-MM-DD' sorts the same
+// lexicographically as chronologically.
 export function summarizeCollapsedYear(
   year: number,
   flightsByDate: ReadonlyMap<string, number>,
+  todayIso: string,
 ): { flyingDays: number; flights: number } {
   const prefix = `${year}-`
   let flyingDays = 0
   let flights = 0
   for (const [date, count] of flightsByDate) {
-    if (!date.startsWith(prefix)) continue
+    if (!date.startsWith(prefix) || date > todayIso) continue
     flyingDays += 1
     flights += count
   }

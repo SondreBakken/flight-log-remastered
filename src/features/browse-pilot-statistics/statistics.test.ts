@@ -4,12 +4,14 @@ import {
   breakdownByGlider,
   breakdownBySite,
   calendarYearLabel,
+  datesInYear,
   defaultExpandedCalendarYears,
   flyingDaysByDate,
   longestFlightByDistance,
   longestFlightByDuration,
   minutesByYear,
   parseDurationMinutes,
+  summarizeCalendarYear,
   summarizeCollapsedYear,
   totalDurationMinutes,
 } from './statistics'
@@ -402,7 +404,7 @@ describe('summarizeCollapsedYear', () => {
       ['2021-01-10', 5],
     ])
 
-    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 2, flights: 3 })
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 2, flights: 3 })
   })
 
   it('matches summarizeCalendarYear\'s totals for the same year and data', () => {
@@ -410,13 +412,29 @@ describe('summarizeCollapsedYear', () => {
       ['2020-01-10', 1],
       ['2020-06-01', 2],
     ])
+    const dates = datesInYear(2020, '2026-08-03')
 
-    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 2, flights: 3 })
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual(
+      summarizeCalendarYear(dates, flightsByDate),
+    )
   })
 
   it('returns zero counts for a year with no matching dates', () => {
     const flightsByDate = new Map([['2021-01-10', 5]])
 
-    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 0, flights: 0 })
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 0, flights: 0 })
+  })
+
+  // The bug this pins: a collapsed year's own "today" clip was skipped entirely on the
+  // reasoning that a collapsed year is never the current year — falsified once every year
+  // became toggleable (#81 review). A future-dated entry must not count until its date arrives,
+  // same as summarizeCalendarYear/datesInYear's own clip.
+  it('excludes a date after todayIso from both counts', () => {
+    const flightsByDate = new Map([
+      ['2026-01-10', 1],
+      ['2026-12-24', 1],
+    ])
+
+    expect(summarizeCollapsedYear(2026, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 1, flights: 1 })
   })
 })

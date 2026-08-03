@@ -333,9 +333,16 @@ describe('PilotStatistics', () => {
     it('renders a collapsed year\'s day-cell grid after clicking its summary button', () => {
       render(<PilotStatistics flights={flights} />)
 
-      fireEvent.click(screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' }))
+      const button = screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      fireEvent.click(button)
 
       screen.getByRole('img', { name: '2020: 1 flying day, 1 flight' })
+
+      // The round trip back to collapsed: toggleYear's delete branch, not just its add branch.
+      fireEvent.click(button)
+
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('img', { name: /^2020:/ })).toBeNull()
     })
 
     // The same button that expands a year also re-collapses it (fix 1's "one mounted control"
@@ -349,6 +356,27 @@ describe('PilotStatistics', () => {
 
       expect(screen.queryByRole('img', { name: /^2026:/ })).toBeNull()
       expect(button.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    // Review fix: summarizeCollapsedYear used to sum every entry under a year prefix with no
+    // "today" clip, on the reasoning that a collapsed year is never the current year — false
+    // once every year, including the current one, became toggleable. A future-dated entry
+    // (2026-12-24, after the fixture's mocked "today" of 2026-08-03) must not count until
+    // collapsed any more than it does expanded, so the label must survive the round trip.
+    it('keeps the current year\'s label byte-identical across a toggle when it holds a future-dated entry', () => {
+      const currentYearFlights: Flight[] = [
+        flight({ date: '2026-07-23' }),
+        flight({ date: '2026-12-24' }),
+      ]
+
+      render(<PilotStatistics flights={currentYearFlights} />)
+
+      const button = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      const expandedLabel = button.textContent
+
+      fireEvent.click(button)
+
+      expect(button.textContent).toBe(expandedLabel)
     })
   })
 })

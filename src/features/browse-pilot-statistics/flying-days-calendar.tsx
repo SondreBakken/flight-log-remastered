@@ -113,7 +113,7 @@ function CalendarYearRow({
   const dates = isExpanded ? datesInYear(year, today) : null
   const { flyingDays, flights } = dates
     ? summarizeCalendarYear(dates, flightsByDate)
-    : summarizeCollapsedYear(year, flightsByDate)
+    : summarizeCollapsedYear(year, flightsByDate, today)
   const label = calendarYearLabel(year, flyingDays, flights)
 
   return (
