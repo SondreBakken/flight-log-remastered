@@ -71,6 +71,12 @@ const ALL_KINDS: ScoringGeometryKind[] = [
     isGeometry(fivePoint) && JSON.stringify(fivePoint.turnpointIndices) === JSON.stringify([2, 233, 2144, 2928, 6905]),
     `track-1001428: distance_5_point's turnpoint indices are exact (got ${isGeometry(fivePoint) ? JSON.stringify(fivePoint.turnpointIndices) : fivePoint})`,
   )
+  // Not one of #58's 12 real-triangle fixtures — both triangle placemarks here are the
+  // metadata-only stub (bare <name>, no <description>/<MultiGeometry>), so "full-set" above
+  // deliberately stops at the original five kinds and this asserts the stub resolves to null
+  // rather than silently being skipped.
+  assert(track.scoring.distance_flat_triangle === null, 'track-1001428: stub distance_flat_triangle resolves to null')
+  assert(track.scoring.distance_fai_triangle === null, 'track-1001428: stub distance_fai_triangle resolves to null')
 }
 
 // track-235690.kml: missing 3 placemarks entirely (out-and-return, both triangles). The
@@ -79,9 +85,44 @@ const ALL_KINDS: ScoringGeometryKind[] = [
 {
   const track = parseTrack(readFileSync('fixtures/track-235690.kml', 'utf8'), 235690)
   assert(track.scoring.distance_out_and_return === null, 'track-235690: missing out-and-return placemark resolves to null')
+  assert(track.scoring.distance_flat_triangle === null, 'track-235690: missing distance_flat_triangle placemark resolves to null')
+  assert(track.scoring.distance_fai_triangle === null, 'track-235690: missing distance_fai_triangle placemark resolves to null')
   for (const kind of ['distance_5_point', 'distance_4_point', 'distance_3_point', 'distance_open'] as const) {
     assert(isGeometry(track.scoring[kind]), `track-235690: ${kind} is still available`)
   }
+}
+
+// track-233524.kml: #58's MultiGeometry triangle shape (a closed 3-vertex loop plus a 2-point
+// connector), values pinned against the fixture's own <FsInfo track_idx> and MultiGeometry
+// coordinates read directly (see #58's implementation notes) rather than trusted from the
+// parser under test.
+{
+  const track = parseTrack(readFileSync('fixtures/track-233524.kml', 'utf8'), 233524)
+  const flatTriangle = track.scoring.distance_flat_triangle
+  console.log(`track-233524: distance_flat_triangle=${JSON.stringify(flatTriangle)}`)
+  assert(
+    isGeometry(flatTriangle) &&
+      flatTriangle.shape === 'triangle' &&
+      flatTriangle.name === 'Flat triangle' &&
+      flatTriangle.distanceKm === 2.26 &&
+      JSON.stringify(flatTriangle.turnpointIndices) === JSON.stringify([15, 65, 78, 89, 90]) &&
+      JSON.stringify(flatTriangle.loopIndices) === JSON.stringify([65, 78, 89]) &&
+      JSON.stringify(flatTriangle.connectorIndices) === JSON.stringify([15, 90]),
+    'track-233524: distance_flat_triangle parses with exact turnpoint/loop/connector indices and its own 2.26 km sum',
+  )
+
+  const faiTriangle = track.scoring.distance_fai_triangle
+  console.log(`track-233524: distance_fai_triangle=${JSON.stringify(faiTriangle)}`)
+  assert(
+    isGeometry(faiTriangle) &&
+      faiTriangle.shape === 'triangle' &&
+      faiTriangle.name === 'FAI triangle' &&
+      faiTriangle.distanceKm === 1.94 &&
+      JSON.stringify(faiTriangle.turnpointIndices) === JSON.stringify([77, 78, 80, 91, 93]) &&
+      JSON.stringify(faiTriangle.loopIndices) === JSON.stringify([78, 80, 91]) &&
+      JSON.stringify(faiTriangle.connectorIndices) === JSON.stringify([77, 93]),
+    'track-233524: distance_fai_triangle parses with exact turnpoint/loop/connector indices and its own 1.94 km sum',
+  )
 }
 
 // track-991729.kml and track-883027.kml: short flights where the 5- and 4-point geometries
