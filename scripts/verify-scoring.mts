@@ -90,6 +90,17 @@ function readTurnpointMarkerRects(page: Page): Promise<DOMRect[]> {
   )
 }
 
+type CanvasRect = { x: number; y: number; width: number; height: number }
+
+function readCanvasRect(page: Page): Promise<CanvasRect | null> {
+  return page.evaluate(() => {
+    const el = document.querySelector('.maplibregl-canvas')
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height }
+  })
+}
+
 // Two markers with genuinely different coordinates can still sit close enough on screen to
 // touch at some zoom levels — this scene is scoped to a known-collision fixture specifically
 // so "no two rects intersect" is a real assertion about the merge working, not a flaky one
@@ -130,7 +141,7 @@ function pageHasErrorBoundaryText(page: Page): Promise<boolean> {
 
 type CanvasColorSample = { distinctColors: number; matchDistance: number }
 
-async function sampleCanvasForColor(page: Page, rect: { x: number; y: number; width: number; height: number }, targetHex: string): Promise<CanvasColorSample> {
+async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: string): Promise<CanvasColorSample> {
   const screenshotBuffer = await page.screenshot()
   const base64 = screenshotBuffer.toString('base64')
   return page.evaluate(
@@ -170,7 +181,7 @@ async function sampleCanvasForColor(page: Page, rect: { x: number; y: number; wi
       }
       return { distinctColors: seen.size, matchDistance: minDistance }
     },
-    { base64, rect, targetHex },
+    { base64, rect: sampleRect, targetHex: colorHex },
   )
 }
 
@@ -229,13 +240,12 @@ async function runScene(options: { tripId: number; label: string; scene: (contex
 
 // === Scene 1: trip 1001428, every geometry available ===================================
 
-// === Toggle: switching overlays syncs onto the SAME map, not a remount =================
-//
-// The 83 new lines in track-map.tsx's own scoring-sync effect exist for one documented
-// reason: kept separate from the map-creation effect so toggling the overlay doesn't recreate
-// the whole map and reset the user's pan/zoom. Nothing before this asserted that path at all
-// — this does, directly: capture center/zoom, toggle, and check they didn't move, alongside
-// the geometry itself actually having changed (different marker count, different summary).
+// Switching overlays syncs onto the SAME map, not a remount. The 83 new lines in
+// track-map.tsx's own scoring-sync effect exist for one documented reason: kept separate from
+// the map-creation effect so toggling the overlay doesn't recreate the whole map and reset the
+// user's pan/zoom. Nothing before this asserted that path at all; this asserts it directly:
+// capture center/zoom, toggle, and check they didn't move, alongside the geometry itself
+// actually having changed (different marker count, different summary).
 async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: string | null): Promise<void> {
   const centerBefore = await page.evaluate(() => {
     const map = window.__flightTrackMap
@@ -326,14 +336,9 @@ await runScene({
     // long as SOME source and layer got added. Sampled the same way verify-shot.mts/
     // verify-track-gradient.mts sample the altitude ramp: crop to the canvas element, decode the
     // screenshot back into pixels, and look for SCORING_LINE_COLOR among them.
-    const canvasRect = await page.evaluate(() => {
-      const el = document.querySelector('.maplibregl-canvas')
-      if (!el) return null
-      const r = el.getBoundingClientRect()
-      return { x: r.x, y: r.y, width: r.width, height: r.height }
-    })
+    const canvasRect = await readCanvasRect(page)
     if (canvasRect) {
-      const { distinctColors, matchDistance } = await sampleCanvasForColor(page, canvasRect, SCORING_LINE_COLOR)
+      const { distinctColors, matchDistance } = await sampleCanvasColors(page, canvasRect, SCORING_LINE_COLOR)
       report(distinctColors > 500, `trip 1001428: the canvas is not near-uniform (${distinctColors} distinct sampled colours)`)
       report(
         matchDistance < 40,
