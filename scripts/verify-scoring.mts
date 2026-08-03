@@ -5,9 +5,11 @@ import type { GeoJSONSource } from 'maplibre-gl'
 import { createReporter } from './lib/verify-report'
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
-// #15's scoring overlay, checked against three real flights (each exercising a different
-// absence shape) plus one toggle — see README's own section on this script for why each
-// scene exists. `?__verifyMap` and `pnpm run build && pnpm run start` for the same reason as
+// #15's scoring overlay, checked against a scene per real flight — each one exercising a
+// different absence/degenerate/collision shape — plus one toggle; see README's own section on
+// this script for the current scene-by-scene list and why each exists (kept there, not
+// re-counted here, so this comment doesn't go stale the next time a scene is added).
+// `?__verifyMap` and `pnpm run build && pnpm run start` for the same reason as
 // verify-track-gradient.mts/verify-track-hover.mts (#47): the overlay's map source is exactly
 // the kind of thing the maplibre-gl v6/Turbopack bug would silently fail to load.
 const baseUrl = process.argv[2] ?? 'http://localhost:3000'
@@ -68,6 +70,49 @@ function readSummary(page: Page): Promise<string | null> {
 
 function readTurnpointMarkerCount(page: Page): Promise<number> {
   return page.evaluate(() => document.querySelectorAll('[data-testid="turnpoint-marker"]').length)
+}
+
+// #78: a turnpoint marker's own data-label carries its merged label ('D/E') once
+// groupTurnpointMarkers has folded co-located turnpoints into one badge.
+function readTurnpointMarkerLabels(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).map(
+      (element) => element.getAttribute('data-label') ?? '',
+    ),
+  )
+}
+
+function readTurnpointMarkerRects(page: Page): Promise<DOMRect[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).map((element) =>
+      element.getBoundingClientRect().toJSON(),
+    ),
+  )
+}
+
+// Two markers with genuinely different coordinates can still sit close enough on screen to
+// touch at some zoom levels — this scene is scoped to a known-collision fixture specifically
+// so "no two rects intersect" is a real assertion about the merge working, not a flaky one
+// about incidental screen proximity elsewhere.
+function rectsIntersect(a: DOMRect, b: DOMRect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+function anyTwoRectsIntersect(rects: DOMRect[]): boolean {
+  return rects.some((rect, index) => rects.some((other, otherIndex) => otherIndex > index && rectsIntersect(rect, other)))
+}
+
+// Exact position, not intersection: two markers projected from the identical lon/lat resolve
+// to the identical screen pixel deterministically, so exact equality (not a distance
+// tolerance) is the real oracle for "the merge still works" — and it stays immune to #83's
+// near-identical-but-distinct pairs (measured 3.6 px and 0.7 px apart), which are legitimately
+// close but never bit-for-bit equal.
+function rectsAtSamePosition(a: DOMRect, b: DOMRect): boolean {
+  return a.left === b.left && a.top === b.top
+}
+
+function anyTwoRectsAtSamePosition(rects: DOMRect[]): boolean {
+  return rects.some((rect, index) => rects.some((other, otherIndex) => otherIndex > index && rectsAtSamePosition(rect, other)))
 }
 
 async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void> {
@@ -459,6 +504,114 @@ if (existsSync(triangleFixturePath)) {
 
 await trianglePage.close()
 report(triangleBad.length === 0, `trip 233524: no unexpected 4xx/5xx responses or failed requests (saw: ${triangleBad.length ? triangleBad.join('; ') : 'none'})`)
+
+// === Scene 5: trip 984290, FAI triangle selected — merged turnpoint markers (#78) ==========
+//
+// track-984290's own FAI triangle has D and E resolve to the identical track_idx (1215, the
+// same array element — see check-scoring.mts's own assertion against this same fixture), so
+// its five turnpoints collapse to four distinct coordinates. check-scoring.mts pins the PARSE
+// side (turnpointIndices itself still has 5 entries); nothing there ever looks at what the map
+// actually draws, so this is the only oracle for the render half — before #78's fix this scene
+// would have found 5 stacked markers with the top one hiding the other's letter entirely.
+
+const sharedEndpointPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
+const sharedEndpointBad = trackBadResponses(sharedEndpointPage)
+await sharedEndpointPage.goto(`${baseUrl}/flights/984290?__verifyMap`, { waitUntil: 'domcontentloaded' })
+await waitForMapIdle(sharedEndpointPage)
+
+console.log('\n=== trip 984290 (FAI triangle, shared-endpoint turnpoint collision) ===')
+
+const sharedEndpointRadios = await readRadios(sharedEndpointPage)
+console.log('radios:', sharedEndpointRadios)
+
+report(
+  sharedEndpointRadios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+  'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+)
+
+await clickRadioByLabelPrefix(sharedEndpointPage, 'FAI triangle')
+await sharedEndpointPage
+  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+  .catch(() => {})
+await waitForMapIdle(sharedEndpointPage)
+
+const sharedEndpointMarkerCount = await readTurnpointMarkerCount(sharedEndpointPage)
+const sharedEndpointLetters = await readTurnpointMarkerLabels(sharedEndpointPage)
+const sharedEndpointRects = await readTurnpointMarkerRects(sharedEndpointPage)
+
+console.log('turnpoint markers (FAI triangle):', sharedEndpointMarkerCount, sharedEndpointLetters)
+
+report(
+  sharedEndpointMarkerCount === 4,
+  `trip 984290: the FAI triangle's shared-endpoint turnpoints (D/E, same track_idx) render as 4 markers, not 5 stacked ones (got ${sharedEndpointMarkerCount})`,
+)
+report(
+  sharedEndpointLetters.includes('D/E'),
+  `trip 984290: one of the 4 markers carries the merged 'D/E' label (got ${JSON.stringify(sharedEndpointLetters)})`,
+)
+report(
+  !anyTwoRectsIntersect(sharedEndpointRects),
+  `trip 984290: no two turnpoint marker bounding rects intersect (${sharedEndpointRects.length} markers checked)`,
+)
+
+await sharedEndpointPage.close()
+report(sharedEndpointBad.length === 0, `trip 984290: no unexpected 4xx/5xx responses or failed requests (saw: ${sharedEndpointBad.length ? sharedEndpointBad.join('; ') : 'none'})`)
+
+// === Scene 6: trip 985713, flat triangle selected — merged turnpoint markers, the OTHER
+// collision shape (#78) =====================================================================
+//
+// track-985713's flat triangle hits the same physical point through two DIFFERENT indices
+// (A at track_idx 13, B at track_idx 14) that independently resolve to the identical
+// coordinate, rather than a repeated index the way 984290's FAI triangle does — the case
+// groupTurnpointMarkers's own coordinate-keyed (not index-keyed) grouping exists for.
+
+const distinctIndexPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
+const distinctIndexBad = trackBadResponses(distinctIndexPage)
+await distinctIndexPage.goto(`${baseUrl}/flights/985713?__verifyMap`, { waitUntil: 'domcontentloaded' })
+await waitForMapIdle(distinctIndexPage)
+
+console.log('\n=== trip 985713 (flat triangle, distinct-index/equal-coordinate turnpoint collision) ===')
+
+const distinctIndexRadios = await readRadios(distinctIndexPage)
+console.log('radios:', distinctIndexRadios)
+
+report(
+  distinctIndexRadios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+  'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+)
+
+await clickRadioByLabelPrefix(distinctIndexPage, 'Flat triangle')
+await distinctIndexPage
+  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+  .catch(() => {})
+await waitForMapIdle(distinctIndexPage)
+
+const distinctIndexMarkerCount = await readTurnpointMarkerCount(distinctIndexPage)
+const distinctIndexLetters = await readTurnpointMarkerLabels(distinctIndexPage)
+const distinctIndexRects = await readTurnpointMarkerRects(distinctIndexPage)
+
+console.log('turnpoint markers (flat triangle):', distinctIndexMarkerCount, distinctIndexLetters)
+
+report(
+  distinctIndexMarkerCount === 4,
+  `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${distinctIndexMarkerCount})`,
+)
+report(
+  distinctIndexLetters.includes('A/B'),
+  `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(distinctIndexLetters)})`,
+)
+// The rect-INTERSECTION oracle (like scene 5's) is deliberately not used here: this same
+// fixture's D and E turnpoints are a NEAR-identical pair (~9.4 m apart, ~3.6 px at this
+// flight's fit zoom 13.86 — not an exact coordinate match) that #83 explicitly scopes out of
+// this fix, and their badges legitimately sit close enough on screen to intersect. Exact
+// SAME-POSITION is still a real, precise oracle: it fails only if the merge itself broke and
+// produced two markers on the identical pixel, which D/E's mere proximity can never trigger.
+report(
+  !anyTwoRectsAtSamePosition(distinctIndexRects),
+  `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${distinctIndexRects.length} markers checked)`,
+)
+await distinctIndexPage.close()
+report(distinctIndexBad.length === 0, `trip 985713: no unexpected 4xx/5xx responses or failed requests (saw: ${distinctIndexBad.length ? distinctIndexBad.join('; ') : 'none'})`)
 
 await browser.close()
 
