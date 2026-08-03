@@ -124,19 +124,59 @@ async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void
   }, prefix)
 }
 
+function pageHasErrorBoundaryText(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.body.textContent?.includes('Could not load this from flightlog.org') ?? false)
+}
+
+// getTrack is 'use cache' PER TRIP (cacheLife('days'), tracks.ts), so every scene still pays a
+// cold KML fetch of its own. What's actually once-per-process is http.ts's own session mint
+// (module-level currentSession), and scene 1 runs first, so it's the one scene that can still
+// be racing that mint on top of its own cold fetch: that combination makes it the scene most
+// likely to lose the race and come back with radios: [] and summary: null even though nothing
+// is actually broken. A transient upstream failure (the session mint or fetch still in flight)
+// is deliberately retried once, and by the second read it has normally landed. A deterministic
+// one (a real client-side regression) survives the retry unchanged and fails downstream, same
+// as a page that returns bad responses in `bad`, which is never retried away. The one signature
+// this retry must not touch is the error boundary: getTrack throwing renders error.tsx with the
+// byte-identical empty signature, but no amount of retrying fixes a thrown error, so it is
+// checked for by name before retrying and reported explicitly instead.
+// Gives the first navigation's still-in-flight getTrack time to land in its 'use cache' entry,
+// so the reload is a cache hit.
+const COLD_SERVER_RETRY_DELAY_MS = 3000
+
+async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await waitForMapIdle(page)
+  const radios = await readRadios(page)
+  const summary = await readSummary(page)
+  if (radios.length === 0 && summary === null && bad.length === 0) {
+    if (await pageHasErrorBoundaryText(page)) {
+      report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
+      return { radios, summary }
+    }
+    console.log(`RETRY - ${label}: empty radios + null summary + no bad responses on first read, retrying once for a cold server`)
+    await page.waitForTimeout(COLD_SERVER_RETRY_DELAY_MS)
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    await waitForMapIdle(page)
+    return { radios: await readRadios(page), summary: await readSummary(page) }
+  }
+  return { radios, summary }
+}
+
 // === Scene 1: trip 1001428, every geometry available ===================================
 
 const fullSetPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
 const fullSetBad = trackBadResponses(fullSetPage)
-await fullSetPage.goto(`${baseUrl}/flights/1001428?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(fullSetPage)
-
-const fullSetRadios = await readRadios(fullSetPage)
+const { radios: fullSetRadios, summary: fullSetSummary } = await loadSceneWithColdServerRetry(
+  fullSetPage,
+  `${baseUrl}/flights/1001428?__verifyMap`,
+  'trip 1001428',
+  fullSetBad,
+)
 const fullSetSourceLoaded = await fullSetPage
   .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
   .catch(() => null)
 const fullSetMarkerCount = await readTurnpointMarkerCount(fullSetPage)
-const fullSetSummary = await readSummary(fullSetPage)
 
 console.log('\n=== trip 1001428 (full set) ===')
 console.log('radios:', fullSetRadios)
