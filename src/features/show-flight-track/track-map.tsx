@@ -279,11 +279,12 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       })
 
       turnpointMarkersRef.current = turnpointGroups.map((group) => {
-        const marker = new Marker({ element: createTurnpointElement(group.label) })
+        const label = group.letters.join('/')
+        const marker = new Marker({ element: createTurnpointElement(label) })
           .setLngLat(toLngLat(group.point))
           .addTo(map)
         marker.getElement().setAttribute('data-testid', 'turnpoint-marker')
-        marker.getElement().setAttribute('data-letter', group.label)
+        marker.getElement().setAttribute('data-label', label)
         return marker
       })
     }

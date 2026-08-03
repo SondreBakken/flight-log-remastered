@@ -13,21 +13,30 @@ const POINTS: TrackPoint[] = [0, 1, 2, 3, 4].map((index) => ({
 }))
 POINTS.push({ ...POINTS[0], altitude: 900, secondsFromStart: 5 })
 
+// letters is the type's single source of truth (no separate label field) — every assertion
+// below reads the display label off letters.join('/'), the same derivation track-map.tsx does
+// at its own render site.
 describe('groupTurnpointMarkers', () => {
   it('no collision: every turnpoint resolves to a distinct coordinate, one single-letter group per turnpoint in order', () => {
     const groups = groupTurnpointMarkers([0, 1, 2, 3, 4], POINTS)
 
     expect(groups).toHaveLength(5)
-    expect(groups.map((g) => g.label)).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A', 'B', 'C', 'D', 'E'])
     expect(groups.map((g) => g.letters)).toEqual([['A'], ['B'], ['C'], ['D'], ['E']])
     expect(groups.map((g) => g.point)).toEqual([0, 1, 2, 3, 4].map((i) => POINTS[i]))
+  })
+
+  it('empty turnpointIndices: no turnpoints, no groups', () => {
+    const groups = groupTurnpointMarkers([], POINTS)
+
+    expect(groups).toEqual([])
   })
 
   it('same-array-element duplicate (track-984290 shape): two positions resolving to the same index merge into one D/E badge', () => {
     const groups = groupTurnpointMarkers([0, 1, 2, 3, 3], POINTS)
 
     expect(groups).toHaveLength(4)
-    expect(groups.map((g) => g.label)).toEqual(['A', 'B', 'C', 'D/E'])
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A', 'B', 'C', 'D/E'])
     expect(groups[3].letters).toEqual(['D', 'E'])
     expect(groups[3].point).toEqual(POINTS[3])
   })
@@ -36,24 +45,33 @@ describe('groupTurnpointMarkers', () => {
     const groups = groupTurnpointMarkers([0, 5, 2, 3, 4], POINTS)
 
     expect(groups).toHaveLength(4)
-    expect(groups.map((g) => g.label)).toEqual(['A/B', 'C', 'D', 'E'])
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A/B', 'C', 'D', 'E'])
     expect(groups[0].letters).toEqual(['A', 'B'])
     // The merged group keeps the first occurrence's own point, not the later duplicate's.
     expect(groups[0].point).toEqual(POINTS[0])
-  })
-
-  it('non-adjacent letters at genuinely different coordinates never merge', () => {
-    const groups = groupTurnpointMarkers([0, 1, 2, 3, 4], POINTS)
-
-    expect(groups).toHaveLength(5)
-    expect(groups.every((g) => g.letters.length === 1)).toBe(true)
   })
 
   it('two colliding NON-ADJACENT letters (A and C sharing a coordinate, B between them distinct) still merge, as A/C', () => {
     const groups = groupTurnpointMarkers([0, 1, 5, 3, 4], POINTS)
 
     expect(groups).toHaveLength(4)
-    expect(groups.map((g) => g.label)).toEqual(['A/C', 'B', 'D', 'E'])
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A/C', 'B', 'D', 'E'])
     expect(groups[0].letters).toEqual(['A', 'C'])
+  })
+
+  it('three-way merge: three positions resolving to the same coordinate collapse into one C/D/E badge', () => {
+    const groups = groupTurnpointMarkers([0, 1, 2, 2, 2], POINTS)
+
+    expect(groups).toHaveLength(3)
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A', 'B', 'C/D/E'])
+    expect(groups[2].letters).toEqual(['C', 'D', 'E'])
+  })
+
+  it('first-and-last merge: A and E sharing a coordinate merge into A/E, leaving B/C/D between them distinct', () => {
+    const groups = groupTurnpointMarkers([0, 1, 2, 3, 5], POINTS)
+
+    expect(groups).toHaveLength(4)
+    expect(groups.map((g) => g.letters.join('/'))).toEqual(['A/E', 'B', 'C', 'D'])
+    expect(groups[0].letters).toEqual(['A', 'E'])
   })
 })

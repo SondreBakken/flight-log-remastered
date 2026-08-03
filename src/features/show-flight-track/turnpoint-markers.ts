@@ -2,9 +2,11 @@ import type { TrackPoint } from '@/lib/flightlog/types'
 import { turnpointLetter } from './scoring-overlay'
 
 // One rendered marker, carrying every letter that resolves to the same physical point (#78).
+// `letters` is the single source of truth for what a marker shows; there is no separate
+// `label` field to keep in sync — the display label ('A', or a merged 'D/E') is derived at
+// the render site (letters.join('/') in track-map.tsx).
 export type TurnpointMarkerGroup = {
   point: TrackPoint
-  label: string
   letters: string[]
 }
 
@@ -15,12 +17,16 @@ export type TurnpointMarkerGroup = {
 // would catch the first case and silently miss the second. Exact float equality (no distance
 // tolerance) is deliberate: it's exactly what both real fixtures above need, and a tolerance
 // would also start folding in near-identical-but-distinct turnpoints (e.g. 985713's own D/E
-// pair, ~33 m apart) — that case is out of scope here, filed as #83.
+// pair, ~9.4 m apart) — that case is out of scope here, filed as #83.
 export function groupTurnpointMarkers(turnpointIndices: number[], points: TrackPoint[]): TurnpointMarkerGroup[] {
   const groups: TurnpointMarkerGroup[] = []
   const groupByCoordinate = new Map<string, TurnpointMarkerGroup>()
 
   turnpointIndices.forEach((index, position) => {
+    // Unguarded: turnpointIndices are parse-validated to be in range for points before a
+    // ScoringGeometry is ever constructed (see parse-track.ts's assertIndicesConsistent /
+    // assertTriangleShapeConsistent), so an out-of-range index here would already mean a bug
+    // upstream of this function, not a case for it to defend against.
     const point = points[index]
     const letter = turnpointLetter(position)
     const key = `${point.lon},${point.lat}`
@@ -28,11 +34,10 @@ export function groupTurnpointMarkers(turnpointIndices: number[], points: TrackP
     const existingGroup = groupByCoordinate.get(key)
     if (existingGroup) {
       existingGroup.letters.push(letter)
-      existingGroup.label = existingGroup.letters.join('/')
       return
     }
 
-    const group: TurnpointMarkerGroup = { point, label: letter, letters: [letter] }
+    const group: TurnpointMarkerGroup = { point, letters: [letter] }
     groupByCoordinate.set(key, group)
     groups.push(group)
   })
