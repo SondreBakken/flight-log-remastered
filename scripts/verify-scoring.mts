@@ -90,6 +90,17 @@ function readTurnpointMarkerRects(page: Page): Promise<DOMRect[]> {
   )
 }
 
+type CanvasRect = { x: number; y: number; width: number; height: number }
+
+function readCanvasRect(page: Page): Promise<CanvasRect | null> {
+  return page.evaluate(() => {
+    const el = document.querySelector('.maplibregl-canvas')
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height }
+  })
+}
+
 // Two markers with genuinely different coordinates can still sit close enough on screen to
 // touch at some zoom levels — this scene is scoped to a known-collision fixture specifically
 // so "no two rects intersect" is a real assertion about the merge working, not a flaky one
@@ -126,6 +137,52 @@ async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void
 
 function pageHasErrorBoundaryText(page: Page): Promise<boolean> {
   return page.evaluate(() => document.body.textContent?.includes('Could not load this from flightlog.org') ?? false)
+}
+
+type CanvasColorSample = { distinctColors: number; matchDistance: number }
+
+async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: string): Promise<CanvasColorSample> {
+  const screenshotBuffer = await page.screenshot()
+  const base64 = screenshotBuffer.toString('base64')
+  return page.evaluate(
+    async ({ base64: b64, rect, targetHex }) => {
+      const img = new Image()
+      img.src = `data:image/png;base64,${b64}`
+      await img.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const x0 = Math.max(0, Math.floor(rect.x))
+      const y0 = Math.max(0, Math.floor(rect.y))
+      const x1 = Math.min(canvas.width, Math.ceil(rect.x + rect.width))
+      const y1 = Math.min(canvas.height, Math.ceil(rect.y + rect.height))
+      const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
+      const w = x1 - x0
+      const target = [
+        Number.parseInt(targetHex.slice(1, 3), 16),
+        Number.parseInt(targetHex.slice(3, 5), 16),
+        Number.parseInt(targetHex.slice(5, 7), 16),
+      ]
+      const seen = new Set<string>()
+      let minDistance = Infinity
+      const step = 3
+      for (let y = 0; y < y1 - y0; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4
+          const r = data[idx]
+          const g = data[idx + 1]
+          const b = data[idx + 2]
+          seen.add(`${r},${g},${b}`)
+          const distance = Math.sqrt((r - target[0]) ** 2 + (g - target[1]) ** 2 + (b - target[2]) ** 2)
+          if (distance < minDistance) minDistance = distance
+        }
+      }
+      return { distinctColors: seen.size, matchDistance: minDistance }
+    },
+    { base64, rect: sampleRect, targetHex: colorHex },
+  )
 }
 
 // getTrack is 'use cache' PER TRIP (cacheLife('days'), tracks.ts), so every scene still pays a
@@ -183,6 +240,53 @@ async function runScene(options: { tripId: number; label: string; scene: (contex
 
 // === Scene 1: trip 1001428, every geometry available ===================================
 
+// Switching overlays syncs onto the SAME map, not a remount. The 83 new lines in
+// track-map.tsx's own scoring-sync effect exist for one documented reason: kept separate from
+// the map-creation effect so toggling the overlay doesn't recreate the whole map and reset the
+// user's pan/zoom. Nothing before this asserted that path at all; this asserts it directly:
+// capture center/zoom, toggle, and check they didn't move, alongside the geometry itself
+// actually having changed (different marker count, different summary).
+async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: string | null): Promise<void> {
+  const centerBefore = await page.evaluate(() => {
+    const map = window.__flightTrackMap
+    return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
+  })
+
+  await clickRadioByLabelPrefix(page, 'Distance over 5 points')
+  await page.waitForTimeout(500)
+
+  const centerAfter = await page.evaluate(() => {
+    const map = window.__flightTrackMap
+    return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
+  })
+  const toggledRadios = await readRadios(page)
+  const toggledMarkerCount = await readTurnpointMarkerCount(page)
+  const toggledSummary = await readSummary(page)
+
+  console.log('center/zoom before toggle:', centerBefore)
+  console.log('center/zoom after toggle:', centerAfter)
+  console.log('turnpoint markers after toggle:', toggledMarkerCount)
+  console.log('summary after toggle:', toggledSummary)
+
+  report(
+    toggledRadios.some((r) => r.label.startsWith('Distance over 5 points') && r.checked),
+    'trip 1001428: toggling to the 5-point overlay actually selects it',
+  )
+  report(
+    centerBefore !== null &&
+      centerAfter !== null &&
+      centerBefore.center[0] === centerAfter.center[0] &&
+      centerBefore.center[1] === centerAfter.center[1] &&
+      centerBefore.zoom === centerAfter.zoom,
+    'trip 1001428: toggling the overlay does not move the map (same center/zoom, so the map was synced onto, not recreated)',
+  )
+  report(toggledMarkerCount === 5, `trip 1001428: the 5-point overlay renders 5 turnpoint markers, not the 2-marker open-distance leftovers (got ${toggledMarkerCount})`)
+  report(
+    toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== summaryBeforeToggle,
+    `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
+  )
+}
+
 await runScene({
   tripId: 1001428,
   label: 'trip 1001428',
@@ -232,54 +336,9 @@ await runScene({
     // long as SOME source and layer got added. Sampled the same way verify-shot.mts/
     // verify-track-gradient.mts sample the altitude ramp: crop to the canvas element, decode the
     // screenshot back into pixels, and look for SCORING_LINE_COLOR among them.
-    const canvasRect = await page.evaluate(() => {
-      const el = document.querySelector('.maplibregl-canvas')
-      if (!el) return null
-      const r = el.getBoundingClientRect()
-      return { x: r.x, y: r.y, width: r.width, height: r.height }
-    })
+    const canvasRect = await readCanvasRect(page)
     if (canvasRect) {
-      const screenshotBuffer = await page.screenshot()
-      const base64 = screenshotBuffer.toString('base64')
-      const { distinctColors, matchDistance } = await page.evaluate(
-        async ({ base64: b64, rect, targetHex }) => {
-          const img = new Image()
-          img.src = `data:image/png;base64,${b64}`
-          await img.decode()
-          const canvas = document.createElement('canvas')
-          canvas.width = img.naturalWidth
-          canvas.height = img.naturalHeight
-          const ctx = canvas.getContext('2d')!
-          ctx.drawImage(img, 0, 0)
-          const x0 = Math.max(0, Math.floor(rect.x))
-          const y0 = Math.max(0, Math.floor(rect.y))
-          const x1 = Math.min(canvas.width, Math.ceil(rect.x + rect.width))
-          const y1 = Math.min(canvas.height, Math.ceil(rect.y + rect.height))
-          const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
-          const w = x1 - x0
-          const target = [
-            Number.parseInt(targetHex.slice(1, 3), 16),
-            Number.parseInt(targetHex.slice(3, 5), 16),
-            Number.parseInt(targetHex.slice(5, 7), 16),
-          ]
-          const seen = new Set<string>()
-          let minDistance = Infinity
-          const step = 3
-          for (let y = 0; y < y1 - y0; y += step) {
-            for (let x = 0; x < w; x += step) {
-              const idx = (y * w + x) * 4
-              const r = data[idx]
-              const g = data[idx + 1]
-              const b = data[idx + 2]
-              seen.add(`${r},${g},${b}`)
-              const distance = Math.sqrt((r - target[0]) ** 2 + (g - target[1]) ** 2 + (b - target[2]) ** 2)
-              if (distance < minDistance) minDistance = distance
-            }
-          }
-          return { distinctColors: seen.size, matchDistance: minDistance }
-        },
-        { base64, rect: canvasRect, targetHex: SCORING_LINE_COLOR },
-      )
+      const { distinctColors, matchDistance } = await sampleCanvasColors(page, canvasRect, SCORING_LINE_COLOR)
       report(distinctColors > 500, `trip 1001428: the canvas is not near-uniform (${distinctColors} distinct sampled colours)`)
       report(
         matchDistance < 40,
@@ -289,51 +348,7 @@ await runScene({
       report(false, 'trip 1001428: .maplibregl-canvas element is present, to know where to sample pixels from')
     }
 
-    // === Toggle: switching overlays syncs onto the SAME map, not a remount =================
-    //
-    // The 83 new lines in track-map.tsx's own scoring-sync effect exist for one documented
-    // reason: kept separate from the map-creation effect so toggling the overlay doesn't recreate
-    // the whole map and reset the user's pan/zoom. Nothing before this asserted that path at all
-    // — this does, directly: capture center/zoom, toggle, and check they didn't move, alongside
-    // the geometry itself actually having changed (different marker count, different summary).
-    const centerBefore = await page.evaluate(() => {
-      const map = window.__flightTrackMap
-      return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
-    })
-
-    await clickRadioByLabelPrefix(page, 'Distance over 5 points')
-    await page.waitForTimeout(500)
-
-    const centerAfter = await page.evaluate(() => {
-      const map = window.__flightTrackMap
-      return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
-    })
-    const toggledRadios = await readRadios(page)
-    const toggledMarkerCount = await readTurnpointMarkerCount(page)
-    const toggledSummary = await readSummary(page)
-
-    console.log('center/zoom before toggle:', centerBefore)
-    console.log('center/zoom after toggle:', centerAfter)
-    console.log('turnpoint markers after toggle:', toggledMarkerCount)
-    console.log('summary after toggle:', toggledSummary)
-
-    report(
-      toggledRadios.some((r) => r.label.startsWith('Distance over 5 points') && r.checked),
-      'trip 1001428: toggling to the 5-point overlay actually selects it',
-    )
-    report(
-      centerBefore !== null &&
-        centerAfter !== null &&
-        centerBefore.center[0] === centerAfter.center[0] &&
-        centerBefore.center[1] === centerAfter.center[1] &&
-        centerBefore.zoom === centerAfter.zoom,
-      'trip 1001428: toggling the overlay does not move the map (same center/zoom, so the map was synced onto, not recreated)',
-    )
-    report(toggledMarkerCount === 5, `trip 1001428: the 5-point overlay renders 5 turnpoint markers, not the 2-marker open-distance leftovers (got ${toggledMarkerCount})`)
-    report(
-      toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== summary,
-      `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
-    )
+    await assertToggleToFivePointDistance(page, summary)
   },
 })
 
