@@ -264,10 +264,19 @@ function assertLineStringPresent(
   }
 }
 
-const TRIANGLE_KINDS: readonly TriangleScoringGeometryKind[] = ['distance_flat_triangle', 'distance_fai_triangle']
+// A `Record<TriangleScoringGeometryKind, true>`, not a `readonly TriangleScoringGeometryKind[]`
+// cast through `as readonly string[]`: the array cast erases the union entirely, so adding a
+// third triangle kind to the type without adding it here would compile clean and silently fall
+// through to parseLineGeometry instead of failing the build. A Record keyed by the union itself
+// makes TypeScript reject this object — not just isTriangleKind's callers — the moment a new
+// member exists without an entry.
+const TRIANGLE_KIND_LOOKUP: Record<TriangleScoringGeometryKind, true> = {
+  distance_flat_triangle: true,
+  distance_fai_triangle: true,
+}
 
 function isTriangleKind(kind: ScoringGeometryKind): kind is TriangleScoringGeometryKind {
-  return (TRIANGLE_KINDS as readonly string[]).includes(kind)
+  return kind in TRIANGLE_KIND_LOOKUP
 }
 
 // One name/track_idx/distance read, shared by both the line and triangle parse paths below —
@@ -301,20 +310,54 @@ type TriangleRawCoordinates = {
 // loop and a connector (see TriangleScoringGeometry's own doc comment in types.ts) — never a
 // single LineString the way the other five kinds are. Naively reading `placemark.LineString`
 // for a triangle placemark would find nothing and misreport every real triangle as the
-// metadata-only stub; this is what stops that. Returns null for anything that isn't that exact
-// two-child shape, including a placemark with no MultiGeometry at all (the real stub shape —
-// see the fixtures with only a bare `<name>` and no `<description>`/`<MultiGeometry>`), which
-// the caller treats identically to the single-LineString kinds' "no LineString" case.
-function extractTriangleCoordinates(placemark: Record<string, unknown>): TriangleRawCoordinates | null {
+// metadata-only stub; this is what stops that. Returns null ONLY for the genuine stub shape —
+// no MultiGeometry and no bare LineString at all (see the fixtures with only a bare `<name>`
+// and no `<description>`/`<MultiGeometry>`), which the caller treats identically to the
+// single-LineString kinds' "no LineString" case. Anything else — a bare LineString instead of
+// MultiGeometry, a MultiGeometry with the wrong number of LineString children, or a child
+// missing its own coordinates — is markup this parser recognises the PRESENCE of but not the
+// shape of, so it throws instead of returning null. Returning null there would let it fold into
+// the "no description either" branch above and misreport as the confirmed-absent stub, exactly
+// the confident-wrong-null failure ScoringGeometryResult's own doc comment warns about; throwing
+// keeps it on the 'unparseable' path regardless of whether a description happens to be present,
+// matching the single-LineString kinds' assertLineStringPresent/assertDescriptionPresent
+// behaviour for the same "something's there, it's just not what I expect" shape.
+function extractTriangleCoordinates(
+  placemark: Record<string, unknown>,
+  kind: TriangleScoringGeometryKind,
+  tripId: number,
+): TriangleRawCoordinates | null {
   const multiGeometry = placemark.MultiGeometry
-  if (!isRecord(multiGeometry)) return null
-  const lineStrings = toArray(multiGeometry.LineString)
-  if (lineStrings.length !== 2) return null
+  if (!isRecord(multiGeometry)) {
+    if (placemark.LineString !== undefined) {
+      throw new Error(
+        `Scoring placemark ${kind} for trip ${tripId} has a bare LineString instead of the MultiGeometry a ` +
+          'triangle always has',
+      )
+    }
+    return null
+  }
 
+  const lineStrings = toArray(multiGeometry.LineString)
+  if (lineStrings.length !== 2) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a MultiGeometry with ${lineStrings.length} LineString ` +
+        'children, not the 2 (loop, connector) a triangle always has',
+    )
+  }
+
+  // Guards `undefined` as well as `null`: destructuring a `.map()` result shorter than 2 (were
+  // the length check above ever relaxed or bypassed) yields `undefined` at a missing index, not
+  // `null` — a `=== null`-only check would silently let that slip through as "no coordinates
+  // text", not the "wrong number of children" shape it actually is.
   const [loopRaw, connectorRaw] = lineStrings.map((lineString) =>
     isRecord(lineString) ? text(lineString.coordinates) : null,
   )
-  if (loopRaw === null || connectorRaw === null) return null
+  if (loopRaw == null || connectorRaw == null) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a MultiGeometry LineString child without coordinates`,
+    )
+  }
 
   return { loop: parseCoordinates(loopRaw), connector: parseCoordinates(connectorRaw) }
 }
@@ -442,7 +485,7 @@ function parseTriangleGeometry(
   tripId: number,
 ): TriangleScoringGeometry | null {
   const description = text(placemark.description)
-  const triangleCoordinates = extractTriangleCoordinates(placemark)
+  const triangleCoordinates = extractTriangleCoordinates(placemark, kind, tripId)
 
   if (description === null && triangleCoordinates === null) return null
   assertDescriptionPresent(description, kind, tripId)
@@ -453,19 +496,29 @@ function parseTriangleGeometry(
 
   assertTriangleShapeConsistent(indices, triangleCoordinates, points, kind, tripId)
 
+  const [connectorStart, loopB, loopC, loopD, connectorEnd] = indices
+  const loopIndices: [number, number, number] = [loopB, loopC, loopD]
+  const connectorIndices: [number, number] = [connectorStart, connectorEnd]
+
+  // Two independent degeneracy checks, not one: the whole-geometry check below (same rule as
+  // parseLineGeometry's) only catches every one of A-E collapsing to a single point. A loop
+  // whose own B/C/D collapse to one point is degenerate on its own terms — a zero-area
+  // triangle, nothing left to render as a closed 3-vertex ring — even when A and E (the
+  // connector's own ends) are still genuinely distinct from it and from each other, which would
+  // otherwise keep the whole-geometry count at 2 or more and let a zero-area "triangle" through.
+  if (distinctPointCount(loopIndices, points) < 2) return null
   if (distinctPointCount(indices, points) < 2) return null
 
   const distanceKm = readRequiredDistanceKm(kind, description, tripId)
 
-  const [connectorStart, loopB, loopC, loopD, connectorEnd] = indices
   return {
     shape: 'triangle',
     kind,
     name,
     distanceKm,
     turnpointIndices: indices,
-    loopIndices: [loopB, loopC, loopD],
-    connectorIndices: [connectorStart, connectorEnd],
+    loopIndices,
+    connectorIndices,
   }
 }
 

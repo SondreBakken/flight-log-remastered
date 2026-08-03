@@ -755,6 +755,148 @@ Flat triangle
 
     expect(track.scoring.distance_flat_triangle).toBe('unparseable')
   })
+
+  // The fix round's own regression: extractTriangleCoordinates used to return the same `null`
+  // for "no MultiGeometry at all" (the genuine stub) and "MultiGeometry present but not the
+  // recognised two-LineString shape" — collapsing both into parseTriangleGeometry's own
+  // `description === null && triangleCoordinates === null` stub check whenever a description
+  // was also missing. Every case below carries unrecognised geometry markup with NO
+  // description, the exact combination that used to slip through as a false null instead of
+  // 'unparseable' — only a placemark with neither a description NOR any geometry markup at all
+  // may resolve to null (see the dedicated stub test above).
+  describe('unrecognised geometry markup resolves to unparseable even without a description (not folded into the stub null)', () => {
+    it('a MultiGeometry with only one LineString child, no description', () => {
+      const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+      const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+      expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+    })
+
+    it('a MultiGeometry with three LineString children, no description', () => {
+      const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+        <LineString>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+      const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+      expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+    })
+
+    it('a bare LineString with coordinates instead of a MultiGeometry, no description', () => {
+      const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <LineString>
+        <coordinates>
+          9.000000,61.000000,800
+          9.004000,61.000400,804
+        </coordinates>
+      </LineString>
+    </Placemark>`
+      const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+      expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+    })
+  })
+
+  // Minor 1: the whole-geometry degenerate check (every one of A-E the same point) doesn't
+  // catch a triangle whose LOOP alone (B/C/D) collapses to a single point while A and E stay
+  // genuinely distinct from it and each other — a zero-area triangle, nothing left to render as
+  // a closed 3-vertex ring, that the whole-geometry count (3 distinct points here: A, the
+  // collapsed BCD point, and E) would otherwise let through.
+  it('a loop whose B/C/D resolve to a single point is degenerate (zero-area triangle), even when A and E are distinct from it and each other', () => {
+    const zeroAreaTriangle = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 1 1 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+
+Pos.      Time      Latitude         Longitude         Distance
+ A     1  00:00:00  N 61  00  00.00  E 009  00  00.00
+ B     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.04
+ C     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.00
+ D     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.00
+ E     5  00:00:40  N 61  00  01.44  E 009  00  14.40  0.04
+                                                  Sum  0.08
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.001000,61.000100,801
+            9.001000,61.000100,801
+            9.001000,61.000100,801
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+      <Style>
+        <LineStyle>
+          <color>FFFF0000</color>
+        </LineStyle>
+      </Style>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + zeroAreaTriangle), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBeNull()
+  })
 })
 
 // #59's fix round: these run in CI on every clean checkout (hand-built KML, no fixture read),
