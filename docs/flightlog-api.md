@@ -347,6 +347,39 @@ resolved with an **anonymous** session (below) — pilot search needs no auth. R
 | 142 | GpsDump info page | — | — |
 | 214 | **XLSX export of a pilot's flights** | `user_id` | auth, own account only |
 
+### `a=28` with no `offset` returns a pilot's complete flight history — #16
+
+Measured live (anonymous session), not assumed. `offset` on `a=28` is a genuine row-skip, not
+a decorative pager (unlike `a=42`'s own `offset=1000`, which appears identically whether or not
+more rows exist — see below): requesting a known total with `offset=N` returns exactly
+`total - N` rows, and an `offset` at or past the total returns zero rows.
+
+- **Gary Fisher (`user_id=4549`, Lier Hanggliderklubb), 134 rows, 2008-2026.** No `offset`:
+  134 rows (`totalFlightCount` sum also 134 — every row is `flightCount=1` for this pilot).
+  `offset=100`: 34 rows (134 - 100). `offset=1000`: 0 rows.
+- **Eskil Sætren (`user_id=12242`, Voss Hang- og Paragliderklubb), a much higher-volume
+  pilot** (`rqtid=1&club_id=51`'s current-year leaderboard has him at 356 flights for 2026
+  alone — the single busiest row of 291 that club's stats table returned). No `offset`:
+  172 rows, `totalFlightCount` sum 919, spanning 2024-2026. `offset=100`: 72 rows
+  (172 - 100). `offset=200`: 0 rows.
+- **Cross-check against `rqtid=1`'s own "Flights" column**, which is a CURRENT-YEAR total,
+  not all-time (measured, not documented anywhere on the site): both pilots' `a=28` rows
+  filtered down to 2026-dated flights alone sum to exactly their `rqtid=1` Flights figure
+  (Gary Fisher: 9 flights / 85.7 km, matching `rqtid=1&club_id=16` exactly; Eskil Sætren:
+  356 flights, matching `rqtid=1&club_id=51` exactly). This confirms `a=28`'s per-row data is
+  accurate at the row level; it is the `offset` arithmetic above (not this cross-check alone)
+  that establishes completeness, since `rqtid=1` has no all-time figure to compare a no-offset
+  request's total against.
+
+Conclusion: `getPilotLogbook` (`src/lib/flightlog/flights.ts`) requesting `a=28` with no
+`offset` is not a truncated first page — it is already the pilot's whole history, confirmed on
+one pilot with a multi-year but modest row count and a second with nearly 3x the rows and a
+per-year rate high enough that a hidden page-size cap would very plausibly have shown up if one
+existed. Pilot statistics (`src/features/browse-pilot-statistics`) and the logbook header's own
+"N flights shown" (`src/features/browse-pilot-logbook/index.tsx`) can both state their totals
+unhedged on this basis; this app does not implement `offset`-based pagination (out of scope
+until a pilot is found where it would actually matter).
+
 `101, 111, 114, 139` were seen only as link targets before being resolved live. `101` and `111`
 render real, homepage-distinct pages with no `<form>` and empty content shells — neither is
 pilot-related. `139` renders a real `<form>` (`airspace_lat`, `airspace_lon`) but is an
