@@ -208,8 +208,8 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=
 # ones that fixture would back; accepted trade-off, since these are gitignored scraped fixtures
 # absent in a clean checkout and the alternative (per-assertion skips) would silently narrow
 # coverage in a checkout where only some got regenerated. 233524, 984290 and 985713 all carry
-# real (non-degenerate) triangles — of #58's own 12-fixture sample, 12 of 17 sampled flights
-# do — but 984290's FAI triangle and 985713's flat triangle are each the shared-endpoint variant
+# real (non-degenerate) triangles — of the 18 track-*.kml fixtures on disk, 12 carry at least one
+# — but 984290's FAI triangle and 985713's flat triangle are each the shared-endpoint variant
 # (the connector shares an endpoint with the loop, so 5 distinct turnpoints collapse to 4 — see
 # check-scoring.mts's own dedicated assertions against them); 233524 is the plain 5-distinct
 # shape for both. 235690 is missing 3 scoring placemarks entirely (including both triangles);
