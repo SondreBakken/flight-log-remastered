@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { XMLParser } from 'fast-xml-parser'
 import { parseTrack } from '../src/lib/flightlog/parse-track'
-import type { ScoringGeometry, ScoringGeometryKind, ScoringGeometryResult } from '../src/lib/flightlog/types'
+import type {
+  ScoringGeometry,
+  ScoringGeometryKind,
+  ScoringGeometryResult,
+  TriangleScoringGeometryKind,
+} from '../src/lib/flightlog/types'
 
 // Same rationale as check-parsers.mts: these are gitignored scraped KML tracklogs, absent in
 // a clean checkout or CI, so a missing fixture means "nothing to check here", not "broken".
@@ -15,6 +20,12 @@ const requiredFixtures = [
   'fixtures/track-883027.kml',
   'fixtures/track-742436.kml',
   'fixtures/track-795416.kml',
+  // #58 fix round: the shared-endpoint triangle variant (connector shares an endpoint with the
+  // loop, so 5 distinct turnpoints collapse to 4) — 984290 on the FAI side, 985713 on the flat
+  // side. Neither is exercised by track-233524.kml's own triangles, which are the plain
+  // 5-distinct shape.
+  'fixtures/track-984290.kml',
+  'fixtures/track-985713.kml',
 ]
 const missing = requiredFixtures.filter((f) => !existsSync(f))
 if (missing.length > 0) {
@@ -41,8 +52,12 @@ function isGeometry(state: ScoringGeometryResult): state is ScoringGeometry {
 // Deliberately its own copy, not imported from parse-track.ts/scoring-overlay.ts: a check
 // script asserting SCORING_KINDS-shaped behaviour must not import SCORING_KINDS itself — a
 // bug or an accidental trim of that shared list would silently narrow what this script checks
-// right along with it, instead of catching the drift.
-const ALL_KINDS: ScoringGeometryKind[] = [
+// right along with it, instead of catching the drift. Named LINE_KINDS, not ALL_KINDS (its
+// original, misleading name until #58's fix round): the two triangle kinds have their own raw
+// coordinate shape (MultiGeometry loop+connector, not a single LineString) and so need their
+// own cross-check below (see TRIANGLE_KINDS and ownTriangleCoordinates) rather than silently
+// being skipped by every loop that iterates this constant.
+const LINE_KINDS: ScoringGeometryKind[] = [
   'distance_5_point',
   'distance_4_point',
   'distance_3_point',
@@ -50,11 +65,13 @@ const ALL_KINDS: ScoringGeometryKind[] = [
   'distance_out_and_return',
 ]
 
+const TRIANGLE_KINDS: TriangleScoringGeometryKind[] = ['distance_flat_triangle', 'distance_fai_triangle']
+
 // track-1001428.kml: the full-set fixture — every one of the five in-scope geometries is a
 // real, present, non-degenerate placemark.
 {
   const track = parseTrack(readFileSync('fixtures/track-1001428.kml', 'utf8'), 1001428)
-  for (const kind of ALL_KINDS) {
+  for (const kind of LINE_KINDS) {
     assert(isGeometry(track.scoring[kind]), `track-1001428: ${kind} is available`)
   }
   const fivePoint = track.scoring.distance_5_point
@@ -71,6 +88,12 @@ const ALL_KINDS: ScoringGeometryKind[] = [
     isGeometry(fivePoint) && JSON.stringify(fivePoint.turnpointIndices) === JSON.stringify([2, 233, 2144, 2928, 6905]),
     `track-1001428: distance_5_point's turnpoint indices are exact (got ${isGeometry(fivePoint) ? JSON.stringify(fivePoint.turnpointIndices) : fivePoint})`,
   )
+  // Not one of #58's 12 real-triangle fixtures — both triangle placemarks here are the
+  // metadata-only stub (bare <name>, no <description>/<MultiGeometry>), so "full-set" above
+  // deliberately stops at the original five kinds and this asserts the stub resolves to null
+  // rather than silently being skipped.
+  assert(track.scoring.distance_flat_triangle === null, 'track-1001428: stub distance_flat_triangle resolves to null')
+  assert(track.scoring.distance_fai_triangle === null, 'track-1001428: stub distance_fai_triangle resolves to null')
 }
 
 // track-235690.kml: missing 3 placemarks entirely (out-and-return, both triangles). The
@@ -79,9 +102,124 @@ const ALL_KINDS: ScoringGeometryKind[] = [
 {
   const track = parseTrack(readFileSync('fixtures/track-235690.kml', 'utf8'), 235690)
   assert(track.scoring.distance_out_and_return === null, 'track-235690: missing out-and-return placemark resolves to null')
+  assert(track.scoring.distance_flat_triangle === null, 'track-235690: missing distance_flat_triangle placemark resolves to null')
+  assert(track.scoring.distance_fai_triangle === null, 'track-235690: missing distance_fai_triangle placemark resolves to null')
   for (const kind of ['distance_5_point', 'distance_4_point', 'distance_3_point', 'distance_open'] as const) {
     assert(isGeometry(track.scoring[kind]), `track-235690: ${kind} is still available`)
   }
+}
+
+// track-233524.kml: #58's MultiGeometry triangle shape (a closed 3-vertex loop plus a 2-point
+// connector), values pinned against the fixture's own <FsInfo track_idx> and MultiGeometry
+// coordinates read directly (see #58's implementation notes) rather than trusted from the
+// parser under test.
+{
+  const track = parseTrack(readFileSync('fixtures/track-233524.kml', 'utf8'), 233524)
+  const flatTriangle = track.scoring.distance_flat_triangle
+  console.log(`track-233524: distance_flat_triangle=${JSON.stringify(flatTriangle)}`)
+  assert(
+    isGeometry(flatTriangle) &&
+      flatTriangle.shape === 'triangle' &&
+      flatTriangle.name === 'Flat triangle' &&
+      flatTriangle.distanceKm === 2.26 &&
+      JSON.stringify(flatTriangle.turnpointIndices) === JSON.stringify([15, 65, 78, 89, 90]) &&
+      JSON.stringify(flatTriangle.loopIndices) === JSON.stringify([65, 78, 89]) &&
+      JSON.stringify(flatTriangle.connectorIndices) === JSON.stringify([15, 90]),
+    'track-233524: distance_flat_triangle parses with exact turnpoint/loop/connector indices and its own 2.26 km sum',
+  )
+
+  const faiTriangle = track.scoring.distance_fai_triangle
+  console.log(`track-233524: distance_fai_triangle=${JSON.stringify(faiTriangle)}`)
+  assert(
+    isGeometry(faiTriangle) &&
+      faiTriangle.shape === 'triangle' &&
+      faiTriangle.name === 'FAI triangle' &&
+      faiTriangle.distanceKm === 1.94 &&
+      JSON.stringify(faiTriangle.turnpointIndices) === JSON.stringify([77, 78, 80, 91, 93]) &&
+      JSON.stringify(faiTriangle.loopIndices) === JSON.stringify([78, 80, 91]) &&
+      JSON.stringify(faiTriangle.connectorIndices) === JSON.stringify([77, 93]),
+    'track-233524: distance_fai_triangle parses with exact turnpoint/loop/connector indices and its own 1.94 km sum',
+  )
+}
+
+// track-984290.kml and track-985713.kml (#58 fix round): the shared-endpoint variant — 5
+// distinct turnpoints collapse to 4 because the connector shares an endpoint with the loop.
+// track-233524.kml's own triangles above are the plain 5-distinct shape, so neither fixture
+// alone proves assertTriangleShapeConsistent's own claim (see its doc comment in parse-track.ts)
+// that this shape is exactly as well-formed as the 5-distinct one — these two do.
+{
+  const track = parseTrack(readFileSync('fixtures/track-984290.kml', 'utf8'), 984290)
+
+  // The FAI triangle hits the shared endpoint via a literal repeated track_idx: D and E are
+  // both 1215, so the connector's own end IS a loop vertex by index, not merely by coincidence.
+  const faiTriangle = track.scoring.distance_fai_triangle
+  console.log(`track-984290: distance_fai_triangle=${JSON.stringify(faiTriangle)}`)
+  assert(
+    isGeometry(faiTriangle) &&
+      faiTriangle.shape === 'triangle' &&
+      faiTriangle.name === 'FAI triangle' &&
+      faiTriangle.distanceKm === 1.2 &&
+      JSON.stringify(faiTriangle.turnpointIndices) === JSON.stringify([176, 513, 1163, 1215, 1215]) &&
+      JSON.stringify(faiTriangle.loopIndices) === JSON.stringify([513, 1163, 1215]) &&
+      JSON.stringify(faiTriangle.connectorIndices) === JSON.stringify([176, 1215]),
+    'track-984290: distance_fai_triangle is the shared-endpoint variant — connector end (E) and loop vertex D are the same track_idx (1215)',
+  )
+  assert(
+    isGeometry(faiTriangle) &&
+      faiTriangle.shape === 'triangle' &&
+      faiTriangle.connectorIndices[1] === faiTriangle.loopIndices[2],
+    "track-984290: distance_fai_triangle's connector endpoint literally IS a loop endpoint (same index), the shape assertTriangleShapeConsistent's own doc comment describes",
+  )
+
+  const flatTriangle = track.scoring.distance_flat_triangle
+  assert(
+    isGeometry(flatTriangle) &&
+      flatTriangle.shape === 'triangle' &&
+      flatTriangle.distanceKm === 2.77 &&
+      JSON.stringify(flatTriangle.turnpointIndices) === JSON.stringify([176, 402, 1163, 1225, 1226]) &&
+      JSON.stringify(flatTriangle.loopIndices) === JSON.stringify([402, 1163, 1225]) &&
+      JSON.stringify(flatTriangle.connectorIndices) === JSON.stringify([176, 1226]),
+    "track-984290: distance_flat_triangle (the plain 5-distinct sibling on the same fixture) still parses with its own exact indices",
+  )
+}
+
+{
+  const track = parseTrack(readFileSync('fixtures/track-985713.kml', 'utf8'), 985713)
+
+  // The flat triangle hits the shared endpoint the OTHER way #58's scout flagged: two
+  // DIFFERENT track_idx values (13, 14 — connector start A, loop vertex B) that resolve to the
+  // exact same coordinate, rather than a repeated index the way 984290's FAI triangle does.
+  const flatTriangle = track.scoring.distance_flat_triangle
+  console.log(`track-985713: distance_flat_triangle=${JSON.stringify(flatTriangle)}`)
+  assert(
+    isGeometry(flatTriangle) &&
+      flatTriangle.shape === 'triangle' &&
+      flatTriangle.name === 'Flat triangle' &&
+      flatTriangle.distanceKm === 2.61 &&
+      JSON.stringify(flatTriangle.turnpointIndices) === JSON.stringify([13, 14, 157, 353, 354]) &&
+      JSON.stringify(flatTriangle.loopIndices) === JSON.stringify([14, 157, 353]) &&
+      JSON.stringify(flatTriangle.connectorIndices) === JSON.stringify([13, 354]),
+    'track-985713: distance_flat_triangle is the shared-endpoint variant on the flat side',
+  )
+  assert(
+    isGeometry(flatTriangle) &&
+      flatTriangle.shape === 'triangle' &&
+      track.points[flatTriangle.connectorIndices[0]].lon === track.points[flatTriangle.loopIndices[0]].lon &&
+      track.points[flatTriangle.connectorIndices[0]].lat === track.points[flatTriangle.loopIndices[0]].lat &&
+      flatTriangle.connectorIndices[0] !== flatTriangle.loopIndices[0],
+    "track-985713: distance_flat_triangle's connector start (A, track_idx 13) and loop vertex B (track_idx 14) are two DIFFERENT indices resolving to the exact same coordinate",
+  )
+
+  const faiTriangle = track.scoring.distance_fai_triangle
+  assert(
+    isGeometry(faiTriangle) &&
+      faiTriangle.shape === 'triangle' &&
+      faiTriangle.distanceKm === 0.81 &&
+      JSON.stringify(faiTriangle.turnpointIndices) === JSON.stringify([424, 437, 572, 718, 725]) &&
+      JSON.stringify(faiTriangle.loopIndices) === JSON.stringify([437, 572, 718]) &&
+      JSON.stringify(faiTriangle.connectorIndices) === JSON.stringify([424, 725]),
+    "track-985713: distance_fai_triangle (the plain 5-distinct sibling on the same fixture) still parses with its own exact indices",
+  )
 }
 
 // track-991729.kml and track-883027.kml: short flights where the 5- and 4-point geometries
@@ -176,6 +314,10 @@ function ownCoordinates(kml: string, kind: ScoringGeometryKind): Array<[number, 
   if (!isRecord(placemark) || !isRecord(placemark.LineString)) return null
   const raw = ownTextValue(placemark.LineString.coordinates)
   if (!raw) return null
+  return parseCoordinatePairs(raw)
+}
+
+function parseCoordinatePairs(raw: string): Array<[number, number]> {
   return raw
     .trim()
     .split(/\s+/)
@@ -183,6 +325,34 @@ function ownCoordinates(kml: string, kind: ScoringGeometryKind): Array<[number, 
       const [lon, lat] = triple.split(',').map(Number)
       return [lon, lat] as [number, number]
     })
+}
+
+// The triangle-kind sibling of ownCoordinates above (#58's own anti-off-by-one gate — see
+// parse-track.ts's extractTriangleCoordinates for why triangles need this at all): a triangle
+// placemark's own coordinates live under a MultiGeometry of two LineStrings (loop, connector),
+// never a single <LineString> the way the five line kinds are — reading `.LineString` directly
+// the way ownCoordinates does would find nothing on every real triangle. Independent of
+// parse-track.ts's own extractTriangleCoordinates for the same reason ownCoordinates is
+// independent of parseLineGeometry: this exists specifically to catch THAT file's own
+// index-resolution bugs, not to trust its account of what a triangle's raw coordinates are.
+function ownTriangleCoordinates(
+  kml: string,
+  kind: TriangleScoringGeometryKind,
+): { loop: Array<[number, number]>; connector: Array<[number, number]> } | null {
+  const document = xmlParser.parse(kml) as Record<string, unknown>
+  const folder = isRecord(document.Document) ? document.Document.Folder : undefined
+  const placemarks = isRecord(folder) ? toArray(folder.Placemark) : []
+  const placemark = placemarks.find(
+    (p) => isRecord(p) && isRecord(p.Metadata) && p.Metadata['@_type'] === kind,
+  )
+  if (!isRecord(placemark) || !isRecord(placemark.MultiGeometry)) return null
+  const lineStrings = toArray(placemark.MultiGeometry.LineString)
+  if (lineStrings.length !== 2) return null
+  const [loopRaw, connectorRaw] = lineStrings.map((lineString) =>
+    isRecord(lineString) ? ownTextValue(lineString.coordinates) : null,
+  )
+  if (loopRaw == null || connectorRaw == null) return null
+  return { loop: parseCoordinatePairs(loopRaw), connector: parseCoordinatePairs(connectorRaw) }
 }
 
 // Rotation-tolerant, not permutation-tolerant: track-233524's own distance_out_and_return
@@ -209,7 +379,7 @@ for (const file of requiredFixtures) {
   const tripId = Number(file.match(/(\d+)/)?.[1])
   const kml = readFileSync(file, 'utf8')
   const track = parseTrack(kml, tripId)
-  for (const kind of ALL_KINDS) {
+  for (const kind of LINE_KINDS) {
     const geometry = track.scoring[kind]
     if (!isGeometry(geometry)) continue
     const resolved = geometry.turnpointIndices.map((index): [number, number] => [
@@ -220,6 +390,33 @@ for (const file of requiredFixtures) {
     assert(
       own !== null && isRotationOfOwnCoordinates(resolved, own),
       `${file}: ${kind}'s turnpoint indices resolve (up to rotation) to the placemark's own coordinates`,
+    )
+  }
+  // The triangle-kind half of the same anti-off-by-one gate (#58): before this, LINE_KINDS
+  // being the only thing this loop iterated meant a triangle's loopIndices/connectorIndices
+  // could shift by one — the exact class of bug #15 exists to catch for the other five kinds —
+  // and nothing here would notice, because ownCoordinates only ever reads placemark.LineString,
+  // which every real triangle placemark simply doesn't have.
+  for (const kind of TRIANGLE_KINDS) {
+    const geometry = track.scoring[kind]
+    if (!isGeometry(geometry) || geometry.shape !== 'triangle') continue
+    const own = ownTriangleCoordinates(kml, kind)
+    const resolvedLoop = geometry.loopIndices.map((index): [number, number] => [
+      track.points[index].lon,
+      track.points[index].lat,
+    ])
+    const resolvedClosedLoop: Array<[number, number]> = [...resolvedLoop, resolvedLoop[0]]
+    const resolvedConnector = geometry.connectorIndices.map((index): [number, number] => [
+      track.points[index].lon,
+      track.points[index].lat,
+    ])
+    assert(
+      own !== null && isRotationOfOwnCoordinates(resolvedClosedLoop, own.loop),
+      `${file}: ${kind}'s loop indices resolve (up to rotation) to the placemark's own loop coordinates`,
+    )
+    assert(
+      own !== null && isRotationOfOwnCoordinates(resolvedConnector, own.connector),
+      `${file}: ${kind}'s connector indices resolve (up to rotation) to the placemark's own connector coordinates`,
     )
   }
 }

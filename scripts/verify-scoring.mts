@@ -1,4 +1,7 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Page } from 'playwright'
+import { XMLParser } from 'fast-xml-parser'
+import type { GeoJSONSource } from 'maplibre-gl'
 import { createReporter } from './lib/verify-report'
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
@@ -96,8 +99,31 @@ console.log('scoring source loaded:', fullSetSourceLoaded)
 console.log('turnpoint markers:', fullSetMarkerCount)
 console.log('summary text:', fullSetSummary)
 
+// "Full set" now means the five line-shaped kinds only: track-1001428's own two triangle
+// placemarks are the metadata-only stub (bare <name>, no <description>/<MultiGeometry> — see
+// check-scoring.mts's own assertion against this same fixture), so its triangle radios are
+// CORRECTLY disabled. Asserting "every option enabled" here would either be silently wrong or
+// force the fixture data itself to lie; asserting the true five-enabled/two-disabled split is
+// the real oracle, and #58's own fixtures (trip 233524, below) are what exercise the enabled
+// triangle case this scene no longer can.
+const LINE_LABELS = [
+  'Distance over 5 points',
+  'Distance over 4 points',
+  'Distance over 3 points',
+  'Open distance',
+  'Out-and-return distance',
+]
+const TRIANGLE_LABELS = ['Flat triangle', 'FAI triangle']
+
 report(fullSetRadios.some((r) => r.label.startsWith('Open distance') && r.checked), 'trip 1001428: Open distance is selected by default')
-report(fullSetRadios.every((r) => !r.disabled), 'trip 1001428: every scoring overlay option is available (full set)')
+report(
+  LINE_LABELS.every((label) => fullSetRadios.find((r) => r.label.startsWith(label))?.disabled === false),
+  'trip 1001428: all five line-shaped scoring geometries are enabled',
+)
+report(
+  TRIANGLE_LABELS.every((label) => fullSetRadios.find((r) => r.label.startsWith(label))?.disabled === true),
+  'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle radios are correctly disabled',
+)
 report(fullSetSourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
 report(fullSetMarkerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${fullSetMarkerCount})`)
 report(fullSetSummary === 'Open distance: 48.95 km', `trip 1001428: the summary shows the geometry's own scored distance (got "${fullSetSummary}")`)
@@ -262,6 +288,177 @@ report(
 
 await missingPlacemarkPage.close()
 report(missingPlacemarkBad.length === 0, `trip 235690: no unexpected 4xx/5xx responses or failed requests (saw: ${missingPlacemarkBad.length ? missingPlacemarkBad.join('; ') : 'none'})`)
+
+// === Scene 4: trip 233524, both triangle geometries real — the browser-level oracle for #58's
+// render path (scoring-line.ts's scoringLineCoordinates) ===================================
+//
+// check-scoring.mts pins the PARSE side against this same fixture (exact turnpoint/loop/
+// connector indices). Nothing before this scene drove the map's own GeoJSON source and checked
+// what actually got drawn — the render half was unpinned entirely: replacing
+// scoringLineCoordinates with a naive zigzag straight through turnpointIndices left every
+// vitest test and check-scoring.mts assertion green, because neither one ever looks at the
+// map's own source data. This scene is what a render-path regression actually has to fail.
+//
+// The feature-length checks below (one 4-point closed loop, one 2-point connector) catch a
+// wrong SHAPE but not a wrong PLACEMENT — a connector drawn over the loop's own points, or vice
+// versa, would still be "one 4-point feature, one 2-point feature" and pass. What follows is
+// independent of parse-track.ts's own extractTriangleCoordinates/scoringLineCoordinates, the
+// same way check-scoring.mts's ownTriangleCoordinates is: it reads the flat triangle
+// placemark's own raw MultiGeometry coordinates directly out of the KML text, so the rendered
+// features can be checked against the real points, not just the real shape.
+const triangleXmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
+
+function toArray<T>(value: T | T[] | undefined): T[] {
+  if (value === undefined) return []
+  return Array.isArray(value) ? value : [value]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function ownTextValue(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (isRecord(value) && '#text' in value) return ownTextValue(value['#text'])
+  return null
+}
+
+function parseCoordinatePairs(raw: string): Array<[number, number]> {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .map((triple) => {
+      const [lon, lat] = triple.split(',').map(Number)
+      return [lon, lat] as [number, number]
+    })
+}
+
+function ownTriangleCoordinates(
+  kml: string,
+  kind: 'distance_flat_triangle' | 'distance_fai_triangle',
+): { loop: Array<[number, number]>; connector: Array<[number, number]> } | null {
+  const document = triangleXmlParser.parse(kml) as Record<string, unknown>
+  const folder = isRecord(document.Document) ? document.Document.Folder : undefined
+  const placemarks = isRecord(folder) ? toArray(folder.Placemark) : []
+  const placemark = placemarks.find((p) => isRecord(p) && isRecord(p.Metadata) && p.Metadata['@_type'] === kind)
+  if (!isRecord(placemark) || !isRecord(placemark.MultiGeometry)) return null
+  const lineStrings = toArray(placemark.MultiGeometry.LineString)
+  if (lineStrings.length !== 2) return null
+  const [loopRaw, connectorRaw] = lineStrings.map((lineString) =>
+    isRecord(lineString) ? ownTextValue(lineString.coordinates) : null,
+  )
+  if (loopRaw == null || connectorRaw == null) return null
+  return { loop: parseCoordinatePairs(loopRaw), connector: parseCoordinatePairs(connectorRaw) }
+}
+
+// Rotation-tolerant (a closed loop can legitimately be listed starting at any of its 3 distinct
+// vertices) and float-epsilon-tolerant (the rendered points and the placemark's own MultiGeometry
+// points are two separately recorded coordinate copies in the same KML) — mirrors
+// check-scoring.mts's own isRotationOfOwnCoordinates, not an exact-order/exact-value match.
+function isRotationOfOwnCoordinates(rendered: Array<[number, number]>, own: Array<[number, number]>): boolean {
+  if (rendered.length !== own.length) return false
+  const n = rendered.length
+  const EPSILON = 1e-6
+  const closeEnough = (a: [number, number], b: [number, number]) =>
+    Math.abs(a[0] - b[0]) < EPSILON && Math.abs(a[1] - b[1]) < EPSILON
+  for (let rotation = 0; rotation < n; rotation++) {
+    if (rendered.every((point, i) => closeEnough(point, own[(i + rotation) % n]))) return true
+  }
+  return false
+}
+
+const trianglePage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
+const triangleBad = trackBadResponses(trianglePage)
+await trianglePage.goto(`${baseUrl}/flights/233524?__verifyMap`, { waitUntil: 'domcontentloaded' })
+await waitForMapIdle(trianglePage)
+
+const triangleRadios = await readRadios(trianglePage)
+console.log('\n=== trip 233524 (real flat/FAI triangle geometries) ===')
+console.log('radios:', triangleRadios)
+
+report(
+  triangleRadios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+  'trip 233524: the flat triangle is a real, non-degenerate geometry, not disabled',
+)
+report(
+  triangleRadios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+  'trip 233524: the FAI triangle is a real, non-degenerate geometry, not disabled',
+)
+
+await clickRadioByLabelPrefix(trianglePage, 'Flat triangle')
+await trianglePage
+  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+  .catch(() => {})
+await waitForMapIdle(trianglePage)
+
+// `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
+// effect passed to `addSource` — not `querySourceFeatures`, which reads back from the rendered
+// vector tiles instead and, at the low zoom a whole-flight view sits at, quantizes coordinates by
+// as much as a few hundred metres (geojson-vt's own tile-local simplification tolerance). That
+// quantization is invisible to the length/self-closing checks below (they don't care about exact
+// values), but it broke the coordinate-identity check further down outright: real points read
+// back a tenth of a kilometre from where they actually are. Typed loosely (not a `GeoJSON.
+// LineString` cast): `@types/geojson` (the package maplibre-gl's own .d.ts resolves that global
+// namespace against internally) isn't hoisted to this project's top-level node_modules/@types
+// under pnpm, so naming it here would fail typechecking outside maplibre-gl's own module scope.
+const scoringFeatureCoordinates = await trianglePage.evaluate(() => {
+  const map = window.__flightTrackMap
+  if (!map) return null
+  const source = map.getSource<GeoJSONSource>('scoring-overlay')
+  const data = source?.serialize().data as { features: Array<{ geometry: { type: string; coordinates: unknown } }> } | undefined
+  if (!data) return null
+  const coordinates: Array<[number, number][]> = []
+  for (const feature of data.features) {
+    if (feature.geometry.type !== 'LineString') continue
+    coordinates.push(feature.geometry.coordinates as [number, number][])
+  }
+  return coordinates
+})
+
+console.log('scoring source features (flat triangle):', JSON.stringify(scoringFeatureCoordinates))
+
+const featuresByLength = [...(scoringFeatureCoordinates ?? [])].sort((a, b) => a.length - b.length)
+const [connector, loop] = featuresByLength
+
+report(
+  scoringFeatureCoordinates !== null && scoringFeatureCoordinates.length === 2,
+  `trip 233524: selecting the flat triangle draws exactly two line features on the map's own scoring source (got ${scoringFeatureCoordinates?.length ?? 'none'})`,
+)
+report(
+  loop !== undefined && loop.length === 4 && JSON.stringify(loop[0]) === JSON.stringify(loop[3]),
+  `trip 233524: one feature is a self-closing 4-coordinate loop, first coordinate repeating last (got ${JSON.stringify(loop)})`,
+)
+report(
+  connector !== undefined && connector.length === 2,
+  `trip 233524: the other feature is a 2-coordinate connector (got ${JSON.stringify(connector)})`,
+)
+
+// fixtures/track-233524.kml is gitignored (a scraped copy of the same rqtid=19 KML the app's
+// own server fetched to render this page) — present in a checkout with fixtures regenerated per
+// the README, absent otherwise. SKIP (not FAIL) this specific comparison when it's missing,
+// the same convention check-scoring.mts/check-parsers.mts use for the same reason, rather than
+// failing an otherwise-legitimate run over a file this repo deliberately doesn't commit.
+const triangleFixturePath = 'fixtures/track-233524.kml'
+if (existsSync(triangleFixturePath)) {
+  const ownFlatTriangle = ownTriangleCoordinates(readFileSync(triangleFixturePath, 'utf8'), 'distance_flat_triangle')
+  report(
+    ownFlatTriangle !== null && loop !== undefined && isRotationOfOwnCoordinates(loop, ownFlatTriangle.loop),
+    `trip 233524: the rendered loop feature's points match the flat triangle placemark's own MultiGeometry loop coordinates, not some other placemark's points (got ${JSON.stringify(loop)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.loop)})`,
+  )
+  report(
+    ownFlatTriangle !== null && connector !== undefined && isRotationOfOwnCoordinates(connector, ownFlatTriangle.connector),
+    `trip 233524: the rendered connector feature's points match the flat triangle placemark's own MultiGeometry connector coordinates, not the loop's (got ${JSON.stringify(connector)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.connector)})`,
+  )
+} else {
+  console.log(
+    `SKIP - trip 233524: ${triangleFixturePath} absent, skipping the coordinate-identity check against the ` +
+      'raw MultiGeometry of the flat triangle placemark (regenerate fixtures per the README to exercise it)',
+  )
+}
+
+await trianglePage.close()
+report(triangleBad.length === 0, `trip 233524: no unexpected 4xx/5xx responses or failed requests (saw: ${triangleBad.length ? triangleBad.join('; ') : 'none'})`)
 
 await browser.close()
 

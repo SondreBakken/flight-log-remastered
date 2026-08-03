@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ScoringGeometry, Track } from '@/lib/flightlog/types'
+import type { LineScoringGeometry, Track } from '@/lib/flightlog/types'
 import {
   formatScoringSummary,
   resolveDefaultScoringKind,
@@ -8,8 +8,12 @@ import {
   turnpointLetter,
 } from './scoring-overlay'
 
-function geometry(overrides: Partial<ScoringGeometry> = {}): ScoringGeometry {
+// Every test in this file exercises shape-agnostic behaviour (labelling, defaulting, summary
+// formatting) — none of it branches on 'line' vs 'triangle' — so a line-shaped fixture alone
+// is sufficient; see parse-track.test.ts for triangle-shaped coverage.
+function geometry(overrides: Partial<LineScoringGeometry> = {}): LineScoringGeometry {
   return {
+    shape: 'line',
     kind: 'distance_5_point',
     name: 'Distance over 5 points',
     distanceKm: 52.76,
@@ -25,6 +29,8 @@ function scoring(overrides: Partial<Track['scoring']> = {}): Track['scoring'] {
     distance_3_point: null,
     distance_open: null,
     distance_out_and_return: null,
+    distance_flat_triangle: null,
+    distance_fai_triangle: null,
     ...overrides,
   }
 }

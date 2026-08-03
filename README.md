@@ -77,14 +77,16 @@ that boundary today:
   as the other three, pinned against a live number, and will go stale the day that number
   changes; it is simply expected to change far less often. See
   `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
-- `verify-scoring.mts` (#15) pins three numbers against a live KML fetch of trip 1001428: the
-  open-distance summary text (`48.95 km`), the turnpoint marker count for that geometry (`2`),
-  and the per-flight disabled/enabled state of each radio option across three real flights.
-  Unlike the other four, what it pins against is not a roster that grows or shrinks over time,
-  it is one specific historical flight's already-flown GPS track and flightlog.org's own
-  already-computed scoring geometry for it. Neither changes after the fact the way a takeoff or
-  club roster does, so this pin is closer to the frozen-vs-frozen case above than a countdown,
-  even though one side of it is still a live fetch.
+- `verify-scoring.mts` (#15, extended by #58) pins three numbers against a live KML fetch of trip
+  1001428: the open-distance summary text (`48.95 km`), the turnpoint marker count for that
+  geometry (`2`), and the per-flight disabled/enabled state of each radio option across four real
+  flights — including, for trip 233524, the map's own scoring-overlay GeoJSON source shape after
+  selecting the flat triangle (two features: a 4-coordinate closed loop, a 2-coordinate
+  connector). Unlike the other four, what it pins against is not a roster that grows or shrinks
+  over time, it is a handful of specific historical flights' already-flown GPS tracks and
+  flightlog.org's own already-computed scoring geometry for each. Neither changes after the fact
+  the way a takeoff or club roster does, so this pin is closer to the frozen-vs-frozen case above
+  than a countdown, even though one side of it is still a live fetch.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
@@ -116,19 +118,28 @@ anyway, by preference rather than necessity: dev is not forbidden, just the leas
 reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
 maplibre-gl v6/Turbopack note below).
 
-`verify-scoring.mts` (#15) shares `verify-track-hover.mts`'s `?__verifyMap` gate to check the
-scoring overlay against three real flights, each exercising a different absence shape: 1001428
-(every geometry available, default selection is Open distance, its map source actually loads and
-renders 2 turnpoint markers), 991729 (the degenerate 5- and 4-point geometries render as disabled
-radio options, not silently selectable), and 235690 (the entirely-missing out-and-return placemark
-is likewise disabled). For 1001428 it also samples the capture's own pixels for the overlay's
-amber line colour (existence of a source/layer alone would still pass for a wholly wrong or
-empty geometry), and drives an actual toggle between two overlays to check that the map's own
-center/zoom stay put across it: the effect that syncs the overlay is kept separate from the
-map-creation effect specifically so switching overlays doesn't reset a user's pan/zoom, and
-nothing exercised that path before. Run against `pnpm run build && pnpm run start`, same reason
-as `verify-track-gradient.mts`: the overlay's map source is exactly the kind of thing the
-maplibre-gl v6/Turbopack bug would silently fail to load.
+`verify-scoring.mts` (#15, extended by #58) shares `verify-track-hover.mts`'s `?__verifyMap` gate
+to check the scoring overlay against four real flights, each exercising a different shape: 1001428
+(all five line-shaped geometries enabled and Open distance selected by default, its map source
+actually loads and renders 2 turnpoint markers — both triangle radios correctly DISABLED, since
+this fixture's own triangle placemarks are the metadata-only stub, not real geometry), 991729
+(the degenerate 5- and 4-point geometries render as disabled radio options, not silently
+selectable), 235690 (the entirely-missing out-and-return placemark is likewise disabled), and
+233524 (#58: both triangle radios enabled — real, non-degenerate geometry — and, after selecting
+the flat triangle, the map's own scoring-overlay source carries exactly two line features: a
+self-closing 4-coordinate loop and a 2-coordinate connector). That last scene is the
+browser-level oracle for the triangle RENDER path (`scoring-line.ts`'s scoringLineCoordinates):
+nothing else — not Vitest, not `check-scoring.mts` — ever looks at what the map's own GeoJSON
+source actually contains, so a render-path regression (e.g. drawing turnpointIndices as one
+naive zigzag instead of loop-plus-connector) previously left every other check green. For
+1001428 it also samples the capture's own pixels for the overlay's amber line colour (existence
+of a source/layer alone would still pass for a wholly wrong or empty geometry), and drives an
+actual toggle between two overlays to check that the map's own center/zoom stay put across it:
+the effect that syncs the overlay is kept separate from the map-creation effect specifically so
+switching overlays doesn't reset a user's pan/zoom, and nothing exercised that path before. Run
+against `pnpm run build && pnpm run start`, same reason as `verify-track-gradient.mts`: the
+overlay's map source is exactly the kind of thing the maplibre-gl v6/Turbopack bug would
+silently fail to load.
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls
@@ -191,16 +202,27 @@ mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
-# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15):
-# 233524 is the only sampled flight with real (non-degenerate) triangles; 235690 is missing 3
-# scoring placemarks entirely; 991729 and 883027 are short flights with degenerate 5pt/4pt
-# geometries; 742436 and 795416 are long XC flights. Any trip id with a GPS track works for
-# rqtid=19 — these particular ids just happen to already exercise every absence/degenerate shape
-# check:scoring pins against.
+# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15,
+# extended by #58). requiredFixtures in check-scoring.mts gates the WHOLE script on all of them
+# being present — one missing file SKIPs (loudly, exit 0) every assertion in it, not just the
+# ones that fixture would back; accepted trade-off, since these are gitignored scraped fixtures
+# absent in a clean checkout and the alternative (per-assertion skips) would silently narrow
+# coverage in a checkout where only some got regenerated. 233524, 984290 and 985713 all carry
+# real (non-degenerate) triangles — of the 18 track-*.kml fixtures on disk, 12 carry at least one
+# — but 984290's FAI triangle and 985713's flat triangle are each the shared-endpoint variant
+# (the connector shares an endpoint with the loop, so 5 distinct turnpoints collapse to 4 — see
+# check-scoring.mts's own dedicated assertions against them); 233524 is the plain 5-distinct
+# shape for both. 235690 is missing 3 scoring placemarks entirely (including both triangles);
+# 991729 and 883027 are short flights with degenerate 5pt/4pt geometries; 742436 and 795416 are
+# long XC flights. Any trip id with a GPS track works for rqtid=19 — these particular ids just
+# happen to already exercise every absence/degenerate/shared-endpoint shape check:scoring pins
+# against.
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=233524" -o fixtures/track-233524.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=235690" -o fixtures/track-235690.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=991729" -o fixtures/track-991729.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=883027" -o fixtures/track-883027.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=984290" -o fixtures/track-984290.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=985713" -o fixtures/track-985713.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=742436" -o fixtures/track-742436.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=795416" -o fixtures/track-795416.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html

@@ -2,12 +2,16 @@ import { XMLParser } from 'fast-xml-parser'
 import { buildRecord } from '@/lib/records/build-record'
 import { SCORING_KIND_LABELS } from './types'
 import type {
+  LineScoringGeometry,
+  LineScoringGeometryKind,
   ScoringGeometry,
   ScoringGeometryKind,
   ScoringGeometryResult,
   Track,
   TrackPoint,
   TrackStatsResult,
+  TriangleScoringGeometry,
+  TriangleScoringGeometryKind,
 } from './types'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
@@ -260,6 +264,162 @@ function assertLineStringPresent(
   }
 }
 
+// A `Record<TriangleScoringGeometryKind, true>`, not a `readonly TriangleScoringGeometryKind[]`
+// cast through `as readonly string[]`: the array cast erases the union entirely, so adding a
+// third triangle kind to the type without adding it here would compile clean and silently fall
+// through to parseLineGeometry instead of failing the build. A Record keyed by the union itself
+// makes TypeScript reject this object — not just isTriangleKind's callers — the moment a new
+// member exists without an entry.
+const TRIANGLE_KIND_LOOKUP: Record<TriangleScoringGeometryKind, true> = {
+  distance_flat_triangle: true,
+  distance_fai_triangle: true,
+}
+
+function isTriangleKind(kind: ScoringGeometryKind): kind is TriangleScoringGeometryKind {
+  return kind in TRIANGLE_KIND_LOOKUP
+}
+
+// One name/track_idx/distance read, shared by both the line and triangle parse paths below —
+// each throws the same way regardless of which shape the placemark turns out to be.
+function readPlacemarkName(placemark: Record<string, unknown>, kind: ScoringGeometryKind, tripId: number): string {
+  const name = text(placemark.name)
+  if (!name) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no name`)
+  return name
+}
+
+function readRequiredTrackIdx(placemark: Record<string, unknown>, kind: ScoringGeometryKind, tripId: number): number[] {
+  const indices = readTrackIdx(placemark)
+  if (!indices) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no turnpoint indices`)
+  return indices
+}
+
+function readRequiredDistanceKm(kind: ScoringGeometryKind, description: string, tripId: number): number {
+  const distanceKm = parseScoringDistanceKm(kind, description)
+  if (distanceKm === null) {
+    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a distance its own table doesn't contain`)
+  }
+  return distanceKm
+}
+
+type TriangleRawCoordinates = {
+  loop: Array<[number, number, number]>
+  connector: Array<[number, number, number]>
+}
+
+// A real triangle's geometry is a MultiGeometry of exactly two LineString children — a closed
+// loop and a connector (see TriangleScoringGeometry's own doc comment in types.ts) — never a
+// single LineString the way the other five kinds are. Naively reading `placemark.LineString`
+// for a triangle placemark would find nothing and misreport every real triangle as the
+// metadata-only stub; this is what stops that. Returns null ONLY for the genuine stub shape —
+// no MultiGeometry and no bare LineString at all (see the fixtures with only a bare `<name>`
+// and no `<description>`/`<MultiGeometry>`), which the caller treats identically to the
+// single-LineString kinds' "no LineString" case. Anything else — a bare LineString instead of
+// MultiGeometry, a MultiGeometry with the wrong number of LineString children, or a child
+// missing its own coordinates — is markup this parser recognises the PRESENCE of but not the
+// shape of, so it throws instead of returning null. Returning null there would let it fold into
+// the "no description either" branch above and misreport as the confirmed-absent stub, exactly
+// the confident-wrong-null failure ScoringGeometryResult's own doc comment warns about; throwing
+// keeps it on the 'unparseable' path regardless of whether a description happens to be present,
+// matching the single-LineString kinds' assertLineStringPresent/assertDescriptionPresent
+// behaviour for the same "something's there, it's just not what I expect" shape.
+function extractTriangleCoordinates(
+  placemark: Record<string, unknown>,
+  kind: TriangleScoringGeometryKind,
+  tripId: number,
+): TriangleRawCoordinates | null {
+  const multiGeometry = placemark.MultiGeometry
+  if (!isRecord(multiGeometry)) {
+    if (placemark.LineString !== undefined) {
+      throw new Error(
+        `Scoring placemark ${kind} for trip ${tripId} has a bare LineString instead of the MultiGeometry a ` +
+          'triangle always has',
+      )
+    }
+    return null
+  }
+
+  const lineStrings = toArray(multiGeometry.LineString)
+  if (lineStrings.length !== 2) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a MultiGeometry with ${lineStrings.length} LineString ` +
+        'children, not the 2 (loop, connector) a triangle always has',
+    )
+  }
+
+  // Guards `undefined` as well as `null`: destructuring a `.map()` result shorter than 2 (were
+  // the length check above ever relaxed or bypassed) yields `undefined` at a missing index, not
+  // `null` — a `=== null`-only check would silently let that slip through as "no coordinates
+  // text", not the "wrong number of children" shape it actually is.
+  const [loopRaw, connectorRaw] = lineStrings.map((lineString) =>
+    isRecord(lineString) ? text(lineString.coordinates) : null,
+  )
+  if (loopRaw == null || connectorRaw == null) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a MultiGeometry LineString child without coordinates`,
+    )
+  }
+
+  return { loop: parseCoordinates(loopRaw), connector: parseCoordinates(connectorRaw) }
+}
+
+function assertTriangleGeometryPresent(
+  coordinates: TriangleRawCoordinates | null,
+  kind: TriangleScoringGeometryKind,
+  tripId: number,
+): asserts coordinates is TriangleRawCoordinates {
+  if (coordinates === null) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a description without a MultiGeometry — neither a ` +
+        'real geometry nor the known metadata-only stub shape',
+    )
+  }
+}
+
+// A triangle's own shape is fixed by definition, not reconciled against track_idx by a raw
+// coordinate count the way assertIndicesConsistent does for the other five kinds: the loop is
+// a closed 3-vertex ring (4 raw coordinates, first repeating last) and the connector is a
+// straight 2-point segment, 6 raw coordinates in total, against 5 track_idx indices (A-E) —
+// counts that never match and were never meant to. Two fixtures confirmed on real flightlog.org
+// exports (track-984290, track-985713) additionally have only 4 DISTINCT coordinates because
+// the connector shares an endpoint with the loop, without the raw shape itself being any less
+// well-formed. What IS checked is the shape's own internal well-formedness — the loop closes on
+// itself, the connector has exactly two ends, track_idx carries exactly the 5 letters a
+// triangle's table always has, and every index resolves inside the track.
+function assertTriangleShapeConsistent(
+  indices: number[],
+  coordinates: TriangleRawCoordinates,
+  points: TrackPoint[],
+  kind: TriangleScoringGeometryKind,
+  tripId: number,
+): void {
+  if (coordinates.loop.length !== 4) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a triangle loop with ${coordinates.loop.length} ` +
+        'points, not the expected closed 4-point ring',
+    )
+  }
+  if (coordinates.connector.length !== 2) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has a triangle connector with ${coordinates.connector.length} ` +
+        'points, not the expected 2-point segment',
+    )
+  }
+  const [firstLon, firstLat] = coordinates.loop[0]
+  const [lastLon, lastLat] = coordinates.loop[3]
+  if (firstLon !== lastLon || firstLat !== lastLat) {
+    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a triangle loop that does not close on itself`)
+  }
+  if (indices.length !== 5) {
+    throw new Error(
+      `Scoring placemark ${kind} for trip ${tripId} has ${indices.length} turnpoint indices, not the 5 a ` +
+        "triangle's A-E table always has",
+    )
+  }
+  if (indices.some((index) => index < 0 || index >= points.length)) {
+    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a turnpoint index outside the track`)
+  }
+}
+
 // A track_idx whose length disagrees with its own LineString's coordinate count, or an index
 // outside the track entirely, means this placemark's own turnpoint wiring doesn't add up —
 // not a shape this parser has ever seen as legitimate, so it throws.
@@ -281,22 +441,107 @@ function assertIndicesConsistent(
   }
 }
 
+// The five single-LineString kinds' own parse path: `placemark.LineString` plus `track_idx`,
+// one index per coordinate, resolved directly into an ordered polyline. See
+// parseTriangleGeometry below for why the two triangle kinds cannot reuse this path.
+function parseLineGeometry(
+  kind: LineScoringGeometryKind,
+  placemark: Record<string, unknown>,
+  points: TrackPoint[],
+  tripId: number,
+): LineScoringGeometry | null {
+  const description = text(placemark.description)
+  const lineString = placemark.LineString
+  const coordinatesRaw = isRecord(lineString) ? text(lineString.coordinates) : null
+
+  if (description === null && coordinatesRaw === null) return null
+  assertDescriptionPresent(description, kind, tripId)
+  assertLineStringPresent(coordinatesRaw, kind, tripId)
+
+  const name = readPlacemarkName(placemark, kind, tripId)
+  const indices = readRequiredTrackIdx(placemark, kind, tripId)
+
+  const coordinates = parseCoordinates(coordinatesRaw)
+  assertIndicesConsistent(indices, coordinates, points, kind, tripId)
+
+  if (distinctPointCount(indices, points) < 2) return null
+
+  const distanceKm = readRequiredDistanceKm(kind, description, tripId)
+
+  return { shape: 'line', kind, name, distanceKm, turnpointIndices: indices }
+}
+
+// A triangle placemark's geometry lives under MultiGeometry (see extractTriangleCoordinates),
+// not `placemark.LineString` — reading `.LineString` directly, the way parseLineGeometry does,
+// would find nothing on every real triangle and misreport it as the metadata-only stub. The
+// KML's own 5-letter turnpoint table (A-E) numbers A and E as the connector's two ends and
+// B/C/D as the loop's three distinct vertices closing back onto B (confirmed against
+// fixtures/track-233524.kml's own track_idx values resolved against its MultiGeometry
+// coordinates) — that grouping is what loopIndices/connectorIndices below carry.
+function parseTriangleGeometry(
+  kind: TriangleScoringGeometryKind,
+  placemark: Record<string, unknown>,
+  points: TrackPoint[],
+  tripId: number,
+): TriangleScoringGeometry | null {
+  const description = text(placemark.description)
+  const triangleCoordinates = extractTriangleCoordinates(placemark, kind, tripId)
+
+  if (description === null && triangleCoordinates === null) return null
+  assertDescriptionPresent(description, kind, tripId)
+  assertTriangleGeometryPresent(triangleCoordinates, kind, tripId)
+
+  const name = readPlacemarkName(placemark, kind, tripId)
+  const indices = readRequiredTrackIdx(placemark, kind, tripId)
+
+  assertTriangleShapeConsistent(indices, triangleCoordinates, points, kind, tripId)
+
+  const [connectorStart, loopB, loopC, loopD, connectorEnd] = indices
+  const loopIndices: [number, number, number] = [loopB, loopC, loopD]
+  const connectorIndices: [number, number] = [connectorStart, connectorEnd]
+
+  // Two independent degeneracy checks, not one: the whole-geometry check below (same rule as
+  // parseLineGeometry's) only catches every one of A-E collapsing to a single point. A loop
+  // needs 3 distinct vertices to close into a ring at all — B/C/D collapsing to only 1 or 2
+  // distinct points is degenerate on its own terms, a zero-area triangle with nothing left to
+  // render as a closed 3-vertex ring, even when A and E (the connector's own ends) are still
+  // genuinely distinct from it and from each other, which would otherwise keep the
+  // whole-geometry count at 2 or more and let a zero-area "triangle" through. Confirmed against
+  // every real loop across the local fixtures: each one resolves to exactly 3 distinct vertices,
+  // so this threshold nulls no genuine triangle.
+  if (distinctPointCount(loopIndices, points) < 3) return null
+  if (distinctPointCount(indices, points) < 2) return null
+
+  const distanceKm = readRequiredDistanceKm(kind, description, tripId)
+
+  return {
+    shape: 'triangle',
+    kind,
+    name,
+    distanceKm,
+    turnpointIndices: indices,
+    loopIndices,
+    connectorIndices,
+  }
+}
+
 // Resolves one scoring geometry, collapsing its three real absence shapes into one `null`
 // ("not available"):
 //   1. placemark missing entirely (`!placemark`)
-//   2. placemark present as a metadata-only stub, no description and no LineString (both
-//      absent together — the shape real triangle stubs actually have; unconfirmed for any
-//      in-scope kind specifically, since SCORING_KIND_LABELS' five kinds never surface it in
-//      a sampled fixture — borrowed from the triangle placemarks that do)
+//   2. placemark present as a metadata-only stub, no description and no geometry (both
+//      absent together — confirmed for the two triangle kinds directly, see
+//      fixtures/track-1001428.kml's own bare `<name>`-only triangle placemarks; unconfirmed
+//      for the other five kinds specifically, since no sampled fixture surfaces it there)
 //   3. placemark present with a genuine geometry, but every turnpoint resolves to the same
 //      point (a degenerate, effectively zero-length line)
 // Anything that looks like case 2 but isn't, or a distance the description's own table
 // doesn't actually contain, throws instead of silently returning null — see
-// assertDescriptionPresent/assertLineStringPresent/assertIndicesConsistent above. Silently
-// returning `[]`/null for markup this parser doesn't recognise is the exact failure this
-// repo has hit four times (#25, #6, #32, #8): a confident wrong "not available" that then
-// caches. The caller (resolveScoringGeometry below) is what keeps that throw from taking the
-// rest of the page down with it.
+// assertDescriptionPresent/assertLineStringPresent/assertIndicesConsistent (the five
+// single-LineString kinds) and assertTriangleGeometryPresent/assertTriangleShapeConsistent
+// (the two triangle kinds) above. Silently returning `[]`/null for markup this parser doesn't
+// recognise is the exact failure this repo has hit four times (#25, #6, #32, #8): a confident
+// wrong "not available" that then caches. The caller (resolveScoringGeometry below) is what
+// keeps that throw from taking the rest of the page down with it.
 function parseScoringGeometry(
   kind: ScoringGeometryKind,
   placemarks: unknown[],
@@ -306,31 +551,9 @@ function parseScoringGeometry(
   const placemark = findPlacemarkByType(placemarks, kind)
   if (!placemark) return null
 
-  const description = text(placemark.description)
-  const lineString = placemark.LineString
-  const coordinatesRaw = isRecord(lineString) ? text(lineString.coordinates) : null
-
-  if (description === null && coordinatesRaw === null) return null
-  assertDescriptionPresent(description, kind, tripId)
-  assertLineStringPresent(coordinatesRaw, kind, tripId)
-
-  const name = text(placemark.name)
-  if (!name) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no name`)
-
-  const indices = readTrackIdx(placemark)
-  if (!indices) throw new Error(`Scoring placemark ${kind} for trip ${tripId} has no turnpoint indices`)
-
-  const coordinates = parseCoordinates(coordinatesRaw)
-  assertIndicesConsistent(indices, coordinates, points, kind, tripId)
-
-  if (distinctPointCount(indices, points) < 2) return null
-
-  const distanceKm = parseScoringDistanceKm(kind, description)
-  if (distanceKm === null) {
-    throw new Error(`Scoring placemark ${kind} for trip ${tripId} has a distance its own table doesn't contain`)
-  }
-
-  return { kind, name, distanceKm, turnpointIndices: indices }
+  return isTriangleKind(kind)
+    ? parseTriangleGeometry(kind, placemark, points, tripId)
+    : parseLineGeometry(kind, placemark, points, tripId)
 }
 
 // Contains parseScoringGeometry's throw to this one geometry (#15's original blast-radius

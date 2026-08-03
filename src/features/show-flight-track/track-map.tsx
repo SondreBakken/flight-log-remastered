@@ -15,6 +15,7 @@ import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from '
 import { formatAltitude } from './format-altitude'
 import { SCORING_LINE_COLOR, TRACK_LINE_COLOR } from './colors'
 import { turnpointLetter } from './scoring-overlay'
+import { scoringLineCoordinates, toLngLat } from './scoring-line'
 import { nearestIndexByLocation } from './track-hover'
 
 declare global {
@@ -47,25 +48,23 @@ const SCORING_SOURCE_ID = 'scoring-overlay'
 const SCORING_LAYER_ID = 'scoring-overlay-line'
 const DEFAULT_SIZE_CLASSES = 'h-[70vh] w-full'
 
-function toLngLat(point: TrackPoint): [number, number] {
-  return [point.lon, point.lat]
-}
-
-function lineData(coordinates: [number, number][]): TrackLineData {
+// One Feature per line: a plain track or a line-shaped scoring geometry draws as a single
+// entry, a triangle as two (loop, connector — see scoring-line.ts's scoringLineCoordinates).
+// A single GeoJSON source/layer renders every feature it's given with the same paint, so two
+// features need no second layer of their own.
+function lineData(lines: Array<[number, number][]>): TrackLineData {
   return {
     type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates },
-        properties: {},
-      },
-    ],
+    features: lines.map((coordinates) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates },
+      properties: {},
+    })),
   }
 }
 
 function trackLineData(points: TrackPoint[]): TrackLineData {
-  return lineData(points.map(toLngLat))
+  return lineData([points.map(toLngLat)])
 }
 
 // A small circular badge carrying the turnpoint's own letter (A-E, matching the KML
@@ -127,7 +126,8 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       fitBoundsOptions: { padding: 48, maxZoom: 14 },
     })
     mapRef.current = map
-    // No test runner in this repo; browser verification scripts (scripts/verify-track-gradient.mts,
+    // Vitest runs under jsdom, not a real browser (see README's own note on this), so it can't
+    // hold a live MapLibre GL instance; browser verification scripts (scripts/verify-track-gradient.mts,
     // scripts/verify-track-hover.mts) drive a real page instead and need a handle on the live map to
     // assert source/layer state programmatically rather than trust a screenshot alone — and, per
     // #47, they have to run against a real `pnpm run build && pnpm run start`, not `next dev`, to
@@ -252,10 +252,16 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       if (!scoringGeometry) return
 
       // turnpointIndices are positions in this same `points` array (see types.ts's
-      // ScoringGeometry doc comment) — resolved directly, no matching needed.
+      // ScoringGeometry doc comment) — resolved directly, no matching needed. Markers use
+      // every turnpoint in its own A-E order regardless of shape; the drawn line does not
+      // (see scoringLineCoordinates) because a triangle's loop and connector are not one
+      // continuous path through that same order.
       const turnpoints = scoringGeometry.turnpointIndices.map((index) => points[index])
 
-      map.addSource(SCORING_SOURCE_ID, { type: 'geojson', data: lineData(turnpoints.map(toLngLat)) })
+      map.addSource(SCORING_SOURCE_ID, {
+        type: 'geojson',
+        data: lineData(scoringLineCoordinates(scoringGeometry, points)),
+      })
       map.addLayer({
         id: SCORING_LAYER_ID,
         type: 'line',
