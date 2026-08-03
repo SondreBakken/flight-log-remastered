@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import PilotLogbook from '@/features/browse-pilot-logbook'
+import PilotStatistics from '@/features/browse-pilot-statistics'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import type { Flight } from '@/lib/flightlog/types'
@@ -27,7 +28,12 @@ async function Logbook({ params }: { params: PilotParams }) {
   const { pilot, flights } = await getPilotLogbook(pilotId)
   const trackedTripIds = await getTrackedTripIds(pilotId, yearsCovered(flights))
 
-  return <PilotLogbook pilot={pilot} flights={flights} trackedTripIds={trackedTripIds} />
+  return (
+    <div className="flex flex-col gap-10">
+      <PilotLogbook pilot={pilot} flights={flights} trackedTripIds={trackedTripIds} />
+      <PilotStatistics flights={flights} />
+    </div>
+  )
 }
 
 function LogbookSkeleton() {
