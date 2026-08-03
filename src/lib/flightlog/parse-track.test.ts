@@ -897,6 +897,59 @@ Pos.      Time      Latitude         Longitude         Distance
 
     expect(track.scoring.distance_flat_triangle).toBeNull()
   })
+
+  // A loop needs 3 distinct vertices to close into a ring. B and C resolving to the same point,
+  // even with D genuinely distinct from both, still leaves only 2 distinct vertices — degenerate
+  // the same way as the fully-collapsed case above, just half as collapsed.
+  it('a loop whose B and C resolve to the same point (D distinct) is degenerate, only 2 of the 3 vertices distinct', () => {
+    const halfCollapsedTriangle = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 1 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+
+Pos.      Time      Latitude         Longitude         Distance
+ A     1  00:00:00  N 61  00  00.00  E 009  00  00.00
+ B     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.04
+ C     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.00
+ D     4  00:00:30  N 61  00  01.08  E 009  00  10.80  0.03
+ E     5  00:00:40  N 61  00  01.44  E 009  00  14.40  0.02
+                                                  Sum  0.09
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.001000,61.000100,801
+            9.001000,61.000100,801
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+      <Style>
+        <LineStyle>
+          <color>FFFF0000</color>
+        </LineStyle>
+      </Style>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + halfCollapsedTriangle), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBeNull()
+  })
 })
 
 // #59's fix round: these run in CI on every clean checkout (hand-built KML, no fixture read),

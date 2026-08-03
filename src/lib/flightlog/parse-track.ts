@@ -502,11 +502,14 @@ function parseTriangleGeometry(
 
   // Two independent degeneracy checks, not one: the whole-geometry check below (same rule as
   // parseLineGeometry's) only catches every one of A-E collapsing to a single point. A loop
-  // whose own B/C/D collapse to one point is degenerate on its own terms — a zero-area
-  // triangle, nothing left to render as a closed 3-vertex ring — even when A and E (the
-  // connector's own ends) are still genuinely distinct from it and from each other, which would
-  // otherwise keep the whole-geometry count at 2 or more and let a zero-area "triangle" through.
-  if (distinctPointCount(loopIndices, points) < 2) return null
+  // needs 3 distinct vertices to close into a ring at all — B/C/D collapsing to only 1 or 2
+  // distinct points is degenerate on its own terms, a zero-area triangle with nothing left to
+  // render as a closed 3-vertex ring, even when A and E (the connector's own ends) are still
+  // genuinely distinct from it and from each other, which would otherwise keep the
+  // whole-geometry count at 2 or more and let a zero-area "triangle" through. Confirmed against
+  // every real loop across the local fixtures: each one resolves to exactly 3 distinct vertices,
+  // so this threshold nulls no genuine triangle.
+  if (distinctPointCount(loopIndices, points) < 3) return null
   if (distinctPointCount(indices, points) < 2) return null
 
   const distanceKm = readRequiredDistanceKm(kind, description, tripId)
