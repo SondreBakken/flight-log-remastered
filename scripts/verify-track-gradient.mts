@@ -24,8 +24,30 @@ const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 // it cannot leave state the main run below depends on.
 const baseUrl = url.split('?')[0]
 const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
+const negativeLogs: string[] = []
+const negativeBad: string[] = []
+negativePage.on('console', (m) => negativeLogs.push(`[${m.type()}] ${m.text()}`))
+negativePage.on('pageerror', (e) =>
+  negativeLogs.push(`[pageerror] ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`),
+)
+negativePage.on('response', (r) => {
+  if (r.status() >= 400) negativeBad.push(`${r.status()} ${r.url()}`)
+})
+negativePage.on('requestfailed', (r) => negativeBad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
+
 await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
-await negativePage.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
+const negativeCanvasAppeared = await negativePage
+  .waitForSelector('.maplibregl-canvas', { timeout: 20000 })
+  .then(() => true)
+  .catch(() => false)
+if (!negativeCanvasAppeared) {
+  console.error("FAIL - the negative probe's page never rendered a map canvas, within the timeout")
+  console.log('bad responses:', negativeBad.length ? negativeBad : 'none')
+  console.log('logs:', negativeLogs.length ? negativeLogs : 'none')
+  await negativePage.close()
+  await browser.close()
+  process.exit(1)
+}
 await negativePage.waitForTimeout(1000)
 const handleExposedWithoutParam = await negativePage.evaluate(() => window.__flightTrackMap !== undefined)
 await negativePage.close()
