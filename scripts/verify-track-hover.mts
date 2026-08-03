@@ -51,6 +51,8 @@ const settled = await page
   .catch(() => false)
 if (!settled) {
   console.error('FAIL - the scene did not settle: window.__flightTrackMap never appeared with its flight-track source loaded, within the timeout')
+  console.log('bad responses:', bad.length ? bad : 'none')
+  console.log('logs:', logs.length ? logs : 'none')
   await browser.close()
   process.exit(1)
 }

@@ -35,6 +35,12 @@ function trackBadResponses(page: Page): string[] {
 // selector timeout and the evaluate's own undefined-map case, so on a page with no map at
 // all (a Suspense skeleton, or a client-side navigation error) it resolved immediately and
 // vacuously, reporting settled where nothing had actually loaded.
+//
+// Unlike verify-sites-map.mts's unconditional report(settled, ...), this boolean is only
+// reported on the callers' failure paths (loadSceneWithColdServerRetry's error-boundary/retry/
+// bad-response branches), never on a clean first load: an unconditional settle line here would
+// change the warm-path report output every scene emits, and its absence already unambiguously
+// implies settled, since every other path returns before reaching a scene's own assertions.
 async function waitForSceneSettled(page: Page): Promise<boolean> {
   const settled = await page
     .waitForFunction(
@@ -48,10 +54,11 @@ async function waitForSceneSettled(page: Page): Promise<boolean> {
   return true
 }
 
-// For the post-click call sites (scenes 4-6), where the map is already provably present:
-// waits for MapLibre's own idle signal that no further rendering is queued, plus a settling
-// tail. Never vacuous there, since waitForSceneSettled already proved the map exists before
-// any scene gets this far.
+// Shared by waitForSceneSettled's own initial-load path above and the post-click call sites
+// (scenes 4-6): waits for MapLibre's own idle signal that no further rendering is queued, plus
+// a settling tail. Never vacuous at either call site, since the map's existence is always
+// proved (by waitForSceneSettled's waitForFunction, or by the caller's own waitForFunction
+// before a post-click call) before this runs.
 async function waitForPaintIdle(page: Page): Promise<void> {
   await page
     .evaluate(
