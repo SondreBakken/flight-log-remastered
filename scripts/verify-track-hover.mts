@@ -35,10 +35,27 @@ page.on('response', (r) => {
 page.on('requestfailed', (r) => bad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
-await page
-  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('flight-track') === true, { timeout: 20000 })
-  .catch(() => {})
+
+// A DEFINITIVE settle condition, the same one verify-sites-map.mts uses: the map instance
+// exists AND its flight-track source has actually finished loading. The previous canvas
+// waitForSelector + swallowed waitForFunction here settled vacuously on a page with no map at
+// all (a Suspense skeleton, or a client-side navigation error). The paint-idle wait below
+// resolves immediately when `map` is undefined, so a still-loading or dead page would sail
+// through as "settled" and only fail downstream as a misleading hover-position mismatch.
+const settled = await page
+  .waitForFunction(
+    () => window.__flightTrackMap !== undefined && window.__flightTrackMap.isSourceLoaded('flight-track') === true,
+    { timeout: 20000 },
+  )
+  .then(() => true)
+  .catch(() => false)
+if (!settled) {
+  console.error('FAIL - the scene did not settle: window.__flightTrackMap never appeared with its flight-track source loaded, within the timeout')
+  console.log('bad responses:', bad.length ? bad : 'none')
+  console.log('logs:', logs.length ? logs : 'none')
+  await browser.close()
+  process.exit(1)
+}
 // isSourceLoaded only reports that the GeoJSON parsed and indexed, not that MapLibre has
 // actually PAINTED a frame with it — this script's own mousemove-driven hover relies on
 // MapLibre's internal hit-testing against the rendered pixels (see the mousemove handler's own
