@@ -1,14 +1,14 @@
+import { totalFlightCount } from '@/lib/flightlog/flight-count'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 import type { Flight } from '@/lib/flightlog/types'
 import {
   breakdownByGlider,
   breakdownBySite,
   flyingDaysByDate,
-  hoursByYear,
   longestFlightByDistance,
   longestFlightByDuration,
+  minutesByYear,
   totalDurationMinutes,
-  totalFlightCount,
 } from './statistics'
 
 type PilotStatisticsProps = {
@@ -41,8 +41,19 @@ export default function PilotStatistics({ flights }: PilotStatisticsProps) {
   )
 }
 
+// Pre-rounds to whole tenths of an hour BEFORE dividing back down to a decimal, rather than
+// `(minutes / 60).toFixed(1)` — 51 minutes is 0.85h exactly in real numbers, but 0.85 has no
+// exact IEEE754 double representation (it stores as ~0.84999999999999997...), so
+// `(0.85).toFixed(1)` truncates to "0.8" instead of rounding to "0.9". Rounding to an integer
+// (`tenthsOfHour`) first lands on a value `.toFixed(1)` can render correctly, sidestepping the
+// binary-fraction boundary entirely instead of landing on it.
 function formatMinutesAsHours(minutes: number): string {
-  return `${(minutes / 60).toFixed(1)} h`
+  const tenthsOfHour = Math.round(minutes / 6)
+  return `${(tenthsOfHour / 10).toFixed(1)} h`
+}
+
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 function TotalsSummary({ flights }: { flights: Flight[] }) {
@@ -52,16 +63,15 @@ function TotalsSummary({ flights }: { flights: Flight[] }) {
 
   return (
     <p className="text-sm opacity-70">
-      {flightCount} flights · {hours} · {flyingDays} flying days
+      {pluralize(flightCount, 'flight')} · {hours} · {pluralize(flyingDays, 'flying day')}
     </p>
   )
 }
 
 function HoursByYear({ flights }: { flights: Flight[] }) {
-  const minutesByYear = hoursByYear(flights)
-  const years = [...minutesByYear.keys()].sort((a, b) => b - a)
+  const entries = [...minutesByYear(flights).entries()].sort(([yearA], [yearB]) => yearB - yearA)
 
-  if (years.length === 0) return null
+  if (entries.length === 0) return null
 
   return (
     <div className="flex flex-col gap-2">
@@ -75,12 +85,10 @@ function HoursByYear({ flights }: { flights: Flight[] }) {
             </tr>
           </thead>
           <tbody>
-            {years.map((year) => (
+            {entries.map(([year, minutes]) => (
               <tr key={year} className="border-b border-black/5 last:border-0 dark:border-white/10">
                 <td className="py-1 pr-4">{year}</td>
-                <td className="py-1 text-right tabular-nums">
-                  {formatMinutesAsHours(minutesByYear.get(year)!)}
-                </td>
+                <td className="py-1 text-right tabular-nums">{formatMinutesAsHours(minutes)}</td>
               </tr>
             ))}
           </tbody>
@@ -93,6 +101,10 @@ function HoursByYear({ flights }: { flights: Flight[] }) {
 // Descending by count so the largest share leads — ties keep the Map's own insertion order
 // (the flights array's own order), which is stable given a fixed input rather than
 // meaningful on its own.
+//
+// REVERT GUARD: index.test.tsx pins this direction (and the bar-width and heat-level
+// computations below) with a dedicated test each — a revert to ascending order passes every
+// OTHER test in this file, since none of them depend on which end of the list leads.
 function sortedByCountDescending(totals: Map<string, number>): [string, number][] {
   return [...totals.entries()].sort((a, b) => b[1] - a[1])
 }
@@ -129,7 +141,9 @@ function Breakdown({ title, totals }: { title: string; totals: Map<string, numbe
 function LongestFlights({ flights }: { flights: Flight[] }) {
   // #16's recorded decision: longest-by-duration only ever considers flightCount === 1 rows
   // (see statistics.ts's longestFlightByDuration doc comment) — an aggregated row's duration
-  // is a group total, not one flight's. Longest-by-distance has no such restriction.
+  // is a group total, not one flight's. The "single-flight rows only" qualifier below says so
+  // in the card itself, not just in a comment a reader of the rendered page never sees.
+  // Longest-by-distance has no such restriction.
   const byDuration = longestFlightByDuration(flights)
   const byDistance = longestFlightByDistance(flights)
 
@@ -141,14 +155,14 @@ function LongestFlights({ flights }: { flights: Flight[] }) {
       <ul className="flex flex-col gap-1 text-sm">
         {byDuration && (
           <li>
-            By duration: {formatFlightDuration(byDuration)} — {byDuration.date}
-            {byDuration.takeoff && ` at ${byDuration.takeoff}`}
+            By duration (single-flight rows only): {formatFlightDuration(byDuration)} ({byDuration.date}
+            {byDuration.takeoff && ` at ${byDuration.takeoff}`})
           </li>
         )}
         {byDistance && (
           <li>
-            By distance: {formatFlightDistance(byDistance)} — {byDistance.date}
-            {byDistance.takeoff && ` at ${byDistance.takeoff}`}
+            By distance: {formatFlightDistance(byDistance)} ({byDistance.date}
+            {byDistance.takeoff && ` at ${byDistance.takeoff}`})
           </li>
         )}
       </ul>
@@ -156,53 +170,124 @@ function LongestFlights({ flights }: { flights: Flight[] }) {
   )
 }
 
-// A GitHub-contributions-style tinted grid, not a real month/week calendar layout — every
-// present flying day, chronological, shaded by its own flight count relative to the busiest
-// day in this logbook. CSS grid of divs, per #16's no-charting-dependency decision.
+// A GitHub-contributions-style tinted calendar, not a real month/week layout — per-year rows
+// of day cells, chronological within a year, shaded by that day's own flight count relative to
+// the busiest day in this logbook. CSS grid of divs, per #16's no-charting-dependency decision.
+//
+// Level 0 is reserved for a day with NO flights — the calendar below renders one of these for
+// every absent day in a covered year, not just the days a row exists for, so a long gap between
+// flying days reads as a visible stretch of level-0 cells rather than two heat cells sitting
+// next to each other with years unaccounted for in between.
 const HEAT_LEVEL_CLASSES = [
-  'bg-black/10 dark:bg-white/15',
-  'bg-black/25 dark:bg-white/30',
-  'bg-black/40 dark:bg-white/45',
-  'bg-black/55 dark:bg-white/60',
-  'bg-black/75 dark:bg-white/75',
+  'bg-black/5 dark:bg-white/5',
+  'bg-black/20 dark:bg-white/25',
+  'bg-black/35 dark:bg-white/40',
+  'bg-black/50 dark:bg-white/55',
+  'bg-black/70 dark:bg-white/70',
 ]
 
+// Levels 1..(HEAT_LEVEL_CLASSES.length - 1) scale a PRESENT day's intensity; level 0 is absent
+// only, never assigned to a day that has flights. Two bugs in the old version this replaces:
+// level 0 was unreachable whenever `max > 1` (nothing ever mapped to it, so it was dead code),
+// and `max <= 1` (a pilot who never flew twice in one day) forced EVERY present day to the
+// darkest level, the opposite of "scales with intensity" — a single-flight day looked exactly
+// as busy as the pilot's busiest possible day. Scaling from 1, not 0, means a `max <= 1`
+// logbook renders its one busy-ness level as the LIGHTEST present shade, not the darkest, and
+// a `max > 1` logbook spreads count 1..max across the full lightest..darkest present range —
+// REVERT GUARD, see sortedByCountDescending's own comment above.
 function heatLevel(count: number, max: number): number {
-  if (max <= 1) return HEAT_LEVEL_CLASSES.length - 1
-  const ratio = count / max
-  return Math.min(HEAT_LEVEL_CLASSES.length - 1, Math.ceil(ratio * (HEAT_LEVEL_CLASSES.length - 1)))
+  if (count === 0) return 0
+  const presentLevels = HEAT_LEVEL_CLASSES.length - 1
+  if (max <= 1) return 1
+  const ratio = (count - 1) / (max - 1)
+  return 1 + Math.round(ratio * (presentLevels - 1))
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+// Every calendar day in `year`, Jan 1 through Dec 31 — clipped to `today` for the current year
+// so the heatmap never renders a not-yet-happened day as an absent (level 0) flying day, which
+// would misread as a gap rather than as "the future." UTC throughout: `today` and every
+// generated date are compared and stepped as UTC midnights so the loop can't skip or repeat a
+// day around a local-timezone DST boundary.
+function datesInYear(year: number, today: Date): string[] {
+  const start = Date.UTC(year, 0, 1)
+  const end = Math.min(
+    Date.UTC(year, 11, 31),
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  )
+
+  const dates: string[] = []
+  for (let day = start; day <= end; day += 24 * 60 * 60 * 1000) {
+    dates.push(toIsoDate(new Date(day)))
+  }
+  return dates
+}
+
+function yearsCoveredByDates(dates: Iterable<string>): number[] {
+  return [...new Set([...dates].map((date) => Number(date.slice(0, 4))))].sort((a, b) => b - a)
 }
 
 function FlyingDaysHeatmap({ flights }: { flights: Flight[] }) {
   const flightsByDate = flyingDaysByDate(flights)
-  const dates = [...flightsByDate.keys()].sort()
-  const max = Math.max(...flightsByDate.values())
 
-  if (dates.length === 0) return null
+  if (flightsByDate.size === 0) return null
+
+  const max = [...flightsByDate.values()].reduce((highest, count) => Math.max(highest, count), 0)
+  const today = new Date()
 
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium opacity-70">Flying days ({dates.length})</h3>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(0.75rem,1fr))] gap-1">
-        {dates.map((date) => {
-          const count = flightsByDate.get(date)!
-          return (
-            <div
-              key={date}
-              title={`${date}: ${count} flight${count === 1 ? '' : 's'}`}
-              className={`h-3 w-3 rounded-sm ${HEAT_LEVEL_CLASSES[heatLevel(count, max)]}`}
-            />
-          )
-        })}
+    <div className="flex flex-col gap-3">
+      <h3 className="text-sm font-medium opacity-70">Flying days ({flightsByDate.size})</h3>
+      {yearsCoveredByDates(flightsByDate.keys()).map((year) => (
+        <CalendarYearRow key={year} year={year} flightsByDate={flightsByDate} max={max} today={today} />
+      ))}
+    </div>
+  )
+}
+
+function CalendarYearRow({
+  year,
+  flightsByDate,
+  max,
+  today,
+}: {
+  year: number
+  flightsByDate: Map<string, number>
+  max: number
+  today: Date
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs tabular-nums opacity-60">{year}</span>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(0.65rem,1fr))] gap-1">
+        {datesInYear(year, today).map((date) => (
+          <HeatmapDayCell key={date} date={date} count={flightsByDate.get(date) ?? 0} max={max} />
+        ))}
       </div>
     </div>
+  )
+}
+
+function HeatmapDayCell({ date, count, max }: { date: string; count: number; max: number }) {
+  const label = count === 0 ? `${date}: no flights` : `${date}: ${pluralize(count, 'flight')}`
+
+  return (
+    <div
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`h-3 w-3 rounded-sm ${HEAT_LEVEL_CLASSES[heatLevel(count, max)]}`}
+    />
   )
 }
 
 function EmptyStatistics() {
   return (
     <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No flights recorded yet — statistics will appear once this pilot has logged flights.
+      No flights recorded yet: statistics will appear once this pilot has logged flights.
     </p>
   )
 }
