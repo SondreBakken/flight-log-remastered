@@ -29,8 +29,30 @@ function trackBadResponses(page: Page): string[] {
   return bad
 }
 
-async function waitForMapIdle(page: Page): Promise<void> {
-  await page.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
+// A DEFINITIVE settle condition, the same one verify-sites-map.mts uses: the map instance
+// exists AND its flight-track source has actually finished loading, not just "the canvas
+// selector resolved or timed out". The previous version of this wait swallowed both the
+// selector timeout and the evaluate's own undefined-map case, so on a page with no map at
+// all (a Suspense skeleton, or a client-side navigation error) it resolved immediately and
+// vacuously, reporting settled where nothing had actually loaded.
+async function waitForSceneSettled(page: Page): Promise<boolean> {
+  const settled = await page
+    .waitForFunction(
+      () => window.__flightTrackMap !== undefined && window.__flightTrackMap.isSourceLoaded('flight-track') === true,
+      { timeout: 20000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  if (!settled) return false
+  await waitForPaintIdle(page)
+  return true
+}
+
+// For the post-click call sites (scenes 4-6), where the map is already provably present:
+// waits for MapLibre's own idle signal that no further rendering is queued, plus a settling
+// tail. Never vacuous there, since waitForSceneSettled already proved the map exists before
+// any scene gets this far.
+async function waitForPaintIdle(page: Page): Promise<void> {
   await page
     .evaluate(
       () =>
@@ -189,35 +211,41 @@ async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: 
 // cold KML fetch of its own. What's actually once-per-process is http.ts's own session mint
 // (module-level currentSession), and scene 1 runs first, so it's the one scene that can still
 // be racing that mint on top of its own cold fetch: that combination makes it the scene most
-// likely to lose the race and come back with radios: [] and summary: null even though nothing
-// is actually broken. A transient upstream failure (the session mint or fetch still in flight)
-// is deliberately retried once, and by the second read it has normally landed. A deterministic
-// one (a real client-side regression) survives the retry unchanged and fails downstream, same
-// as a page that returns bad responses in `bad`, which is never retried away. The one signature
-// this retry must not touch is the error boundary: getTrack throwing renders error.tsx with the
-// byte-identical empty signature, but no amount of retrying fixes a thrown error, so it is
-// checked for by name before retrying and reported explicitly instead.
+// likely to lose the race and come back with the scene never settling, even though nothing is
+// actually broken. A transient upstream failure (the session mint or fetch still in flight) is
+// deliberately retried once, and by the second load it has normally landed. A deterministic one
+// (a real client-side regression, or a genuinely dead server) survives the retry unchanged and
+// still fails to settle, same as a page that returns bad responses in `bad`, which is never
+// retried away. The signal driving the retry is waitForSceneSettled's own boolean, not the
+// radios/summary read (a settled page with a legitimately empty scoring overlay is a real
+// state, not a signal to retry). The one signature this retry must not touch is the error
+// boundary: getTrack throwing renders error.tsx, which never settles either, but no amount of
+// retrying fixes a thrown error, so it is checked for by name before retrying and reported
+// explicitly instead.
 // Gives the first navigation's still-in-flight getTrack time to land in its 'use cache' entry,
 // so the reload is a cache hit.
 const COLD_SERVER_RETRY_DELAY_MS = 3000
 
 async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
-  await waitForMapIdle(page)
-  const radios = await readRadios(page)
-  const summary = await readSummary(page)
-  if (radios.length === 0 && summary === null && bad.length === 0) {
-    if (await pageHasErrorBoundaryText(page)) {
-      report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
-      return { radios, summary }
-    }
-    console.log(`RETRY - ${label}: empty radios + null summary + no bad responses on first read, retrying once for a cold server`)
-    await page.waitForTimeout(COLD_SERVER_RETRY_DELAY_MS)
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await waitForMapIdle(page)
+  const settled = await waitForSceneSettled(page)
+  if (settled) {
     return { radios: await readRadios(page), summary: await readSummary(page) }
   }
-  return { radios, summary }
+  if (await pageHasErrorBoundaryText(page)) {
+    report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
+    return { radios: await readRadios(page), summary: await readSummary(page) }
+  }
+  if (bad.length === 0) {
+    console.log(`RETRY - ${label}: the scene did not settle on first load (no map handle, or its flight-track source never finished loading), retrying once for a cold server`)
+    await page.waitForTimeout(COLD_SERVER_RETRY_DELAY_MS)
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    const settledOnRetry = await waitForSceneSettled(page)
+    report(settledOnRetry, `${label}: the scene settles after one cold-server retry (map handle present, flight-track source loaded)`)
+    return { radios: await readRadios(page), summary: await readSummary(page) }
+  }
+  report(false, `${label}: the scene did not settle (no map handle, or its flight-track source never finished loading) and bad responses were recorded`)
+  return { radios: await readRadios(page), summary: await readSummary(page) }
 }
 
 type SceneContext = { page: Page; radios: RadioState[]; summary: string | null }
@@ -225,9 +253,10 @@ type SceneContext = { page: Page; radios: RadioState[]; summary: string | null }
 // Every scene shares the same open/navigate/close/report-bad-responses skeleton; only the body
 // in between (the scene's own assertions) differs. Routing every scene through
 // loadSceneWithColdServerRetry (not just scene 1, which needed it) is safe because the retry
-// only fires on the exact cold-empty signature documented above (empty radios, null summary,
-// no bad responses, no error boundary); a deterministic regression in scenes 2-6 still trips
-// that signature and survives the retry unchanged, so it still fails downstream.
+// only fires when the scene itself did not settle (no map handle, or its flight-track source
+// never finished loading), not on empty-looking-but-settled scoring data; a deterministic
+// regression in scenes 2-6 still fails to settle and survives the retry unchanged, so it still
+// fails downstream.
 async function runScene(options: { tripId: number; label: string; scene: (context: SceneContext) => Promise<void> }): Promise<void> {
   const { tripId, label, scene } = options
   const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
@@ -495,7 +524,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForMapIdle(page)
+    await waitForPaintIdle(page)
 
     // `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
     // effect passed to `addSource` — not `querySourceFeatures`, which reads back from the rendered
@@ -589,7 +618,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForMapIdle(page)
+    await waitForPaintIdle(page)
 
     const markerCount = await readTurnpointMarkerCount(page)
     const letters = await readTurnpointMarkerLabels(page)
@@ -636,7 +665,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForMapIdle(page)
+    await waitForPaintIdle(page)
 
     const markerCount = await readTurnpointMarkerCount(page)
     const letters = await readTurnpointMarkerLabels(page)
