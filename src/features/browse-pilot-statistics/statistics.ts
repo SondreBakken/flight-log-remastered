@@ -189,3 +189,119 @@ export function flyingDaysByDate(flights: Flight[]): Map<string, number> {
   }
   return flightsByDate
 }
+
+export function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+// Every calendar day in `year`, Jan 1 through Dec 31 — clipped to `todayIso` for the current
+// year so the heatmap never renders a not-yet-happened day as an absent (level 0) flying day,
+// which would misread as a gap rather than as "the future." `todayIso` is a plain 'YYYY-MM-DD'
+// string rather than a Date so it can cross the server/client component boundary as a plain
+// serializable prop and both sides agree on "today" without either calling `new Date()` (#81).
+// UTC throughout: `new Date('YYYY-MM-DD')` parses as UTC midnight per the ISO 8601 date-only
+// rule, so today and every generated date are compared and stepped as UTC midnights and the
+// loop can't skip or repeat a day around a local-timezone DST boundary.
+export function datesInYear(year: number, todayIso: string): string[] {
+  const today = new Date(todayIso)
+  const start = Date.UTC(year, 0, 1)
+  const end = Math.min(
+    Date.UTC(year, 11, 31),
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
+  )
+
+  const dates: string[] = []
+  for (let day = start; day <= end; day += 24 * 60 * 60 * 1000) {
+    dates.push(toIsoDate(new Date(day)))
+  }
+  return dates
+}
+
+// Years with at least one flying day, in no particular order — the calendar's own
+// yearsInRange below turns this into the full descending range it must render, INCLUDING
+// years with zero flying days in between (a pilot who flew in 2016 and 2014 but not 2015 still
+// gets a 2015 row; this set only says which of those years get a real calendar grid vs a
+// one-line gap marker).
+export function yearsWithFlyingDays(dates: Iterable<string>): Set<number> {
+  return new Set([...dates].map((date) => Number(date.slice(0, 4))))
+}
+
+// The full descending year range a calendar must account for — every year from the earliest to
+// the latest flying day, not just the years that themselves have one. Without this, a calendar
+// covering 2014 and 2016 but not 2015 would jump straight from one row to the other with no
+// visible sign that 2015 was ever skipped, rather than fallow.
+export function yearsInRange(years: Iterable<number>): number[] {
+  const values = [...years]
+  if (values.length === 0) return []
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  return Array.from({ length: max - min + 1 }, (_, index) => max - index)
+}
+
+// One year's own accessible summary, read once instead of once per cell — a calendar year
+// row's individual day cells are aria-hidden, so this is the only thing a screen reader
+// announces for the whole year, and it also doubles as a collapsed year's button label (#81).
+export function summarizeCalendarYear(
+  dates: string[],
+  flightsByDate: ReadonlyMap<string, number>,
+): { flyingDays: number; flights: number } {
+  let flyingDays = 0
+  let flights = 0
+  for (const date of dates) {
+    const count = flightsByDate.get(date) ?? 0
+    if (count > 0) {
+      flyingDays += 1
+      flights += count
+    }
+  }
+  return { flyingDays, flights }
+}
+
+// Same result as summarizeCalendarYear, without ever materializing the year's ~365 date
+// strings — a collapsed year only needs its two totals, not a day-by-day walk. Same clip as
+// datesInYear, without materializing the dates: every year is toggleable, including the
+// current one, so a not-yet-happened date under this prefix must still be excluded here.
+// `date > todayIso` works on the plain ISO strings because 'YYYY-MM-DD' sorts the same
+// lexicographically as chronologically.
+export function summarizeCollapsedYear(
+  year: number,
+  flightsByDate: ReadonlyMap<string, number>,
+  todayIso: string,
+): { flyingDays: number; flights: number } {
+  const prefix = `${year}-`
+  let flyingDays = 0
+  let flights = 0
+  for (const [date, count] of flightsByDate) {
+    if (!date.startsWith(prefix) || date > todayIso) continue
+    flyingDays += 1
+    flights += count
+  }
+  return { flyingDays, flights }
+}
+
+// Shared by both a year's button label and its expanded grid's aria-label (#81) — kept as one
+// function so the two can never drift into two different-looking strings for the same year.
+export function calendarYearLabel(year: number, flyingDays: number, flights: number): string {
+  return `${year}: ${pluralize(flyingDays, 'flying day')}, ${pluralize(flights, 'flight')}`
+}
+
+// The years a calendar defaults to expanded: the `count` most recent years that actually have
+// flights, walking `orderedYears` (newest first) and skipping fallow years — a gap year must
+// not consume a slot in the budget, or a pilot with a recent multi-year gap would see fewer
+// than `count` real years expanded (#81).
+export function defaultExpandedCalendarYears(
+  orderedYears: number[],
+  yearsWithData: ReadonlySet<number>,
+  count: number,
+): Set<number> {
+  const expanded = new Set<number>()
+  for (const year of orderedYears) {
+    if (expanded.size >= count) break
+    if (yearsWithData.has(year)) expanded.add(year)
+  }
+  return expanded
+}

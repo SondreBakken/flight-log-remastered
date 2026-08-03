@@ -3,11 +3,16 @@ import type { Flight } from '@/lib/flightlog/types'
 import {
   breakdownByGlider,
   breakdownBySite,
+  calendarYearLabel,
+  datesInYear,
+  defaultExpandedCalendarYears,
   flyingDaysByDate,
   longestFlightByDistance,
   longestFlightByDuration,
   minutesByYear,
   parseDurationMinutes,
+  summarizeCalendarYear,
+  summarizeCollapsedYear,
   totalDurationMinutes,
 } from './statistics'
 
@@ -351,5 +356,85 @@ describe('flyingDaysByDate', () => {
 
     expect(result.size).toBe(1)
     expect(result.has('2026-00-00')).toBe(false)
+  })
+})
+
+describe('defaultExpandedCalendarYears', () => {
+  it('picks the N most recent years, in order, when every year has data', () => {
+    const result = defaultExpandedCalendarYears([2026, 2025, 2024, 2023, 2022, 2021], new Set([2026, 2025, 2024, 2023, 2022, 2021]), 3)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024]))
+  })
+
+  // #81's core requirement: a fallow year sitting inside the recent window must not itself
+  // count against the budget, or a pilot with a recent multi-year gap would see fewer than N
+  // real flight years expanded.
+  it('does not let a fallow year consume a slot in the budget', () => {
+    const orderedYears = [2026, 2025, 2024, 2023, 2022, 2021, 2020]
+    const yearsWithData = new Set([2026, 2025, 2024, 2023, 2021, 2020]) // 2022 is fallow
+
+    const result = defaultExpandedCalendarYears(orderedYears, yearsWithData, 5)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024, 2023, 2021]))
+  })
+
+  it('returns every flight-bearing year when there are fewer of them than the budget', () => {
+    const result = defaultExpandedCalendarYears([2026, 2025, 2024], new Set([2026, 2025, 2024]), 5)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024]))
+  })
+})
+
+describe('calendarYearLabel', () => {
+  it('formats the year, flying-day count and flight count as one pluralized string', () => {
+    expect(calendarYearLabel(2026, 1, 2)).toBe('2026: 1 flying day, 2 flights')
+  })
+
+  it('pluralizes both counts independently at zero and one', () => {
+    expect(calendarYearLabel(2020, 0, 0)).toBe('2020: 0 flying days, 0 flights')
+    expect(calendarYearLabel(2019, 1, 1)).toBe('2019: 1 flying day, 1 flight')
+  })
+})
+
+describe('summarizeCollapsedYear', () => {
+  it('sums flyingDays and flights for dates prefixed with the given year, without walking the whole year', () => {
+    const flightsByDate = new Map([
+      ['2020-01-10', 1],
+      ['2020-06-01', 2],
+      ['2021-01-10', 5],
+    ])
+
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 2, flights: 3 })
+  })
+
+  it('matches summarizeCalendarYear\'s totals for the same year and data', () => {
+    const flightsByDate = new Map([
+      ['2020-01-10', 1],
+      ['2020-06-01', 2],
+    ])
+    const dates = datesInYear(2020, '2026-08-03')
+
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual(
+      summarizeCalendarYear(dates, flightsByDate),
+    )
+  })
+
+  it('returns zero counts for a year with no matching dates', () => {
+    const flightsByDate = new Map([['2021-01-10', 5]])
+
+    expect(summarizeCollapsedYear(2020, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 0, flights: 0 })
+  })
+
+  // The bug this pins: a collapsed year's own "today" clip was skipped entirely on the
+  // reasoning that a collapsed year is never the current year — falsified once every year
+  // became toggleable (#81 review). A future-dated entry must not count until its date arrives,
+  // same as summarizeCalendarYear/datesInYear's own clip.
+  it('excludes a date after todayIso from both counts', () => {
+    const flightsByDate = new Map([
+      ['2026-01-10', 1],
+      ['2026-12-24', 1],
+    ])
+
+    expect(summarizeCollapsedYear(2026, flightsByDate, '2026-08-03')).toEqual({ flyingDays: 1, flights: 1 })
   })
 })

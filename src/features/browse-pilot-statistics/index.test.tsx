@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import PilotStatistics from './index'
 import type { Flight } from '@/lib/flightlog/types'
 
@@ -286,5 +286,97 @@ describe('PilotStatistics', () => {
 
     screen.getByText('2015: no flights')
     expect(screen.queryByRole('img', { name: /^2015:/ })).toBeNull()
+  })
+
+  // #81: an 18-year logbook rendered a day-cell grid for every year, ~6060 cells of HTML on
+  // every view. Only the 5 most recent FLIGHT-BEARING years default to expanded; older ones
+  // collapse behind the same "{year}: N flying days, M flights" text CalendarYearRow already
+  // computes, now a clickable button instead of only an aria-label. 2022 is a genuinely fallow
+  // year wedged between 2023 and 2021 — it must not itself count against the budget, or 2021
+  // (the 5th real flight year) would wrongly collapse too.
+  describe('collapsing older calendar years', () => {
+    const flights: Flight[] = [2026, 2025, 2024, 2023, 2021, 2020].map((year) =>
+      flight({ date: `${year}-01-10` }),
+    )
+
+    it('expands the 5 most recent flight-bearing years by default, without a fallow year consuming the budget', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      for (const year of [2026, 2025, 2024, 2023, 2021]) {
+        screen.getByRole('img', { name: `${year}: 1 flying day, 1 flight` })
+      }
+      screen.getByText('2022: no flights')
+    })
+
+    // #81 review fix: the expand/collapse control is one <button> mounted across both states,
+    // not two components swapped on click — an expanded year still shows its label as the
+    // button's own visible text (not just the grid's aria-label), and aria-expanded says which
+    // state it's in.
+    it('keeps the year header mounted as a button in both states, with aria-expanded reflecting each', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      const expandedButton = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      expect(expandedButton.getAttribute('aria-expanded')).toBe('true')
+
+      const collapsedButton = screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      expect(collapsedButton.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    it('collapses the 6th most recent flight-bearing year behind a summary button with no day cells', () => {
+      const { container } = render(<PilotStatistics flights={flights} />)
+
+      expect(screen.queryByRole('img', { name: /^2020:/ })).toBeNull()
+      screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      expect(container.querySelector('[title^="2020-"]')).toBeNull()
+    })
+
+    it('renders a collapsed year\'s day-cell grid after clicking its summary button', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      const button = screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      fireEvent.click(button)
+
+      screen.getByRole('img', { name: '2020: 1 flying day, 1 flight' })
+
+      // The round trip back to collapsed: toggleYear's delete branch, not just its add branch.
+      fireEvent.click(button)
+
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('img', { name: /^2020:/ })).toBeNull()
+    })
+
+    // The same button that expands a year also re-collapses it (fix 1's "one mounted control"
+    // shape gives this for free) — clicking a default-expanded year's button a second time
+    // returns it to its collapsed, button-only state.
+    it('re-collapses a default-expanded year after a second click on its button', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      const button = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      fireEvent.click(button)
+
+      expect(screen.queryByRole('img', { name: /^2026:/ })).toBeNull()
+      expect(button.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    // Review fix: summarizeCollapsedYear used to sum every entry under a year prefix with no
+    // "today" clip, on the reasoning that a collapsed year is never the current year — false
+    // once every year, including the current one, became toggleable. A future-dated entry
+    // (2026-12-24, after the fixture's mocked "today" of 2026-08-03) must not count until
+    // collapsed any more than it does expanded, so the label must survive the round trip.
+    it('keeps the current year\'s label byte-identical across a toggle when it holds a future-dated entry', () => {
+      const currentYearFlights: Flight[] = [
+        flight({ date: '2026-07-23' }),
+        flight({ date: '2026-12-24' }),
+      ]
+
+      render(<PilotStatistics flights={currentYearFlights} />)
+
+      const button = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      const expandedLabel = button.textContent
+
+      fireEvent.click(button)
+
+      expect(button.textContent).toBe(expandedLabel)
+    })
   })
 })
