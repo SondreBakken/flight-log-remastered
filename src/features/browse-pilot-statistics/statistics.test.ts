@@ -3,12 +3,14 @@ import type { Flight } from '@/lib/flightlog/types'
 import {
   breakdownByGlider,
   breakdownBySite,
+  calendarYearLabel,
   defaultExpandedCalendarYears,
   flyingDaysByDate,
   longestFlightByDistance,
   longestFlightByDuration,
   minutesByYear,
   parseDurationMinutes,
+  summarizeCollapsedYear,
   totalDurationMinutes,
 } from './statistics'
 
@@ -378,5 +380,43 @@ describe('defaultExpandedCalendarYears', () => {
     const result = defaultExpandedCalendarYears([2026, 2025, 2024], new Set([2026, 2025, 2024]), 5)
 
     expect(result).toEqual(new Set([2026, 2025, 2024]))
+  })
+})
+
+describe('calendarYearLabel', () => {
+  it('formats the year, flying-day count and flight count as one pluralized string', () => {
+    expect(calendarYearLabel(2026, 1, 2)).toBe('2026: 1 flying day, 2 flights')
+  })
+
+  it('pluralizes both counts independently at zero and one', () => {
+    expect(calendarYearLabel(2020, 0, 0)).toBe('2020: 0 flying days, 0 flights')
+    expect(calendarYearLabel(2019, 1, 1)).toBe('2019: 1 flying day, 1 flight')
+  })
+})
+
+describe('summarizeCollapsedYear', () => {
+  it('sums flyingDays and flights for dates prefixed with the given year, without walking the whole year', () => {
+    const flightsByDate = new Map([
+      ['2020-01-10', 1],
+      ['2020-06-01', 2],
+      ['2021-01-10', 5],
+    ])
+
+    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 2, flights: 3 })
+  })
+
+  it('matches summarizeCalendarYear\'s totals for the same year and data', () => {
+    const flightsByDate = new Map([
+      ['2020-01-10', 1],
+      ['2020-06-01', 2],
+    ])
+
+    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 2, flights: 3 })
+  })
+
+  it('returns zero counts for a year with no matching dates', () => {
+    const flightsByDate = new Map([['2021-01-10', 5]])
+
+    expect(summarizeCollapsedYear(2020, flightsByDate)).toEqual({ flyingDays: 0, flights: 0 })
   })
 })

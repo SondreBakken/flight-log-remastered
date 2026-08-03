@@ -32,11 +32,29 @@ describe('FlyingDaysCalendar server render', () => {
 
     // The claim in numbers: 5 expanded years' worth of day-cell divs reach the markup, zero
     // day-cell divs exist for the 3 collapsed years — collapsing them removes their cells
-    // entirely rather than just hiding them with CSS.
+    // entirely rather than just hiding them with CSS. Exact count, not just "some": 2026
+    // clipped to "today" (Jan 1 - Aug 3 = 215) plus 2025/2024/2023/2022 in full
+    // (365 + 366 + 365 + 365, 2024 being the one leap year among them) = 1676.
     const dayCellCount = container.querySelectorAll('.h-3.w-3').length
-    expect(dayCellCount).toBeGreaterThan(0)
+    expect(dayCellCount).toBe(1676)
     for (const year of collapsedYears) {
       expect(container.querySelectorAll(`[title^="${year}-"]`).length).toBe(0)
     }
+  })
+
+  // The reviewer's verified killer test for a mutation that computes `new Date()` inside
+  // FlyingDaysCalendar instead of reading the `today` prop: `today` here is deliberately NOT
+  // today's real date, so that mutation renders a 2026 grid clipped to whatever day the suite
+  // happens to run on instead of the fixed 74 cells this pins.
+  it('sizes the year grid from the today prop, not the real system clock', () => {
+    const flightsByDate = new Map([['2026-01-10', 1]])
+
+    const markup = renderToStaticMarkup(<FlyingDaysCalendar flightsByDate={flightsByDate} today="2026-03-15" />)
+    const container = document.createElement('div')
+    container.innerHTML = markup
+
+    // Jan 1 through Mar 15 inclusive, 2026 not being a leap year: 31 + 28 + 15.
+    const yearRow = container.querySelector('[aria-label^="2026:"]')
+    expect(yearRow?.children.length).toBe(74)
   })
 })

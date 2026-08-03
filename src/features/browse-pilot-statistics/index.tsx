@@ -100,9 +100,10 @@ function HoursByYear({ flights }: { flights: Flight[] }) {
 // (the flights array's own order), which is stable given a fixed input rather than
 // meaningful on its own.
 //
-// REVERT GUARD: index.test.tsx pins this direction (and the bar-width and heat-level
-// computations below) with a dedicated test each — a revert to ascending order passes every
-// OTHER test in this file, since none of them depend on which end of the list leads.
+// REVERT GUARD: index.test.tsx pins this direction (and the bar-width below, and heat-level in
+// flying-days-calendar.tsx's own heatLevel) with a dedicated test each — a revert to ascending
+// order passes every OTHER test in this file, since none of them depend on which end of the
+// list leads.
 function sortedByCountDescending(totals: Map<string, number>): [string, number][] {
   return [...totals.entries()].sort((a, b) => b[1] - a[1])
 }

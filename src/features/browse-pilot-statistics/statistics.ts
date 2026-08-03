@@ -247,7 +247,7 @@ export function yearsInRange(years: Iterable<number>): number[] {
 // announces for the whole year, and it also doubles as a collapsed year's button label (#81).
 export function summarizeCalendarYear(
   dates: string[],
-  flightsByDate: Map<string, number>,
+  flightsByDate: ReadonlyMap<string, number>,
 ): { flyingDays: number; flights: number } {
   let flyingDays = 0
   let flights = 0
@@ -259,6 +259,32 @@ export function summarizeCalendarYear(
     }
   }
   return { flyingDays, flights }
+}
+
+// Same result as summarizeCalendarYear, without ever materializing the year's ~365 date
+// strings — a collapsed year only needs its two totals, not a day-by-day walk. Safe to sum
+// every matching entry with no "today" clip: a collapsed year is never the current year
+// (defaultExpandedCalendarYears always keeps the newest flight-bearing year inside the
+// expanded budget), so there is no not-yet-happened date under this prefix to exclude.
+export function summarizeCollapsedYear(
+  year: number,
+  flightsByDate: ReadonlyMap<string, number>,
+): { flyingDays: number; flights: number } {
+  const prefix = `${year}-`
+  let flyingDays = 0
+  let flights = 0
+  for (const [date, count] of flightsByDate) {
+    if (!date.startsWith(prefix)) continue
+    flyingDays += 1
+    flights += count
+  }
+  return { flyingDays, flights }
+}
+
+// Shared by both a year's button label and its expanded grid's aria-label (#81) — kept as one
+// function so the two can never drift into two different-looking strings for the same year.
+export function calendarYearLabel(year: number, flyingDays: number, flights: number): string {
+  return `${year}: ${pluralize(flyingDays, 'flying day')}, ${pluralize(flights, 'flight')}`
 }
 
 // The years a calendar defaults to expanded: the `count` most recent years that actually have

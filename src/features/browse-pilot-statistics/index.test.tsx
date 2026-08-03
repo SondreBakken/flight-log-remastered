@@ -308,6 +308,20 @@ describe('PilotStatistics', () => {
       screen.getByText('2022: no flights')
     })
 
+    // #81 review fix: the expand/collapse control is one <button> mounted across both states,
+    // not two components swapped on click — an expanded year still shows its label as the
+    // button's own visible text (not just the grid's aria-label), and aria-expanded says which
+    // state it's in.
+    it('keeps the year header mounted as a button in both states, with aria-expanded reflecting each', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      const expandedButton = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      expect(expandedButton.getAttribute('aria-expanded')).toBe('true')
+
+      const collapsedButton = screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      expect(collapsedButton.getAttribute('aria-expanded')).toBe('false')
+    })
+
     it('collapses the 6th most recent flight-bearing year behind a summary button with no day cells', () => {
       const { container } = render(<PilotStatistics flights={flights} />)
 
@@ -322,6 +336,19 @@ describe('PilotStatistics', () => {
       fireEvent.click(screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' }))
 
       screen.getByRole('img', { name: '2020: 1 flying day, 1 flight' })
+    })
+
+    // The same button that expands a year also re-collapses it (fix 1's "one mounted control"
+    // shape gives this for free) — clicking a default-expanded year's button a second time
+    // returns it to its collapsed, button-only state.
+    it('re-collapses a default-expanded year after a second click on its button', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      const button = screen.getByRole('button', { name: '2026: 1 flying day, 1 flight' })
+      fireEvent.click(button)
+
+      expect(screen.queryByRole('img', { name: /^2026:/ })).toBeNull()
+      expect(button.getAttribute('aria-expanded')).toBe('false')
     })
   })
 })
