@@ -3,11 +3,17 @@ import { turnpointLetter } from './scoring-overlay'
 
 // One rendered marker, carrying every letter that resolves to the same physical point (#78).
 // `letters` is the single source of truth for what a marker shows; there is no separate
-// `label` field to keep in sync — the display label ('A', or a merged 'D/E') is derived at
-// the render site (letters.join('/') in track-map.tsx).
+// `label` field to keep in sync — the display label ('A', or a merged 'D/E') is derived via
+// turnpointGroupLabel below.
 export type TurnpointMarkerGroup = {
   point: TrackPoint
   letters: string[]
+}
+
+// The one place that owns the '/' separator between merged letters, so track-map.tsx and any
+// test asserting on the rendered label go through the same code instead of re-deriving it.
+export function turnpointGroupLabel(group: TurnpointMarkerGroup): string {
+  return group.letters.join('/')
 }
 
 // Grouped by exact coordinate, not by index: track-984290's FAI triangle collides through a

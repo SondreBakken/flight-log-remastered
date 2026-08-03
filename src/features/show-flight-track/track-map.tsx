@@ -16,7 +16,7 @@ import { formatAltitude } from './format-altitude'
 import { SCORING_LINE_COLOR, TRACK_LINE_COLOR } from './colors'
 import { scoringLineCoordinates, toLngLat } from './scoring-line'
 import { nearestIndexByLocation } from './track-hover'
-import { groupTurnpointMarkers } from './turnpoint-markers'
+import { groupTurnpointMarkers, turnpointGroupLabel } from './turnpoint-markers'
 
 declare global {
   interface Window {
@@ -279,7 +279,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       })
 
       turnpointMarkersRef.current = turnpointGroups.map((group) => {
-        const label = group.letters.join('/')
+        const label = turnpointGroupLabel(group)
         const marker = new Marker({ element: createTurnpointElement(label) })
           .setLngLat(toLngLat(group.point))
           .addTo(map)

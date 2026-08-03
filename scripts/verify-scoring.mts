@@ -74,7 +74,7 @@ function readTurnpointMarkerCount(page: Page): Promise<number> {
 
 // #78: a turnpoint marker's own data-label carries its merged label ('D/E') once
 // groupTurnpointMarkers has folded co-located turnpoints into one badge.
-function readTurnpointMarkerLetters(page: Page): Promise<string[]> {
+function readTurnpointMarkerLabels(page: Page): Promise<string[]> {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).map(
       (element) => element.getAttribute('data-label') ?? '',
@@ -536,7 +536,7 @@ await sharedEndpointPage
 await waitForMapIdle(sharedEndpointPage)
 
 const sharedEndpointMarkerCount = await readTurnpointMarkerCount(sharedEndpointPage)
-const sharedEndpointLetters = await readTurnpointMarkerLetters(sharedEndpointPage)
+const sharedEndpointLetters = await readTurnpointMarkerLabels(sharedEndpointPage)
 const sharedEndpointRects = await readTurnpointMarkerRects(sharedEndpointPage)
 
 console.log('turnpoint markers (FAI triangle):', sharedEndpointMarkerCount, sharedEndpointLetters)
@@ -587,7 +587,7 @@ await distinctIndexPage
 await waitForMapIdle(distinctIndexPage)
 
 const distinctIndexMarkerCount = await readTurnpointMarkerCount(distinctIndexPage)
-const distinctIndexLetters = await readTurnpointMarkerLetters(distinctIndexPage)
+const distinctIndexLetters = await readTurnpointMarkerLabels(distinctIndexPage)
 const distinctIndexRects = await readTurnpointMarkerRects(distinctIndexPage)
 
 console.log('turnpoint markers (flat triangle):', distinctIndexMarkerCount, distinctIndexLetters)
