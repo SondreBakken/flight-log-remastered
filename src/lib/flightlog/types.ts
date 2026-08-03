@@ -77,15 +77,22 @@ export type TrackStats = {
 export type TrackStatsResult = TrackStats | 'unparseable'
 
 // The five single-LineString scoring geometries flightlog.org computes from a track, keyed
-// by the KML's own `Metadata/@type` value (see parse-track.ts). Triangles (`distance_flat_
-// triangle`/`distance_fai_triangle`) are deliberately excluded: they're MultiGeometry with a
-// different turnpoint correspondence and are out of scope (#58).
-export type ScoringGeometryKind =
+// by the KML's own `Metadata/@type` value (see parse-track.ts).
+export type LineScoringGeometryKind =
   | 'distance_5_point'
   | 'distance_4_point'
   | 'distance_3_point'
   | 'distance_open'
   | 'distance_out_and_return'
+
+// The two triangle scoring geometries (#58). Unlike the five kinds above, a triangle
+// placemark's geometry is a MultiGeometry: a closed 3-vertex loop (the triangle itself) plus
+// a 2-point connector joining that loop to the rest of the flight — never a single ordered
+// LineString. See TriangleScoringGeometry below and parse-track.ts's parseTriangleGeometry
+// for how that different shape is parsed and what turnpoint correspondence it needs.
+export type TriangleScoringGeometryKind = 'distance_flat_triangle' | 'distance_fai_triangle'
+
+export type ScoringGeometryKind = LineScoringGeometryKind | TriangleScoringGeometryKind
 
 // The KML's own English `<name>` value for each kind, verbatim (measured against every
 // sampled fixture) — used as a fallback label for a geometry a flight doesn't have (see
@@ -100,6 +107,8 @@ export const SCORING_KIND_LABELS: Record<ScoringGeometryKind, string> = {
   distance_3_point: 'Distance over 3 points',
   distance_open: 'Open distance',
   distance_out_and_return: 'Out-and-return distance',
+  distance_flat_triangle: 'Flat triangle',
+  distance_fai_triangle: 'FAI triangle',
 }
 
 // Display/parse order: the order flightlog.org's own KML lists the geometries in (see every
@@ -108,17 +117,44 @@ export const SCORING_KIND_LABELS: Record<ScoringGeometryKind, string> = {
 // in that same order.
 export const SCORING_KINDS: ScoringGeometryKind[] = Object.keys(SCORING_KIND_LABELS) as ScoringGeometryKind[]
 
-// `name` is the KML's own English `<name>` value, used verbatim rather than a name invented
-// here. `turnpointIndices` are 0-based indices into this same track's `points` array (see
-// `<FsInfo track_idx>` in parse-track.ts) — not a separate coordinate list — which is what
-// lets a turnpoint reuse the map/barogram hover identity #14 built (see
-// show-flight-track/track-hover.ts) instead of needing its own proximity matching.
-export type ScoringGeometry = {
-  kind: ScoringGeometryKind
+// Fields every parsed scoring geometry carries regardless of shape. `name` is the KML's own
+// English `<name>` value, used verbatim rather than a name invented here.
+type ScoringGeometryBase = {
   name: string
   distanceKm: number
+}
+
+// `turnpointIndices` are 0-based indices into this same track's `points` array (see `<FsInfo
+// track_idx>` in parse-track.ts) — not a separate coordinate list — which is what lets a
+// turnpoint reuse the map/barogram hover identity #14 built (see show-flight-track/
+// track-hover.ts) instead of needing its own proximity matching. Drawn on the map as one
+// ordered polyline through every index in turn.
+export type LineScoringGeometry = ScoringGeometryBase & {
+  shape: 'line'
+  kind: LineScoringGeometryKind
   turnpointIndices: number[]
 }
+
+// A triangle's own KML turnpoint table always has 5 rows (A-E), in flight order: A and E are
+// the connector's two ends, B/C/D are the loop's three distinct vertices, and the loop closes
+// back onto B. `turnpointIndices` keeps that same A-E order (used for the summary table and
+// hover identity, like `LineScoringGeometry` above); `loopIndices`/`connectorIndices` are the
+// same 5 indices regrouped by what the map actually draws two of — a closed triangle and a
+// straight connecting segment — rather than one continuous path (see parse-track.ts's
+// parseTriangleGeometry and track-map.tsx's scoringLineCoordinates).
+export type TriangleScoringGeometry = ScoringGeometryBase & {
+  shape: 'triangle'
+  kind: TriangleScoringGeometryKind
+  turnpointIndices: number[]
+  loopIndices: [number, number, number]
+  connectorIndices: [number, number]
+}
+
+// A union, not one shape with optional loop/connector fields: a line geometry drawing as one
+// polyline and a triangle drawing as loop-plus-connector are genuinely different things to
+// render, and an optional-field version would let a "line" carry loop/connector data (or a
+// "triangle" carry none) that every consumer would still have to guard against by hand.
+export type ScoringGeometry = LineScoringGeometry | TriangleScoringGeometry
 
 // A geometry's parse outcome, one of three states — never just two:
 //   - `ScoringGeometry`: parsed successfully.

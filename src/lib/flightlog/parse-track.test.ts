@@ -132,6 +132,7 @@ describe('parseTrack scoring geometries', () => {
     const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK), 1)
 
     expect(track.scoring.distance_5_point).toEqual({
+      shape: 'line',
       kind: 'distance_5_point',
       name: 'Distance over 5 points',
       distanceKm: 0.16,
@@ -153,9 +154,11 @@ describe('parseTrack scoring geometries', () => {
     expect(track.scoring.distance_3_point).toBeNull()
     expect(track.scoring.distance_open).toBeNull()
     expect(track.scoring.distance_out_and_return).toBeNull()
+    expect(track.scoring.distance_flat_triangle).toBeNull()
+    expect(track.scoring.distance_fai_triangle).toBeNull()
   })
 
-  it('a metadata-only stub placemark (no description, no LineString — the real shape a triangle placemark has) resolves to null', () => {
+  it('a metadata-only stub placemark (no description, no LineString — the shape a real triangle placemark also has, see the dedicated triangle stub test below) resolves to null', () => {
     const stub = `
     <Placemark>
       <Metadata src="Test" v="1" type="distance_4_point">
@@ -450,6 +453,307 @@ Pos.      Time      Latitude         Longitude         Distance
     const track = parseTrack(kmlDocument(openDistanceNoTrailingDistance), 1)
 
     expect(track.scoring.distance_open).toBe('unparseable')
+  })
+})
+
+// #58: the two triangle kinds. Real triangle geometry is a MultiGeometry of two LineStrings —
+// a closed 4-point loop (first coordinate repeats last) and a 2-point connector — never a
+// single LineString the way the five kinds above are. All built against TRACKLOG_PLACEMARK's
+// own 5 points (indices 0-4, see the top of this file) so turnpointIndices resolve to real,
+// distinct track points the same way the fixtures do.
+describe('parseTrack triangle scoring geometries (#58)', () => {
+  const REAL_FLAT_TRIANGLE_PLACEMARK = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+
+Pos.      Time      Latitude         Longitude         Distance
+ A     1  00:00:00  N 61  00  00.00  E 009  00  00.00
+ B     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.04
+ C     3  00:00:20  N 61  00  00.72  E 009  00  07.20  0.04
+ D     4  00:00:30  N 61  00  01.08  E 009  00  10.80  0.04
+ E     5  00:00:40  N 61  00  01.44  E 009  00  14.40  0.04
+                                                  Sum  0.16
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+      <Style>
+        <LineStyle>
+          <color>FFFF0000</color>
+        </LineStyle>
+      </Style>
+    </Placemark>`
+
+  it('parses a real 5-distinct-point triangle into loop vertices (B-D) and connector ends (A, E), keeping all 5 in A-E order for the summary table', () => {
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + REAL_FLAT_TRIANGLE_PLACEMARK), 1)
+
+    expect(track.scoring.distance_flat_triangle).toEqual({
+      shape: 'triangle',
+      kind: 'distance_flat_triangle',
+      name: 'Flat triangle',
+      distanceKm: 0.16,
+      turnpointIndices: [0, 1, 2, 3, 4],
+      loopIndices: [1, 2, 3],
+      connectorIndices: [0, 4],
+    })
+  })
+
+  // fixtures/track-984290.kml and track-985713.kml (see #58's scout findings): the connector
+  // shares an endpoint with the loop, so what would be 5 distinct coordinates collapses to 4 —
+  // here, by track_idx repeating the same index for both D and the connector's own end E,
+  // mirroring track-984290's own shape. The raw MultiGeometry shape (4-point closed loop,
+  // 2-point connector) is exactly as well-formed as the 5-distinct case; only the resolved
+  // point COUNT differs, which is why assertTriangleShapeConsistent never compares coordinate
+  // and index counts the way assertIndicesConsistent does for the other five kinds.
+  it('parses the 4-distinct-coordinate variant (connector shares an endpoint with the loop) the same way, indices unaffected', () => {
+    const fourDistinctFaiTriangle = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_fai_triangle">
+        <FsInfo track_idx="0 1 2 3 3" />
+      </Metadata>
+      <name>FAI triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+FAI triangle
+
+Pos.      Time      Latitude         Longitude         Distance
+ A     1  00:00:00  N 61  00  00.00  E 009  00  00.00
+ B     2  00:00:10  N 61  00  00.36  E 009  00  03.60  0.04
+ C     3  00:00:20  N 61  00  00.72  E 009  00  07.20  0.04
+ D     4  00:00:30  N 61  00  01.08  E 009  00  10.80  0.04
+ E     4  00:00:30  N 61  00  01.08  E 009  00  10.80  0.00
+                                                  Sum  0.12
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>
+            9.000000,61.000000,800
+            9.003000,61.000300,803
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+      <Style>
+        <LineStyle>
+          <color>FFFF0000</color>
+        </LineStyle>
+      </Style>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + fourDistinctFaiTriangle), 1)
+
+    expect(track.scoring.distance_fai_triangle).toEqual({
+      shape: 'triangle',
+      kind: 'distance_fai_triangle',
+      name: 'FAI triangle',
+      distanceKm: 0.12,
+      turnpointIndices: [0, 1, 2, 3, 3],
+      loopIndices: [1, 2, 3],
+      connectorIndices: [0, 3],
+    })
+  })
+
+  it('a metadata-only stub triangle placemark (no description, no MultiGeometry — the real shape fixtures/track-1001428.kml has) resolves to null', () => {
+    const stub = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + stub), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBeNull()
+  })
+
+  it('a description present without a MultiGeometry is unparseable, not a thrown error', () => {
+    const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+                                                  Sum  0.16
+</pre>]]>
+      </description>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+  })
+
+  it('a MultiGeometry present without a description is unparseable, not a thrown error', () => {
+    const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+  })
+
+  // The regression #58's scout flagged: naively adding these two kinds to SCORING_KIND_LABELS
+  // and reusing the existing single-LineString read (`placemark.LineString`) would find nothing
+  // on a MultiGeometry placemark and misreport every real triangle as this stub shape instead
+  // of reading its actual geometry. A MultiGeometry with only ONE LineString child is the shape
+  // that would most easily slip past a check that isn't specifically counting children — it has
+  // a real MultiGeometry, just not the two-child one a triangle always has.
+  it('a MultiGeometry with only one LineString child is unparseable, not read as if it were the loop alone', () => {
+    const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+                                                  Sum  0.16
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+  })
+
+  it("a loop whose first coordinate does not repeat its last is unparseable, not silently treated as closed", () => {
+    const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3 4" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+                                                  Sum  0.16
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.009000,61.000900,809
+          </coordinates>
+        </LineString>
+        <LineString>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBe('unparseable')
+  })
+
+  it('a track_idx with 4 entries instead of the 5 a triangle always has is unparseable, not silently truncated', () => {
+    const malformed = `
+    <Placemark>
+      <Metadata src="Test" v="1" type="distance_flat_triangle">
+        <FsInfo track_idx="0 1 2 3" />
+      </Metadata>
+      <name>Flat triangle</name>
+      <description>
+        <![CDATA[
+<pre>
+Flat triangle
+                                                  Sum  0.16
+</pre>]]>
+      </description>
+      <MultiGeometry>
+        <LineString>
+          <coordinates>
+            9.001000,61.000100,801
+            9.002000,61.000200,802
+            9.003000,61.000300,803
+            9.001000,61.000100,801
+          </coordinates>
+        </LineString>
+        <LineString>
+          <coordinates>
+            9.000000,61.000000,800
+            9.004000,61.000400,804
+          </coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>`
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK + malformed), 1)
+
+    expect(track.scoring.distance_flat_triangle).toBe('unparseable')
   })
 })
 
