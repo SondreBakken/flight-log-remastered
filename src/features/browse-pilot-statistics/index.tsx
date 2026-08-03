@@ -226,8 +226,43 @@ function datesInYear(year: number, today: Date): string[] {
   return dates
 }
 
-function yearsCoveredByDates(dates: Iterable<string>): number[] {
-  return [...new Set([...dates].map((date) => Number(date.slice(0, 4))))].sort((a, b) => b - a)
+// Years with at least one flying day, present-year-first — the full descending range this
+// calendar covers, INCLUDING years with zero flying days in between (a pilot who flew in 2016
+// and 2014 but not 2015 still gets a 2015 row, per yearsInRange below; this set only says which
+// of those years get a real calendar grid vs a one-line gap marker).
+function yearsWithFlyingDays(dates: Iterable<string>): Set<number> {
+  return new Set([...dates].map((date) => Number(date.slice(0, 4))))
+}
+
+// The full descending year range a calendar must account for — every year from the earliest to
+// the latest flying day, not just the years that themselves have one. Without this, a calendar
+// covering 2014 and 2016 but not 2015 would jump straight from one row to the other with no
+// visible sign that 2015 was ever skipped, rather than fallow.
+function yearsInRange(years: Iterable<number>): number[] {
+  const values = [...years]
+  if (values.length === 0) return []
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  return Array.from({ length: max - min + 1 }, (_, index) => max - index)
+}
+
+// One row's own accessible summary, read once instead of once per cell — the day cells
+// themselves are aria-hidden (see CalendarYearRow), so this is the only thing a screen reader
+// announces for the whole year.
+function summarizeCalendarYear(
+  dates: string[],
+  flightsByDate: Map<string, number>,
+): { flyingDays: number; flights: number } {
+  let flyingDays = 0
+  let flights = 0
+  for (const date of dates) {
+    const count = flightsByDate.get(date) ?? 0
+    if (count > 0) {
+      flyingDays += 1
+      flights += count
+    }
+  }
+  return { flyingDays, flights }
 }
 
 function FlyingDaysHeatmap({ flights }: { flights: Flight[] }) {
@@ -237,15 +272,26 @@ function FlyingDaysHeatmap({ flights }: { flights: Flight[] }) {
 
   const max = [...flightsByDate.values()].reduce((highest, count) => Math.max(highest, count), 0)
   const today = new Date()
+  const yearsWithData = yearsWithFlyingDays(flightsByDate.keys())
 
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-medium opacity-70">Flying days ({flightsByDate.size})</h3>
-      {yearsCoveredByDates(flightsByDate.keys()).map((year) => (
-        <CalendarYearRow key={year} year={year} flightsByDate={flightsByDate} max={max} today={today} />
-      ))}
+      {yearsInRange(yearsWithData).map((year) =>
+        yearsWithData.has(year) ? (
+          <CalendarYearRow key={year} year={year} flightsByDate={flightsByDate} max={max} today={today} />
+        ) : (
+          <GapYearRow key={year} year={year} />
+        ),
+      )}
     </div>
   )
+}
+
+// A fully fallow year between two flying years — a single muted line, not a 365-cell grid of
+// level-0 "no flights" cells (that would just move finding A's cell-count problem here).
+function GapYearRow({ year }: { year: number }) {
+  return <p className="text-xs tabular-nums opacity-60">{year}: no flights</p>
 }
 
 function CalendarYearRow({
@@ -259,11 +305,19 @@ function CalendarYearRow({
   max: number
   today: Date
 }) {
+  const dates = datesInYear(year, today)
+  const { flyingDays, flights } = summarizeCalendarYear(dates, flightsByDate)
+  const label = `${year}: ${pluralize(flyingDays, 'flying day')}, ${pluralize(flights, 'flight')}`
+
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs tabular-nums opacity-60">{year}</span>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(0.65rem,1fr))] gap-1">
-        {datesInYear(year, today).map((date) => (
+      <div
+        role="img"
+        aria-label={label}
+        className="grid grid-cols-[repeat(auto-fill,minmax(0.65rem,1fr))] gap-1"
+      >
+        {dates.map((date) => (
           <HeatmapDayCell key={date} date={date} count={flightsByDate.get(date) ?? 0} max={max} />
         ))}
       </div>
@@ -271,14 +325,18 @@ function CalendarYearRow({
   )
 }
 
+// Individual cells carry no accessible name of their own (aria-hidden) — CalendarYearRow's own
+// role="img"/aria-label above is the one thing a screen reader announces for the whole year,
+// which is what keeps a 134-row, multi-decade logbook from generating one "no flights"
+// announcement per absent day. An absent day (count === 0) gets no title either, so it renders
+// as nothing but a styled div; a present day keeps its title as a sighted-user tooltip.
 function HeatmapDayCell({ date, count, max }: { date: string; count: number; max: number }) {
-  const label = count === 0 ? `${date}: no flights` : `${date}: ${pluralize(count, 'flight')}`
+  const title = count === 0 ? undefined : `${date}: ${pluralize(count, 'flight')}`
 
   return (
     <div
-      role="img"
-      aria-label={label}
-      title={label}
+      aria-hidden="true"
+      title={title}
       className={`h-3 w-3 rounded-sm ${HEAT_LEVEL_CLASSES[heatLevel(count, max)]}`}
     />
   )

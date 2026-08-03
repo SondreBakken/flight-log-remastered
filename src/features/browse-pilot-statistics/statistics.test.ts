@@ -60,6 +60,15 @@ describe('totalDurationMinutes', () => {
 
     expect(totalDurationMinutes(flights)).toBe(20)
   })
+
+  // Decision pinned in flight-year.ts's isCalendarDate doc comment: a placeholder-dated row
+  // (real fixture shape 'YYYY-00-00', pilot 4549's trips 987253/966728) is still a real
+  // flight — only flying-day counting and the longest-flight cards exclude it, not the totals.
+  it('still counts a placeholder-dated row (YYYY-00-00) toward the total, unlike flyingDaysByDate', () => {
+    const flights = [flight({ date: '2026-00-00', duration: '00:20', flightCount: 1 })]
+
+    expect(totalDurationMinutes(flights)).toBe(20)
+  })
 })
 
 describe('minutesByYear', () => {
@@ -81,6 +90,14 @@ describe('minutesByYear', () => {
     const flights = [flight({ date: '2026-01-01', duration: null, flightCount: 4 })]
 
     expect(minutesByYear(flights).has(2026)).toBe(false)
+  })
+
+  // The year digits of a placeholder date ('2026-00-00') are still real — flightYear reads
+  // them the same as any other row's, so this stays included, unlike flyingDaysByDate.
+  it('still groups a placeholder-dated row (YYYY-00-00) under its year', () => {
+    const flights = [flight({ date: '2026-00-00', duration: '00:30', flightCount: 1 })]
+
+    expect(minutesByYear(flights).get(2026)).toBe(30)
   })
 })
 
@@ -242,6 +259,16 @@ describe('longestFlightByDuration', () => {
   it('returns null for an empty logbook', () => {
     expect(longestFlightByDuration([])).toBeNull()
   })
+
+  // Real fixture shape (pilot-4549.html): a placeholder date ('2026-00-00') must never win
+  // here even with the greatest duration — crowning it would render a nonsense date like
+  // "2026-00-00 at Vikersund, Antenna" on the card.
+  it('excludes a placeholder-dated row (YYYY-00-00) even when its duration is largest', () => {
+    const placeholder = flight({ tripId: 1, date: '2026-00-00', duration: '05:00', flightCount: 1 })
+    const real = flight({ tripId: 2, date: '2026-05-01', duration: '00:20', flightCount: 1 })
+
+    expect(longestFlightByDuration([placeholder, real])).toBe(real)
+  })
 })
 
 describe('longestFlightByDistance', () => {
@@ -273,6 +300,15 @@ describe('longestFlightByDistance', () => {
 
     expect(longestFlightByDistance(flights)).toBeNull()
   })
+
+  // Same exclusion as longestFlightByDuration, so the two cards agree on which rows are
+  // eligible to be crowned "longest".
+  it('excludes a placeholder-dated row (YYYY-00-00) even when its distance is largest', () => {
+    const placeholder = flight({ tripId: 1, date: '2026-00-00', distanceKm: 80 })
+    const real = flight({ tripId: 2, date: '2026-05-01', distanceKm: 20 })
+
+    expect(longestFlightByDistance([placeholder, real])).toBe(real)
+  })
 })
 
 describe('flyingDaysByDate', () => {
@@ -300,5 +336,20 @@ describe('flyingDaysByDate', () => {
     // flights are different numbers for exactly this reason.
     expect(result.size).toBe(2)
     expect(result.get('2026-07-24')).toBe(6)
+  })
+
+  // Real fixture shape (pilot-4549.html, trips 987253/966728): a placeholder date isn't a
+  // real calendar day to plot, so it must not inflate the flying-day count — this is what
+  // kept the "Flying days (129)" heading from matching 127 actually-shaded cells.
+  it('excludes placeholder-dated rows (YYYY-00-00) from the flying-day count', () => {
+    const flights = [
+      flight({ date: '2026-00-00', flightCount: 1 }),
+      flight({ date: '2026-07-23', flightCount: 1 }),
+    ]
+
+    const result = flyingDaysByDate(flights)
+
+    expect(result.size).toBe(1)
+    expect(result.has('2026-00-00')).toBe(false)
   })
 })

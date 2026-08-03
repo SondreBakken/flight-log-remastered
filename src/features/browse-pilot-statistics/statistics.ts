@@ -1,4 +1,4 @@
-import { flightYear } from '@/lib/flightlog/flight-year'
+import { flightYear, isCalendarDate } from '@/lib/flightlog/flight-year'
 import type { Flight } from '@/lib/flightlog/types'
 
 // A row's `duration` is 'H:MM' or 'HH:MM' (see parse-flights.ts's readDuration) — hours is
@@ -129,7 +129,9 @@ export function longestFlightByDuration(flights: Flight[]): Flight | null {
   let longest: Flight | null = null
   let longestMinutes = -1
   for (const flight of flights) {
-    if (flight.flightCount !== 1 || flight.duration === null) continue
+    // Excludes placeholder-dated rows (flight-year.ts's isCalendarDate) — crowning one "longest
+    // flight" would render its nonsense date, e.g. "2026-00-00 at Vikersund, Antenna".
+    if (flight.flightCount !== 1 || flight.duration === null || !isCalendarDate(flight.date)) continue
     const minutes = parseDurationMinutes(flight.duration)
     if (minutes > longestMinutes) {
       longest = flight
@@ -159,6 +161,9 @@ export function longestFlightByDistance(flights: Flight[]): Flight | null {
   let longest: Flight | null = null
   let longestKm = -1
   for (const flight of flights) {
+    // Same placeholder-date exclusion as longestFlightByDuration above, so the two cards agree
+    // on which rows are eligible to be crowned "longest".
+    if (!isCalendarDate(flight.date)) continue
     const distance = distanceOf(flight)
     if (distance === null) continue
     if (distance > longestKm) {
@@ -176,6 +181,10 @@ export function longestFlightByDistance(flights: Flight[]): Flight | null {
 export function flyingDaysByDate(flights: Flight[]): Map<string, number> {
   const flightsByDate = new Map<string, number>()
   for (const flight of flights) {
+    // A placeholder date (flight-year.ts's isCalendarDate) isn't a real calendar day to plot —
+    // counting it here would make the "Flying days (N)" heading disagree with the number of
+    // shaded cells the calendar below actually renders, since both read this same map.
+    if (!isCalendarDate(flight.date)) continue
     flightsByDate.set(flight.date, (flightsByDate.get(flight.date) ?? 0) + flight.flightCount)
   }
   return flightsByDate

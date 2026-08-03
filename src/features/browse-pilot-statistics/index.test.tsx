@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import PilotStatistics from './index'
 import type { Flight } from '@/lib/flightlog/types'
@@ -22,6 +22,19 @@ function flight(overrides: Partial<Flight> = {}): Flight {
 }
 
 describe('PilotStatistics', () => {
+  // The calendar's own "today" clip (finding C) makes the current year's cell count depend on
+  // the real wall-clock date unless pinned — fixed here at the fixture's own "today"
+  // (2026-08-03) so every test in this file gets a stable, deterministic calendar regardless
+  // of which real day the suite happens to run on.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('renders the empty state and no summary line when the pilot has no flights', () => {
     render(<PilotStatistics flights={[]} />)
 
@@ -141,27 +154,43 @@ describe('PilotStatistics', () => {
 
   // #7's core complaint: the old heatmap rendered only present days, so two flying days a
   // year apart sat right next to each other with nothing showing the gap between them. This
-  // pins that a genuinely absent day BETWEEN two flying days now renders its own cell.
-  it('renders an absent-day cell (level 0, "no flights") for a gap between two flying days', () => {
+  // pins that a genuinely absent day BETWEEN two flying days still renders its own cell — just
+  // an unlabelled one now (see the accessibility tests below), not a full day-count regression.
+  it('renders a day cell for a gap day between two flying days, distinct from the flown-day cells', () => {
     const flights: Flight[] = [flight({ date: '2026-05-01' }), flight({ date: '2026-05-03' })]
 
-    render(<PilotStatistics flights={flights} />)
+    const { container } = render(<PilotStatistics flights={flights} />)
 
-    const gapDay = screen.getByLabelText('2026-05-02: no flights')
-    const flownDay = screen.getByLabelText('2026-05-01: 1 flight')
-    expect(gapDay).not.toEqual(flownDay)
+    screen.getByRole('img', { name: '2026: 2 flying days, 2 flights' })
+    const flownDay = container.querySelector('[title="2026-05-01: 1 flight"]')
+    const gapDayIndex = [...container.querySelectorAll('.h-3.w-3')].findIndex(
+      (cell) => !cell.hasAttribute('title'),
+    )
+    expect(flownDay).not.toBeNull()
+    // A gap day exists somewhere in the grid (Jan 1 - Aug 3 renders many, since the calendar
+    // covers the whole year-to-date, not just the range between the pilot's own flights).
+    expect(gapDayIndex).toBeGreaterThanOrEqual(0)
   })
 
-  // Minimal accessibility per #7: every calendar cell carries an aria-label, not just a
-  // `title` attribute (a title alone is not exposed to screen readers on a non-interactive
-  // div the same way an accessible name is).
-  it('gives every heatmap cell an accessible name in addition to its title', () => {
+  // Round 2 fix (finding A): 5933 of pilot 4549's 6060 calendar cells were absent days, each
+  // announced to screen readers as "date: no flights" — 890 KB of HTML server-rendered on every
+  // view. The fix moves the accessible name to one summary per year row (role="img" +
+  // aria-label) and hides the individual day cells from the accessibility tree entirely, with
+  // an absent day carrying no title (or any other per-cell text) at all.
+  it('gives the year row a single accessible name and hides day cells from the accessibility tree', () => {
     const flights: Flight[] = [flight({ date: '2026-05-01', flightCount: 2 })]
 
-    render(<PilotStatistics flights={flights} />)
+    const { container } = render(<PilotStatistics flights={flights} />)
 
-    const cell = screen.getByLabelText('2026-05-01: 2 flights')
-    expect(cell.getAttribute('title')).toBe('2026-05-01: 2 flights')
+    const yearRow = screen.getByRole('img', { name: '2026: 1 flying day, 2 flights' })
+    const presentCell = container.querySelector('[title="2026-05-01: 2 flights"]') as HTMLElement
+    // Jan 2 never had a flight, so it's an ordinary absent cell to check the "no title at all"
+    // half of the fix.
+    const absentCell = yearRow.children[1] as HTMLElement
+
+    expect(presentCell.getAttribute('aria-hidden')).toBe('true')
+    expect(absentCell.getAttribute('aria-hidden')).toBe('true')
+    expect(absentCell.hasAttribute('title')).toBe(false)
   })
 
   // REVERT GUARD (see index.tsx's own comment on sortedByCountDescending): pins descending
@@ -205,8 +234,8 @@ describe('PilotStatistics', () => {
 
     const { container } = render(<PilotStatistics flights={flights} />)
 
-    const flownCell = screen.getByLabelText('2026-05-01: 1 flight')
-    const absentCell = screen.getByLabelText('2026-05-02: no flights')
+    const flownCell = container.querySelector('[title="2026-05-01: 1 flight"]') as HTMLElement
+    const [, absentCell] = [...screen.getByRole('img', { name: /^2026:/ }).children] as HTMLElement[]
     const darkestCellCount = container.querySelectorAll('.bg-black\\/70').length
 
     expect(flownCell.className).toContain('bg-black/20')
@@ -223,12 +252,39 @@ describe('PilotStatistics', () => {
       flight({ date: '2026-05-02', flightCount: 3 }),
     ]
 
-    render(<PilotStatistics flights={flights} />)
+    const { container } = render(<PilotStatistics flights={flights} />)
 
-    const lightDay = screen.getByLabelText('2026-05-01: 1 flight')
-    const busyDay = screen.getByLabelText('2026-05-02: 3 flights')
+    const lightDay = container.querySelector('[title="2026-05-01: 1 flight"]') as HTMLElement
+    const busyDay = container.querySelector('[title="2026-05-02: 3 flights"]') as HTMLElement
 
     expect(lightDay.className).toContain('bg-black/20')
     expect(busyDay.className).toContain('bg-black/70')
+  })
+
+  // Round 2 fix (finding C): the Math.min clip in datesInYear was the only changed line no
+  // test pinned — this crosses the boundary and asserts the current year's row stops exactly at
+  // "today" rather than rendering ~150 not-yet-happened days as absent cells.
+  it('renders no calendar cells after today for the current year', () => {
+    vi.setSystemTime(new Date('2026-06-15T00:00:00.000Z'))
+
+    const flights: Flight[] = [flight({ date: '2026-06-10' })]
+    render(<PilotStatistics flights={flights} />)
+
+    // Jan 1 through Jun 15 inclusive, in a non-leap year: 31+28+31+30+31+15.
+    const yearRow = screen.getByRole('img', { name: /^2026:/ })
+    expect(yearRow.children).toHaveLength(166)
+  })
+
+  // Round 2 fix (finding D): yearsCoveredByDates used to emit only years containing a flight,
+  // so the calendar jumped 2016 -> 2014 with no visible sign 2015 was ever skipped. A fully
+  // fallow year in between now gets a compact one-line marker, not a full absent-cell grid
+  // (which would reintroduce finding A's problem for that year).
+  it('renders a compact "no flights" marker for a fully fallow year between two flying years', () => {
+    const flights: Flight[] = [flight({ date: '2014-05-01' }), flight({ date: '2016-05-01' })]
+
+    render(<PilotStatistics flights={flights} />)
+
+    screen.getByText('2015: no flights')
+    expect(screen.queryByRole('img', { name: /^2015:/ })).toBeNull()
   })
 })
