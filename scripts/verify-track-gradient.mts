@@ -69,9 +69,8 @@ if (!settled) {
   process.exit(1)
 }
 // isSourceLoaded only reports that the GeoJSON parsed and indexed, not that MapLibre has
-// actually PAINTED a frame with it, and querySourceFeatures below wants the tile-simplified
-// geometry that only exists once a frame has painted. See verify-track-hover.mts's own comment
-// on this identical wait for why isSourceLoaded plus a flat wait is not enough.
+// painted a frame with it. This mirrors the paint-idle wait the sibling verify-track-*
+// scripts use after the same isSourceLoaded check.
 await page
   .evaluate(
     () =>
