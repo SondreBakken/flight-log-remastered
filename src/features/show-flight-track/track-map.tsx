@@ -51,21 +51,36 @@ function toLngLat(point: TrackPoint): [number, number] {
   return [point.lon, point.lat]
 }
 
-function lineData(coordinates: [number, number][]): TrackLineData {
+// One Feature per line: a plain track or a line-shaped scoring geometry draws as a single
+// entry, a triangle as two (loop, connector — see scoringLineCoordinates below). A single
+// GeoJSON source/layer renders every feature it's given with the same paint, so two features
+// need no second layer of their own.
+function lineData(lines: Array<[number, number][]>): TrackLineData {
   return {
     type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates },
-        properties: {},
-      },
-    ],
+    features: lines.map((coordinates) => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates },
+      properties: {},
+    })),
   }
 }
 
 function trackLineData(points: TrackPoint[]): TrackLineData {
-  return lineData(points.map(toLngLat))
+  return lineData([points.map(toLngLat)])
+}
+
+// A line-shaped geometry draws as one ordered polyline through every turnpoint, same as
+// before. A triangle draws as two separate lines instead: the closed 3-vertex loop and the
+// 2-point connector joining it to the rest of the flight (see types.ts's
+// TriangleScoringGeometry) — they are not one continuous path, so resolving turnpointIndices
+// in order would draw a line straight across the loop instead of a closed triangle.
+function scoringLineCoordinates(geometry: ScoringGeometry, points: TrackPoint[]): Array<[number, number][]> {
+  if (geometry.shape === 'line') {
+    return [geometry.turnpointIndices.map((index) => toLngLat(points[index]))]
+  }
+  const closedLoop = [...geometry.loopIndices, geometry.loopIndices[0]]
+  return [closedLoop.map((index) => toLngLat(points[index])), geometry.connectorIndices.map((index) => toLngLat(points[index]))]
 }
 
 // A small circular badge carrying the turnpoint's own letter (A-E, matching the KML
@@ -252,10 +267,16 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       if (!scoringGeometry) return
 
       // turnpointIndices are positions in this same `points` array (see types.ts's
-      // ScoringGeometry doc comment) — resolved directly, no matching needed.
+      // ScoringGeometry doc comment) — resolved directly, no matching needed. Markers use
+      // every turnpoint in its own A-E order regardless of shape; the drawn line does not
+      // (see scoringLineCoordinates) because a triangle's loop and connector are not one
+      // continuous path through that same order.
       const turnpoints = scoringGeometry.turnpointIndices.map((index) => points[index])
 
-      map.addSource(SCORING_SOURCE_ID, { type: 'geojson', data: lineData(turnpoints.map(toLngLat)) })
+      map.addSource(SCORING_SOURCE_ID, {
+        type: 'geojson',
+        data: lineData(scoringLineCoordinates(scoringGeometry, points)),
+      })
       map.addLayer({
         id: SCORING_LAYER_ID,
         type: 'line',
