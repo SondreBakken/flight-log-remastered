@@ -202,16 +202,27 @@ mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
-# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15):
-# 233524 is the only sampled flight with real (non-degenerate) triangles; 235690 is missing 3
-# scoring placemarks entirely; 991729 and 883027 are short flights with degenerate 5pt/4pt
-# geometries; 742436 and 795416 are long XC flights. Any trip id with a GPS track works for
-# rqtid=19 — these particular ids just happen to already exercise every absence/degenerate shape
-# check:scoring pins against.
+# The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15,
+# extended by #58). requiredFixtures in check-scoring.mts gates the WHOLE script on all of them
+# being present — one missing file SKIPs (loudly, exit 0) every assertion in it, not just the
+# ones that fixture would back; accepted trade-off, since these are gitignored scraped fixtures
+# absent in a clean checkout and the alternative (per-assertion skips) would silently narrow
+# coverage in a checkout where only some got regenerated. 233524, 984290 and 985713 all carry
+# real (non-degenerate) triangles — of #58's own 12-fixture sample, 12 of 17 sampled flights
+# do — but 984290's FAI triangle and 985713's flat triangle are each the shared-endpoint variant
+# (the connector shares an endpoint with the loop, so 5 distinct turnpoints collapse to 4 — see
+# check-scoring.mts's own dedicated assertions against them); 233524 is the plain 5-distinct
+# shape for both. 235690 is missing 3 scoring placemarks entirely (including both triangles);
+# 991729 and 883027 are short flights with degenerate 5pt/4pt geometries; 742436 and 795416 are
+# long XC flights. Any trip id with a GPS track works for rqtid=19 — these particular ids just
+# happen to already exercise every absence/degenerate/shared-endpoint shape check:scoring pins
+# against.
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=233524" -o fixtures/track-233524.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=235690" -o fixtures/track-235690.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=991729" -o fixtures/track-991729.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=883027" -o fixtures/track-883027.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=984290" -o fixtures/track-984290.kml
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=985713" -o fixtures/track-985713.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=742436" -o fixtures/track-742436.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=795416" -o fixtures/track-795416.kml
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=9" -o fixtures/countries.html
