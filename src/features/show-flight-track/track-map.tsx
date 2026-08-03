@@ -14,9 +14,9 @@ import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
 import { formatAltitude } from './format-altitude'
 import { SCORING_LINE_COLOR, TRACK_LINE_COLOR } from './colors'
-import { turnpointLetter } from './scoring-overlay'
 import { scoringLineCoordinates, toLngLat } from './scoring-line'
 import { nearestIndexByLocation } from './track-hover'
+import { groupTurnpointMarkers } from './turnpoint-markers'
 
 declare global {
   interface Window {
@@ -67,16 +67,20 @@ function trackLineData(points: TrackPoint[]): TrackLineData {
   return lineData([points.map(toLngLat)])
 }
 
-// A small circular badge carrying the turnpoint's own letter (A-E, matching the KML
-// turnpoint table — see scoring-overlay.ts's turnpointLetter). MapLibre's Marker only
-// positions a DOM element it's handed; it has no built-in labelled-pin primitive, which is
-// why every other marker in this file (start/end/hover) is a plain colour dot and this is
-// the first one that needs its own element rather than just a `color` option.
-function createTurnpointElement(letter: string): HTMLDivElement {
+// A small badge carrying the turnpoint's own letter (A-E, matching the KML turnpoint table —
+// see scoring-overlay.ts's turnpointLetter), or several letters joined ('D/E') when
+// groupTurnpointMarkers has merged co-located turnpoints into one marker (#78). MapLibre's
+// Marker only positions a DOM element it's handed; it has no built-in labelled-pin primitive,
+// which is why every other marker in this file (start/end/hover) is a plain colour dot and
+// this is the first one that needs its own element rather than just a `color` option.
+// `min-w-5` (not a fixed `w-5`) with `px-1` lets a merged label's badge grow wide enough not
+// to clip, while a single letter stays exactly the same 20x20 circle it always was: its own
+// glyph plus padding never exceeds the 20px floor `min-w-5`/`h-5` sets.
+function createTurnpointElement(label: string): HTMLDivElement {
   const element = document.createElement('div')
-  element.textContent = letter
+  element.textContent = label
   element.className =
-    'flex h-5 w-5 items-center justify-center rounded-full border-2 border-white text-[10px] font-semibold text-white shadow'
+    'flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white px-1 text-[10px] font-semibold text-white shadow'
   element.style.backgroundColor = SCORING_LINE_COLOR
   return element
 }
@@ -255,8 +259,12 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       // ScoringGeometry doc comment) — resolved directly, no matching needed. Markers use
       // every turnpoint in its own A-E order regardless of shape; the drawn line does not
       // (see scoringLineCoordinates) because a triangle's loop and connector are not one
-      // continuous path through that same order.
-      const turnpoints = scoringGeometry.turnpointIndices.map((index) => points[index])
+      // continuous path through that same order. Two or more turnpoints can resolve to the
+      // exact same coordinate (#78 — a triangle whose connector shares an endpoint with its
+      // loop, either through a repeated index or two different indices that happen to match);
+      // groupTurnpointMarkers folds those into one marker with a combined label rather than
+      // stacking identical badges on top of each other.
+      const turnpointGroups = groupTurnpointMarkers(scoringGeometry.turnpointIndices, points)
 
       map.addSource(SCORING_SOURCE_ID, {
         type: 'geojson',
@@ -270,12 +278,12 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
         paint: { 'line-color': SCORING_LINE_COLOR, 'line-width': 3, 'line-dasharray': [2, 1.5] },
       })
 
-      turnpointMarkersRef.current = turnpoints.map((point, index) => {
-        const marker = new Marker({ element: createTurnpointElement(turnpointLetter(index)) })
-          .setLngLat(toLngLat(point))
+      turnpointMarkersRef.current = turnpointGroups.map((group) => {
+        const marker = new Marker({ element: createTurnpointElement(group.label) })
+          .setLngLat(toLngLat(group.point))
           .addTo(map)
         marker.getElement().setAttribute('data-testid', 'turnpoint-marker')
-        marker.getElement().setAttribute('data-letter', turnpointLetter(index))
+        marker.getElement().setAttribute('data-letter', group.label)
         return marker
       })
     }
