@@ -163,216 +163,223 @@ async function loadSceneWithColdServerRetry(page: Page, url: string, label: stri
   return { radios, summary }
 }
 
-// === Scene 1: trip 1001428, every geometry available ===================================
+type SceneContext = { page: Page; radios: RadioState[]; summary: string | null }
 
-const fullSetPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const fullSetBad = trackBadResponses(fullSetPage)
-const { radios: fullSetRadios, summary: fullSetSummary } = await loadSceneWithColdServerRetry(
-  fullSetPage,
-  `${baseUrl}/flights/1001428?__verifyMap`,
-  'trip 1001428',
-  fullSetBad,
-)
-const fullSetSourceLoaded = await fullSetPage
-  .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
-  .catch(() => null)
-const fullSetMarkerCount = await readTurnpointMarkerCount(fullSetPage)
-
-console.log('\n=== trip 1001428 (full set) ===')
-console.log('radios:', fullSetRadios)
-console.log('scoring source loaded:', fullSetSourceLoaded)
-console.log('turnpoint markers:', fullSetMarkerCount)
-console.log('summary text:', fullSetSummary)
-
-// "Full set" now means the five line-shaped kinds only: track-1001428's own two triangle
-// placemarks are the metadata-only stub (bare <name>, no <description>/<MultiGeometry> — see
-// check-scoring.mts's own assertion against this same fixture), so its triangle radios are
-// CORRECTLY disabled. Asserting "every option enabled" here would either be silently wrong or
-// force the fixture data itself to lie; asserting the true five-enabled/two-disabled split is
-// the real oracle, and #58's own fixtures (trip 233524, below) are what exercise the enabled
-// triangle case this scene no longer can.
-const LINE_LABELS = [
-  'Distance over 5 points',
-  'Distance over 4 points',
-  'Distance over 3 points',
-  'Open distance',
-  'Out-and-return distance',
-]
-const TRIANGLE_LABELS = ['Flat triangle', 'FAI triangle']
-
-report(fullSetRadios.some((r) => r.label.startsWith('Open distance') && r.checked), 'trip 1001428: Open distance is selected by default')
-report(
-  LINE_LABELS.every((label) => fullSetRadios.find((r) => r.label.startsWith(label))?.disabled === false),
-  'trip 1001428: all five line-shaped scoring geometries are enabled',
-)
-report(
-  TRIANGLE_LABELS.every((label) => fullSetRadios.find((r) => r.label.startsWith(label))?.disabled === true),
-  'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle radios are correctly disabled',
-)
-report(fullSetSourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
-report(fullSetMarkerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${fullSetMarkerCount})`)
-report(fullSetSummary === 'Open distance: 48.95 km', `trip 1001428: the summary shows the geometry's own scored distance (got "${fullSetSummary}")`)
-
-// The scoring line's own colour actually appears on the canvas, not just source/layer
-// existence — an existence-only check passes even for a wholly wrong (or empty) geometry, as
-// long as SOME source and layer got added. Sampled the same way verify-shot.mts/
-// verify-track-gradient.mts sample the altitude ramp: crop to the canvas element, decode the
-// screenshot back into pixels, and look for SCORING_LINE_COLOR among them.
-const canvasRect = await fullSetPage.evaluate(() => {
-  const el = document.querySelector('.maplibregl-canvas')
-  if (!el) return null
-  const r = el.getBoundingClientRect()
-  return { x: r.x, y: r.y, width: r.width, height: r.height }
-})
-if (canvasRect) {
-  const screenshotBuffer = await fullSetPage.screenshot()
-  const base64 = screenshotBuffer.toString('base64')
-  const { distinctColors, matchDistance } = await fullSetPage.evaluate(
-    async ({ base64: b64, rect, targetHex }) => {
-      const img = new Image()
-      img.src = `data:image/png;base64,${b64}`
-      await img.decode()
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0)
-      const x0 = Math.max(0, Math.floor(rect.x))
-      const y0 = Math.max(0, Math.floor(rect.y))
-      const x1 = Math.min(canvas.width, Math.ceil(rect.x + rect.width))
-      const y1 = Math.min(canvas.height, Math.ceil(rect.y + rect.height))
-      const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
-      const w = x1 - x0
-      const target = [
-        Number.parseInt(targetHex.slice(1, 3), 16),
-        Number.parseInt(targetHex.slice(3, 5), 16),
-        Number.parseInt(targetHex.slice(5, 7), 16),
-      ]
-      const seen = new Set<string>()
-      let minDistance = Infinity
-      const step = 3
-      for (let y = 0; y < y1 - y0; y += step) {
-        for (let x = 0; x < w; x += step) {
-          const idx = (y * w + x) * 4
-          const r = data[idx]
-          const g = data[idx + 1]
-          const b = data[idx + 2]
-          seen.add(`${r},${g},${b}`)
-          const distance = Math.sqrt((r - target[0]) ** 2 + (g - target[1]) ** 2 + (b - target[2]) ** 2)
-          if (distance < minDistance) minDistance = distance
-        }
-      }
-      return { distinctColors: seen.size, matchDistance: minDistance }
-    },
-    { base64, rect: canvasRect, targetHex: SCORING_LINE_COLOR },
-  )
-  report(distinctColors > 500, `trip 1001428: the canvas is not near-uniform (${distinctColors} distinct sampled colours)`)
-  report(
-    matchDistance < 40,
-    `trip 1001428: the scoring overlay's own colour (${SCORING_LINE_COLOR}) actually appears on the canvas (nearest sampled pixel ${matchDistance.toFixed(1)} away)`,
-  )
-} else {
-  report(false, 'trip 1001428: .maplibregl-canvas element is present, to know where to sample pixels from')
+// Every scene shares the same open/navigate/close/report-bad-responses skeleton; only the body
+// in between (the scene's own assertions) differs. Routing every scene through
+// loadSceneWithColdServerRetry (not just scene 1, which needed it) is safe because the retry
+// only fires on the exact cold-empty signature documented above (empty radios, null summary,
+// no bad responses, no error boundary); a deterministic regression in scenes 2-6 still trips
+// that signature and survives the retry unchanged, so it still fails downstream.
+async function runScene(options: { tripId: number; label: string; scene: (context: SceneContext) => Promise<void> }): Promise<void> {
+  const { tripId, label, scene } = options
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
+  const bad = trackBadResponses(page)
+  const { radios, summary } = await loadSceneWithColdServerRetry(page, `${baseUrl}/flights/${tripId}?__verifyMap`, label, bad)
+  await scene({ page, radios, summary })
+  await page.close()
+  report(bad.length === 0, `${label}: no unexpected 4xx/5xx responses or failed requests (saw: ${bad.length ? bad.join('; ') : 'none'})`)
 }
 
-// === Toggle: switching overlays syncs onto the SAME map, not a remount =================
-//
-// The 83 new lines in track-map.tsx's own scoring-sync effect exist for one documented
-// reason: kept separate from the map-creation effect so toggling the overlay doesn't recreate
-// the whole map and reset the user's pan/zoom. Nothing before this asserted that path at all
-// — this does, directly: capture center/zoom, toggle, and check they didn't move, alongside
-// the geometry itself actually having changed (different marker count, different summary).
-const centerBefore = await fullSetPage.evaluate(() => {
-  const map = window.__flightTrackMap
-  return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
+// === Scene 1: trip 1001428, every geometry available ===================================
+
+await runScene({
+  tripId: 1001428,
+  label: 'trip 1001428',
+  scene: async ({ page, radios, summary }) => {
+    const sourceLoaded = await page
+      .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
+      .catch(() => null)
+    const markerCount = await readTurnpointMarkerCount(page)
+
+    console.log('\n=== trip 1001428 (full set) ===')
+    console.log('radios:', radios)
+    console.log('scoring source loaded:', sourceLoaded)
+    console.log('turnpoint markers:', markerCount)
+    console.log('summary text:', summary)
+
+    // "Full set" now means the five line-shaped kinds only: track-1001428's own two triangle
+    // placemarks are the metadata-only stub (bare <name>, no <description>/<MultiGeometry> — see
+    // check-scoring.mts's own assertion against this same fixture), so its triangle radios are
+    // CORRECTLY disabled. Asserting "every option enabled" here would either be silently wrong or
+    // force the fixture data itself to lie; asserting the true five-enabled/two-disabled split is
+    // the real oracle, and #58's own fixtures (trip 233524, below) are what exercise the enabled
+    // triangle case this scene no longer can.
+    const LINE_LABELS = [
+      'Distance over 5 points',
+      'Distance over 4 points',
+      'Distance over 3 points',
+      'Open distance',
+      'Out-and-return distance',
+    ]
+    const TRIANGLE_LABELS = ['Flat triangle', 'FAI triangle']
+
+    report(radios.some((r) => r.label.startsWith('Open distance') && r.checked), 'trip 1001428: Open distance is selected by default')
+    report(
+      LINE_LABELS.every((label) => radios.find((r) => r.label.startsWith(label))?.disabled === false),
+      'trip 1001428: all five line-shaped scoring geometries are enabled',
+    )
+    report(
+      TRIANGLE_LABELS.every((label) => radios.find((r) => r.label.startsWith(label))?.disabled === true),
+      'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle radios are correctly disabled',
+    )
+    report(sourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
+    report(markerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${markerCount})`)
+    report(summary === 'Open distance: 48.95 km', `trip 1001428: the summary shows the geometry's own scored distance (got "${summary}")`)
+
+    // The scoring line's own colour actually appears on the canvas, not just source/layer
+    // existence — an existence-only check passes even for a wholly wrong (or empty) geometry, as
+    // long as SOME source and layer got added. Sampled the same way verify-shot.mts/
+    // verify-track-gradient.mts sample the altitude ramp: crop to the canvas element, decode the
+    // screenshot back into pixels, and look for SCORING_LINE_COLOR among them.
+    const canvasRect = await page.evaluate(() => {
+      const el = document.querySelector('.maplibregl-canvas')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.x, y: r.y, width: r.width, height: r.height }
+    })
+    if (canvasRect) {
+      const screenshotBuffer = await page.screenshot()
+      const base64 = screenshotBuffer.toString('base64')
+      const { distinctColors, matchDistance } = await page.evaluate(
+        async ({ base64: b64, rect, targetHex }) => {
+          const img = new Image()
+          img.src = `data:image/png;base64,${b64}`
+          await img.decode()
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth
+          canvas.height = img.naturalHeight
+          const ctx = canvas.getContext('2d')!
+          ctx.drawImage(img, 0, 0)
+          const x0 = Math.max(0, Math.floor(rect.x))
+          const y0 = Math.max(0, Math.floor(rect.y))
+          const x1 = Math.min(canvas.width, Math.ceil(rect.x + rect.width))
+          const y1 = Math.min(canvas.height, Math.ceil(rect.y + rect.height))
+          const data = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data
+          const w = x1 - x0
+          const target = [
+            Number.parseInt(targetHex.slice(1, 3), 16),
+            Number.parseInt(targetHex.slice(3, 5), 16),
+            Number.parseInt(targetHex.slice(5, 7), 16),
+          ]
+          const seen = new Set<string>()
+          let minDistance = Infinity
+          const step = 3
+          for (let y = 0; y < y1 - y0; y += step) {
+            for (let x = 0; x < w; x += step) {
+              const idx = (y * w + x) * 4
+              const r = data[idx]
+              const g = data[idx + 1]
+              const b = data[idx + 2]
+              seen.add(`${r},${g},${b}`)
+              const distance = Math.sqrt((r - target[0]) ** 2 + (g - target[1]) ** 2 + (b - target[2]) ** 2)
+              if (distance < minDistance) minDistance = distance
+            }
+          }
+          return { distinctColors: seen.size, matchDistance: minDistance }
+        },
+        { base64, rect: canvasRect, targetHex: SCORING_LINE_COLOR },
+      )
+      report(distinctColors > 500, `trip 1001428: the canvas is not near-uniform (${distinctColors} distinct sampled colours)`)
+      report(
+        matchDistance < 40,
+        `trip 1001428: the scoring overlay's own colour (${SCORING_LINE_COLOR}) actually appears on the canvas (nearest sampled pixel ${matchDistance.toFixed(1)} away)`,
+      )
+    } else {
+      report(false, 'trip 1001428: .maplibregl-canvas element is present, to know where to sample pixels from')
+    }
+
+    // === Toggle: switching overlays syncs onto the SAME map, not a remount =================
+    //
+    // The 83 new lines in track-map.tsx's own scoring-sync effect exist for one documented
+    // reason: kept separate from the map-creation effect so toggling the overlay doesn't recreate
+    // the whole map and reset the user's pan/zoom. Nothing before this asserted that path at all
+    // — this does, directly: capture center/zoom, toggle, and check they didn't move, alongside
+    // the geometry itself actually having changed (different marker count, different summary).
+    const centerBefore = await page.evaluate(() => {
+      const map = window.__flightTrackMap
+      return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
+    })
+
+    await clickRadioByLabelPrefix(page, 'Distance over 5 points')
+    await page.waitForTimeout(500)
+
+    const centerAfter = await page.evaluate(() => {
+      const map = window.__flightTrackMap
+      return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
+    })
+    const toggledRadios = await readRadios(page)
+    const toggledMarkerCount = await readTurnpointMarkerCount(page)
+    const toggledSummary = await readSummary(page)
+
+    console.log('center/zoom before toggle:', centerBefore)
+    console.log('center/zoom after toggle:', centerAfter)
+    console.log('turnpoint markers after toggle:', toggledMarkerCount)
+    console.log('summary after toggle:', toggledSummary)
+
+    report(
+      toggledRadios.some((r) => r.label.startsWith('Distance over 5 points') && r.checked),
+      'trip 1001428: toggling to the 5-point overlay actually selects it',
+    )
+    report(
+      centerBefore !== null &&
+        centerAfter !== null &&
+        centerBefore.center[0] === centerAfter.center[0] &&
+        centerBefore.center[1] === centerAfter.center[1] &&
+        centerBefore.zoom === centerAfter.zoom,
+      'trip 1001428: toggling the overlay does not move the map (same center/zoom, so the map was synced onto, not recreated)',
+    )
+    report(toggledMarkerCount === 5, `trip 1001428: the 5-point overlay renders 5 turnpoint markers, not the 2-marker open-distance leftovers (got ${toggledMarkerCount})`)
+    report(
+      toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== summary,
+      `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
+    )
+  },
 })
-
-await clickRadioByLabelPrefix(fullSetPage, 'Distance over 5 points')
-await fullSetPage.waitForTimeout(500)
-
-const centerAfter = await fullSetPage.evaluate(() => {
-  const map = window.__flightTrackMap
-  return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
-})
-const toggledRadios = await readRadios(fullSetPage)
-const toggledMarkerCount = await readTurnpointMarkerCount(fullSetPage)
-const toggledSummary = await readSummary(fullSetPage)
-
-console.log('center/zoom before toggle:', centerBefore)
-console.log('center/zoom after toggle:', centerAfter)
-console.log('turnpoint markers after toggle:', toggledMarkerCount)
-console.log('summary after toggle:', toggledSummary)
-
-report(
-  toggledRadios.some((r) => r.label.startsWith('Distance over 5 points') && r.checked),
-  'trip 1001428: toggling to the 5-point overlay actually selects it',
-)
-report(
-  centerBefore !== null &&
-    centerAfter !== null &&
-    centerBefore.center[0] === centerAfter.center[0] &&
-    centerBefore.center[1] === centerAfter.center[1] &&
-    centerBefore.zoom === centerAfter.zoom,
-  'trip 1001428: toggling the overlay does not move the map (same center/zoom, so the map was synced onto, not recreated)',
-)
-report(toggledMarkerCount === 5, `trip 1001428: the 5-point overlay renders 5 turnpoint markers, not the 2-marker open-distance leftovers (got ${toggledMarkerCount})`)
-report(
-  toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== fullSetSummary,
-  `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
-)
-
-await fullSetPage.close()
-report(fullSetBad.length === 0, `trip 1001428: no unexpected 4xx/5xx responses or failed requests (saw: ${fullSetBad.length ? fullSetBad.join('; ') : 'none'})`)
 
 // === Scene 2: trip 991729, degenerate 5pt/4pt =============================================
 
-const shortFlightPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const shortFlightBad = trackBadResponses(shortFlightPage)
-await shortFlightPage.goto(`${baseUrl}/flights/991729?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(shortFlightPage)
+await runScene({
+  tripId: 991729,
+  label: 'trip 991729',
+  scene: async ({ radios }) => {
+    console.log('\n=== trip 991729 (short flight, degenerate 5pt/4pt) ===')
+    console.log('radios:', radios)
 
-const shortFlightRadios = await readRadios(shortFlightPage)
-console.log('\n=== trip 991729 (short flight, degenerate 5pt/4pt) ===')
-console.log('radios:', shortFlightRadios)
-
-report(
-  shortFlightRadios.find((r) => r.label.startsWith('Distance over 5 points'))?.disabled === true,
-  'trip 991729: the degenerate 5-point geometry is disabled, not selectable',
-)
-report(
-  shortFlightRadios.find((r) => r.label.startsWith('Distance over 4 points'))?.disabled === true,
-  'trip 991729: the degenerate 4-point geometry is disabled, not selectable',
-)
-report(
-  shortFlightRadios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
-  'trip 991729: Open distance (not degenerate) is still selected by default',
-)
-
-await shortFlightPage.close()
-report(shortFlightBad.length === 0, `trip 991729: no unexpected 4xx/5xx responses or failed requests (saw: ${shortFlightBad.length ? shortFlightBad.join('; ') : 'none'})`)
+    report(
+      radios.find((r) => r.label.startsWith('Distance over 5 points'))?.disabled === true,
+      'trip 991729: the degenerate 5-point geometry is disabled, not selectable',
+    )
+    report(
+      radios.find((r) => r.label.startsWith('Distance over 4 points'))?.disabled === true,
+      'trip 991729: the degenerate 4-point geometry is disabled, not selectable',
+    )
+    report(
+      radios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
+      'trip 991729: Open distance (not degenerate) is still selected by default',
+    )
+  },
+})
 
 // === Scene 3: trip 235690, out-and-return placemark entirely missing ======================
 
-const missingPlacemarkPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const missingPlacemarkBad = trackBadResponses(missingPlacemarkPage)
-await missingPlacemarkPage.goto(`${baseUrl}/flights/235690?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(missingPlacemarkPage)
+await runScene({
+  tripId: 235690,
+  label: 'trip 235690',
+  scene: async ({ radios }) => {
+    console.log('\n=== trip 235690 (missing out-and-return placemark entirely) ===')
+    console.log('radios:', radios)
 
-const missingPlacemarkRadios = await readRadios(missingPlacemarkPage)
-console.log('\n=== trip 235690 (missing out-and-return placemark entirely) ===')
-console.log('radios:', missingPlacemarkRadios)
-
-report(
-  missingPlacemarkRadios.find((r) => r.label.startsWith('Out-and-return distance'))?.disabled === true,
-  'trip 235690: the entirely-missing out-and-return placemark is disabled, not selectable',
-)
-report(
-  missingPlacemarkRadios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
-  'trip 235690: Open distance (present) is still selected by default',
-)
-
-await missingPlacemarkPage.close()
-report(missingPlacemarkBad.length === 0, `trip 235690: no unexpected 4xx/5xx responses or failed requests (saw: ${missingPlacemarkBad.length ? missingPlacemarkBad.join('; ') : 'none'})`)
+    report(
+      radios.find((r) => r.label.startsWith('Out-and-return distance'))?.disabled === true,
+      'trip 235690: the entirely-missing out-and-return placemark is disabled, not selectable',
+    )
+    report(
+      radios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
+      'trip 235690: Open distance (present) is still selected by default',
+    )
+  },
+})
 
 // === Scene 4: trip 233524, both triangle geometries real — the browser-level oracle for #58's
 // render path (scoring-line.ts's scoringLineCoordinates) ===================================
@@ -453,97 +460,94 @@ function isRotationOfOwnCoordinates(rendered: Array<[number, number]>, own: Arra
   return false
 }
 
-const trianglePage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const triangleBad = trackBadResponses(trianglePage)
-await trianglePage.goto(`${baseUrl}/flights/233524?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(trianglePage)
+await runScene({
+  tripId: 233524,
+  label: 'trip 233524',
+  scene: async ({ page, radios }) => {
+    console.log('\n=== trip 233524 (real flat/FAI triangle geometries) ===')
+    console.log('radios:', radios)
 
-const triangleRadios = await readRadios(trianglePage)
-console.log('\n=== trip 233524 (real flat/FAI triangle geometries) ===')
-console.log('radios:', triangleRadios)
+    report(
+      radios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+      'trip 233524: the flat triangle is a real, non-degenerate geometry, not disabled',
+    )
+    report(
+      radios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+      'trip 233524: the FAI triangle is a real, non-degenerate geometry, not disabled',
+    )
 
-report(
-  triangleRadios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
-  'trip 233524: the flat triangle is a real, non-degenerate geometry, not disabled',
-)
-report(
-  triangleRadios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
-  'trip 233524: the FAI triangle is a real, non-degenerate geometry, not disabled',
-)
+    await clickRadioByLabelPrefix(page, 'Flat triangle')
+    await page
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .catch(() => {})
+    await waitForMapIdle(page)
 
-await clickRadioByLabelPrefix(trianglePage, 'Flat triangle')
-await trianglePage
-  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
-  .catch(() => {})
-await waitForMapIdle(trianglePage)
+    // `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
+    // effect passed to `addSource` — not `querySourceFeatures`, which reads back from the rendered
+    // vector tiles instead and, at the low zoom a whole-flight view sits at, quantizes coordinates by
+    // as much as a few hundred metres (geojson-vt's own tile-local simplification tolerance). That
+    // quantization is invisible to the length/self-closing checks below (they don't care about exact
+    // values), but it broke the coordinate-identity check further down outright: real points read
+    // back a tenth of a kilometre from where they actually are. Typed loosely (not a `GeoJSON.
+    // LineString` cast): `@types/geojson` (the package maplibre-gl's own .d.ts resolves that global
+    // namespace against internally) isn't hoisted to this project's top-level node_modules/@types
+    // under pnpm, so naming it here would fail typechecking outside maplibre-gl's own module scope.
+    const scoringFeatureCoordinates = await page.evaluate(() => {
+      const map = window.__flightTrackMap
+      if (!map) return null
+      const source = map.getSource<GeoJSONSource>('scoring-overlay')
+      const data = source?.serialize().data as { features: Array<{ geometry: { type: string; coordinates: unknown } }> } | undefined
+      if (!data) return null
+      const coordinates: Array<[number, number][]> = []
+      for (const feature of data.features) {
+        if (feature.geometry.type !== 'LineString') continue
+        coordinates.push(feature.geometry.coordinates as [number, number][])
+      }
+      return coordinates
+    })
 
-// `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
-// effect passed to `addSource` — not `querySourceFeatures`, which reads back from the rendered
-// vector tiles instead and, at the low zoom a whole-flight view sits at, quantizes coordinates by
-// as much as a few hundred metres (geojson-vt's own tile-local simplification tolerance). That
-// quantization is invisible to the length/self-closing checks below (they don't care about exact
-// values), but it broke the coordinate-identity check further down outright: real points read
-// back a tenth of a kilometre from where they actually are. Typed loosely (not a `GeoJSON.
-// LineString` cast): `@types/geojson` (the package maplibre-gl's own .d.ts resolves that global
-// namespace against internally) isn't hoisted to this project's top-level node_modules/@types
-// under pnpm, so naming it here would fail typechecking outside maplibre-gl's own module scope.
-const scoringFeatureCoordinates = await trianglePage.evaluate(() => {
-  const map = window.__flightTrackMap
-  if (!map) return null
-  const source = map.getSource<GeoJSONSource>('scoring-overlay')
-  const data = source?.serialize().data as { features: Array<{ geometry: { type: string; coordinates: unknown } }> } | undefined
-  if (!data) return null
-  const coordinates: Array<[number, number][]> = []
-  for (const feature of data.features) {
-    if (feature.geometry.type !== 'LineString') continue
-    coordinates.push(feature.geometry.coordinates as [number, number][])
-  }
-  return coordinates
+    console.log('scoring source features (flat triangle):', JSON.stringify(scoringFeatureCoordinates))
+
+    const featuresByLength = [...(scoringFeatureCoordinates ?? [])].sort((a, b) => a.length - b.length)
+    const [connector, loop] = featuresByLength
+
+    report(
+      scoringFeatureCoordinates !== null && scoringFeatureCoordinates.length === 2,
+      `trip 233524: selecting the flat triangle draws exactly two line features on the map's own scoring source (got ${scoringFeatureCoordinates?.length ?? 'none'})`,
+    )
+    report(
+      loop !== undefined && loop.length === 4 && JSON.stringify(loop[0]) === JSON.stringify(loop[3]),
+      `trip 233524: one feature is a self-closing 4-coordinate loop, first coordinate repeating last (got ${JSON.stringify(loop)})`,
+    )
+    report(
+      connector !== undefined && connector.length === 2,
+      `trip 233524: the other feature is a 2-coordinate connector (got ${JSON.stringify(connector)})`,
+    )
+
+    // fixtures/track-233524.kml is gitignored (a scraped copy of the same rqtid=19 KML the app's
+    // own server fetched to render this page) — present in a checkout with fixtures regenerated per
+    // the README, absent otherwise. SKIP (not FAIL) this specific comparison when it's missing,
+    // the same convention check-scoring.mts/check-parsers.mts use for the same reason, rather than
+    // failing an otherwise-legitimate run over a file this repo deliberately doesn't commit.
+    const triangleFixturePath = 'fixtures/track-233524.kml'
+    if (existsSync(triangleFixturePath)) {
+      const ownFlatTriangle = ownTriangleCoordinates(readFileSync(triangleFixturePath, 'utf8'), 'distance_flat_triangle')
+      report(
+        ownFlatTriangle !== null && loop !== undefined && isRotationOfOwnCoordinates(loop, ownFlatTriangle.loop),
+        `trip 233524: the rendered loop feature's points match the flat triangle placemark's own MultiGeometry loop coordinates, not some other placemark's points (got ${JSON.stringify(loop)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.loop)})`,
+      )
+      report(
+        ownFlatTriangle !== null && connector !== undefined && isRotationOfOwnCoordinates(connector, ownFlatTriangle.connector),
+        `trip 233524: the rendered connector feature's points match the flat triangle placemark's own MultiGeometry connector coordinates, not the loop's (got ${JSON.stringify(connector)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.connector)})`,
+      )
+    } else {
+      console.log(
+        `SKIP - trip 233524: ${triangleFixturePath} absent, skipping the coordinate-identity check against the ` +
+          'raw MultiGeometry of the flat triangle placemark (regenerate fixtures per the README to exercise it)',
+      )
+    }
+  },
 })
-
-console.log('scoring source features (flat triangle):', JSON.stringify(scoringFeatureCoordinates))
-
-const featuresByLength = [...(scoringFeatureCoordinates ?? [])].sort((a, b) => a.length - b.length)
-const [connector, loop] = featuresByLength
-
-report(
-  scoringFeatureCoordinates !== null && scoringFeatureCoordinates.length === 2,
-  `trip 233524: selecting the flat triangle draws exactly two line features on the map's own scoring source (got ${scoringFeatureCoordinates?.length ?? 'none'})`,
-)
-report(
-  loop !== undefined && loop.length === 4 && JSON.stringify(loop[0]) === JSON.stringify(loop[3]),
-  `trip 233524: one feature is a self-closing 4-coordinate loop, first coordinate repeating last (got ${JSON.stringify(loop)})`,
-)
-report(
-  connector !== undefined && connector.length === 2,
-  `trip 233524: the other feature is a 2-coordinate connector (got ${JSON.stringify(connector)})`,
-)
-
-// fixtures/track-233524.kml is gitignored (a scraped copy of the same rqtid=19 KML the app's
-// own server fetched to render this page) — present in a checkout with fixtures regenerated per
-// the README, absent otherwise. SKIP (not FAIL) this specific comparison when it's missing,
-// the same convention check-scoring.mts/check-parsers.mts use for the same reason, rather than
-// failing an otherwise-legitimate run over a file this repo deliberately doesn't commit.
-const triangleFixturePath = 'fixtures/track-233524.kml'
-if (existsSync(triangleFixturePath)) {
-  const ownFlatTriangle = ownTriangleCoordinates(readFileSync(triangleFixturePath, 'utf8'), 'distance_flat_triangle')
-  report(
-    ownFlatTriangle !== null && loop !== undefined && isRotationOfOwnCoordinates(loop, ownFlatTriangle.loop),
-    `trip 233524: the rendered loop feature's points match the flat triangle placemark's own MultiGeometry loop coordinates, not some other placemark's points (got ${JSON.stringify(loop)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.loop)})`,
-  )
-  report(
-    ownFlatTriangle !== null && connector !== undefined && isRotationOfOwnCoordinates(connector, ownFlatTriangle.connector),
-    `trip 233524: the rendered connector feature's points match the flat triangle placemark's own MultiGeometry connector coordinates, not the loop's (got ${JSON.stringify(connector)}, expected up to rotation ${JSON.stringify(ownFlatTriangle?.connector)})`,
-  )
-} else {
-  console.log(
-    `SKIP - trip 233524: ${triangleFixturePath} absent, skipping the coordinate-identity check against the ` +
-      'raw MultiGeometry of the flat triangle placemark (regenerate fixtures per the README to exercise it)',
-  )
-}
-
-await trianglePage.close()
-report(triangleBad.length === 0, `trip 233524: no unexpected 4xx/5xx responses or failed requests (saw: ${triangleBad.length ? triangleBad.join('; ') : 'none'})`)
 
 // === Scene 5: trip 984290, FAI triangle selected — merged turnpoint markers (#78) ==========
 //
@@ -554,48 +558,44 @@ report(triangleBad.length === 0, `trip 233524: no unexpected 4xx/5xx responses o
 // actually draws, so this is the only oracle for the render half — before #78's fix this scene
 // would have found 5 stacked markers with the top one hiding the other's letter entirely.
 
-const sharedEndpointPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const sharedEndpointBad = trackBadResponses(sharedEndpointPage)
-await sharedEndpointPage.goto(`${baseUrl}/flights/984290?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(sharedEndpointPage)
+await runScene({
+  tripId: 984290,
+  label: 'trip 984290',
+  scene: async ({ page, radios }) => {
+    console.log('\n=== trip 984290 (FAI triangle, shared-endpoint turnpoint collision) ===')
+    console.log('radios:', radios)
 
-console.log('\n=== trip 984290 (FAI triangle, shared-endpoint turnpoint collision) ===')
+    report(
+      radios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+      'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+    )
 
-const sharedEndpointRadios = await readRadios(sharedEndpointPage)
-console.log('radios:', sharedEndpointRadios)
+    await clickRadioByLabelPrefix(page, 'FAI triangle')
+    await page
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .catch(() => {})
+    await waitForMapIdle(page)
 
-report(
-  sharedEndpointRadios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
-  'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
-)
+    const markerCount = await readTurnpointMarkerCount(page)
+    const letters = await readTurnpointMarkerLabels(page)
+    const rects = await readTurnpointMarkerRects(page)
 
-await clickRadioByLabelPrefix(sharedEndpointPage, 'FAI triangle')
-await sharedEndpointPage
-  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
-  .catch(() => {})
-await waitForMapIdle(sharedEndpointPage)
+    console.log('turnpoint markers (FAI triangle):', markerCount, letters)
 
-const sharedEndpointMarkerCount = await readTurnpointMarkerCount(sharedEndpointPage)
-const sharedEndpointLetters = await readTurnpointMarkerLabels(sharedEndpointPage)
-const sharedEndpointRects = await readTurnpointMarkerRects(sharedEndpointPage)
-
-console.log('turnpoint markers (FAI triangle):', sharedEndpointMarkerCount, sharedEndpointLetters)
-
-report(
-  sharedEndpointMarkerCount === 4,
-  `trip 984290: the FAI triangle's shared-endpoint turnpoints (D/E, same track_idx) render as 4 markers, not 5 stacked ones (got ${sharedEndpointMarkerCount})`,
-)
-report(
-  sharedEndpointLetters.includes('D/E'),
-  `trip 984290: one of the 4 markers carries the merged 'D/E' label (got ${JSON.stringify(sharedEndpointLetters)})`,
-)
-report(
-  !anyTwoRectsIntersect(sharedEndpointRects),
-  `trip 984290: no two turnpoint marker bounding rects intersect (${sharedEndpointRects.length} markers checked)`,
-)
-
-await sharedEndpointPage.close()
-report(sharedEndpointBad.length === 0, `trip 984290: no unexpected 4xx/5xx responses or failed requests (saw: ${sharedEndpointBad.length ? sharedEndpointBad.join('; ') : 'none'})`)
+    report(
+      markerCount === 4,
+      `trip 984290: the FAI triangle's shared-endpoint turnpoints (D/E, same track_idx) render as 4 markers, not 5 stacked ones (got ${markerCount})`,
+    )
+    report(
+      letters.includes('D/E'),
+      `trip 984290: one of the 4 markers carries the merged 'D/E' label (got ${JSON.stringify(letters)})`,
+    )
+    report(
+      !anyTwoRectsIntersect(rects),
+      `trip 984290: no two turnpoint marker bounding rects intersect (${rects.length} markers checked)`,
+    )
+  },
+})
 
 // === Scene 6: trip 985713, flat triangle selected — merged turnpoint markers, the OTHER
 // collision shape (#78) =====================================================================
@@ -605,53 +605,50 @@ report(sharedEndpointBad.length === 0, `trip 984290: no unexpected 4xx/5xx respo
 // coordinate, rather than a repeated index the way 984290's FAI triangle does — the case
 // groupTurnpointMarkers's own coordinate-keyed (not index-keyed) grouping exists for.
 
-const distinctIndexPage = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const distinctIndexBad = trackBadResponses(distinctIndexPage)
-await distinctIndexPage.goto(`${baseUrl}/flights/985713?__verifyMap`, { waitUntil: 'domcontentloaded' })
-await waitForMapIdle(distinctIndexPage)
+await runScene({
+  tripId: 985713,
+  label: 'trip 985713',
+  scene: async ({ page, radios }) => {
+    console.log('\n=== trip 985713 (flat triangle, distinct-index/equal-coordinate turnpoint collision) ===')
+    console.log('radios:', radios)
 
-console.log('\n=== trip 985713 (flat triangle, distinct-index/equal-coordinate turnpoint collision) ===')
+    report(
+      radios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+      'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+    )
 
-const distinctIndexRadios = await readRadios(distinctIndexPage)
-console.log('radios:', distinctIndexRadios)
+    await clickRadioByLabelPrefix(page, 'Flat triangle')
+    await page
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .catch(() => {})
+    await waitForMapIdle(page)
 
-report(
-  distinctIndexRadios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
-  'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
-)
+    const markerCount = await readTurnpointMarkerCount(page)
+    const letters = await readTurnpointMarkerLabels(page)
+    const rects = await readTurnpointMarkerRects(page)
 
-await clickRadioByLabelPrefix(distinctIndexPage, 'Flat triangle')
-await distinctIndexPage
-  .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
-  .catch(() => {})
-await waitForMapIdle(distinctIndexPage)
+    console.log('turnpoint markers (flat triangle):', markerCount, letters)
 
-const distinctIndexMarkerCount = await readTurnpointMarkerCount(distinctIndexPage)
-const distinctIndexLetters = await readTurnpointMarkerLabels(distinctIndexPage)
-const distinctIndexRects = await readTurnpointMarkerRects(distinctIndexPage)
-
-console.log('turnpoint markers (flat triangle):', distinctIndexMarkerCount, distinctIndexLetters)
-
-report(
-  distinctIndexMarkerCount === 4,
-  `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${distinctIndexMarkerCount})`,
-)
-report(
-  distinctIndexLetters.includes('A/B'),
-  `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(distinctIndexLetters)})`,
-)
-// The rect-INTERSECTION oracle (like scene 5's) is deliberately not used here: this same
-// fixture's D and E turnpoints are a NEAR-identical pair (~9.4 m apart, ~3.6 px at this
-// flight's fit zoom 13.86 — not an exact coordinate match) that #83 explicitly scopes out of
-// this fix, and their badges legitimately sit close enough on screen to intersect. Exact
-// SAME-POSITION is still a real, precise oracle: it fails only if the merge itself broke and
-// produced two markers on the identical pixel, which D/E's mere proximity can never trigger.
-report(
-  !anyTwoRectsAtSamePosition(distinctIndexRects),
-  `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${distinctIndexRects.length} markers checked)`,
-)
-await distinctIndexPage.close()
-report(distinctIndexBad.length === 0, `trip 985713: no unexpected 4xx/5xx responses or failed requests (saw: ${distinctIndexBad.length ? distinctIndexBad.join('; ') : 'none'})`)
+    report(
+      markerCount === 4,
+      `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${markerCount})`,
+    )
+    report(
+      letters.includes('A/B'),
+      `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(letters)})`,
+    )
+    // The rect-INTERSECTION oracle (like scene 5's) is deliberately not used here: this same
+    // fixture's D and E turnpoints are a NEAR-identical pair (~9.4 m apart, ~3.6 px at this
+    // flight's fit zoom 13.86 — not an exact coordinate match) that #83 explicitly scopes out of
+    // this fix, and their badges legitimately sit close enough on screen to intersect. Exact
+    // SAME-POSITION is still a real, precise oracle: it fails only if the merge itself broke and
+    // produced two markers on the identical pixel, which D/E's mere proximity can never trigger.
+    report(
+      !anyTwoRectsAtSamePosition(rects),
+      `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${rects.length} markers checked)`,
+    )
+  },
+})
 
 await browser.close()
 
