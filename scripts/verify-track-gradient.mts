@@ -21,7 +21,8 @@ const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 // ORDINARY navigation, without the param. A call site degraded to `if (true)` (see
 // track-map.tsx) would have stayed green through this whole script and every other check in
 // the repo, since every one of them sends the param. Runs first, in its own throwaway page, so
-// it cannot leave state the main run below depends on.
+// it cannot leave state the main run below depends on, and its own FAIL/exit-1 branch below now
+// aborts the whole script on a dead server rather than letting a broken assertion run anyway.
 const baseUrl = url.split('?')[0]
 const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
 const negativeLogs: string[] = []
@@ -36,11 +37,20 @@ negativePage.on('response', (r) => {
 negativePage.on('requestfailed', (r) => negativeBad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
 
 await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+// "the handle stays undefined" is only meaningful if the map had a chance to render first: on
+// a page that never rendered at all, the handle is vacuously undefined and the check below
+// would prove nothing about the __verifyMap gating it claims to test. The base URL renders the
+// map without ?__verifyMap (the param gates only the debug handle, not the map itself), so a
+// missing canvas here means the server is dead, not that the gate works, hence the hard abort
+// instead of falling through to the (meaningless) assertion.
 const negativeCanvasAppeared = await negativePage
   .waitForSelector('.maplibregl-canvas', { timeout: 20000 })
   .then(() => true)
   .catch(() => false)
 if (!negativeCanvasAppeared) {
+  // Also fires for a real flight with zero track points (see track-map.tsx): that renders a
+  // "No track points" placeholder with no canvas at all, which reads identically to a dead
+  // server here even though the server is fine.
   console.error("FAIL - the negative probe's page never rendered a map canvas, within the timeout")
   console.log('bad responses:', negativeBad.length ? negativeBad : 'none')
   console.log('logs:', negativeLogs.length ? negativeLogs : 'none')
