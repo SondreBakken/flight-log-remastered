@@ -125,7 +125,7 @@ async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void
 }
 
 function pageHasErrorBoundaryText(page: Page): Promise<boolean> {
-  return page.evaluate(() => document.body.innerText.includes('Could not load this from flightlog.org'))
+  return page.evaluate(() => document.body.textContent?.includes('Could not load this from flightlog.org') ?? false)
 }
 
 // getTrack is 'use cache' PER TRIP (cacheLife('days'), tracks.ts), so every scene still pays a
@@ -140,18 +140,21 @@ function pageHasErrorBoundaryText(page: Page): Promise<boolean> {
 // this retry must not touch is the error boundary: getTrack throwing renders error.tsx with the
 // byte-identical empty signature, but no amount of retrying fixes a thrown error, so it is
 // checked for by name before retrying and reported explicitly instead.
-const COLD_SERVER_RETRY_DELAY_MS = 3000 // gives the first navigation's still-in-flight getTrack time to land in its 'use cache' entry, so the reload is a cache hit
-async function loadSceneWithColdServerRetry(page: Page, url: string, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
+// Gives the first navigation's still-in-flight getTrack time to land in its 'use cache' entry,
+// so the reload is a cache hit.
+const COLD_SERVER_RETRY_DELAY_MS = 3000
+
+async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await waitForMapIdle(page)
   const radios = await readRadios(page)
   const summary = await readSummary(page)
   if (radios.length === 0 && summary === null && bad.length === 0) {
     if (await pageHasErrorBoundaryText(page)) {
-      report(false, 'trip 1001428: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay')
+      report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
       return { radios, summary }
     }
-    console.log('RETRY - trip 1001428: empty radios + null summary + no bad responses on first read, retrying once for a cold server')
+    console.log(`RETRY - ${label}: empty radios + null summary + no bad responses on first read, retrying once for a cold server`)
     await page.waitForTimeout(COLD_SERVER_RETRY_DELAY_MS)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await waitForMapIdle(page)
@@ -167,6 +170,7 @@ const fullSetBad = trackBadResponses(fullSetPage)
 const { radios: fullSetRadios, summary: fullSetSummary } = await loadSceneWithColdServerRetry(
   fullSetPage,
   `${baseUrl}/flights/1001428?__verifyMap`,
+  'trip 1001428',
   fullSetBad,
 )
 const fullSetSourceLoaded = await fullSetPage
