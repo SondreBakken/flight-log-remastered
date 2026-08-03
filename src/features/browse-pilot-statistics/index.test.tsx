@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import PilotStatistics from './index'
 import type { Flight } from '@/lib/flightlog/types'
 
@@ -286,5 +286,42 @@ describe('PilotStatistics', () => {
 
     screen.getByText('2015: no flights')
     expect(screen.queryByRole('img', { name: /^2015:/ })).toBeNull()
+  })
+
+  // #81: an 18-year logbook rendered a day-cell grid for every year, ~6060 cells of HTML on
+  // every view. Only the 5 most recent FLIGHT-BEARING years default to expanded; older ones
+  // collapse behind the same "{year}: N flying days, M flights" text CalendarYearRow already
+  // computes, now a clickable button instead of only an aria-label. 2022 is a genuinely fallow
+  // year wedged between 2023 and 2021 — it must not itself count against the budget, or 2021
+  // (the 5th real flight year) would wrongly collapse too.
+  describe('collapsing older calendar years', () => {
+    const flights: Flight[] = [2026, 2025, 2024, 2023, 2021, 2020].map((year) =>
+      flight({ date: `${year}-01-10` }),
+    )
+
+    it('expands the 5 most recent flight-bearing years by default, without a fallow year consuming the budget', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      for (const year of [2026, 2025, 2024, 2023, 2021]) {
+        screen.getByRole('img', { name: `${year}: 1 flying day, 1 flight` })
+      }
+      screen.getByText('2022: no flights')
+    })
+
+    it('collapses the 6th most recent flight-bearing year behind a summary button with no day cells', () => {
+      const { container } = render(<PilotStatistics flights={flights} />)
+
+      expect(screen.queryByRole('img', { name: /^2020:/ })).toBeNull()
+      screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' })
+      expect(container.querySelector('[title^="2020-"]')).toBeNull()
+    })
+
+    it('renders a collapsed year\'s day-cell grid after clicking its summary button', () => {
+      render(<PilotStatistics flights={flights} />)
+
+      fireEvent.click(screen.getByRole('button', { name: '2020: 1 flying day, 1 flight' }))
+
+      screen.getByRole('img', { name: '2020: 1 flying day, 1 flight' })
+    })
   })
 })

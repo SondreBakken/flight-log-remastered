@@ -3,6 +3,7 @@ import type { Flight } from '@/lib/flightlog/types'
 import {
   breakdownByGlider,
   breakdownBySite,
+  defaultExpandedCalendarYears,
   flyingDaysByDate,
   longestFlightByDistance,
   longestFlightByDuration,
@@ -351,5 +352,31 @@ describe('flyingDaysByDate', () => {
 
     expect(result.size).toBe(1)
     expect(result.has('2026-00-00')).toBe(false)
+  })
+})
+
+describe('defaultExpandedCalendarYears', () => {
+  it('picks the N most recent years, in order, when every year has data', () => {
+    const result = defaultExpandedCalendarYears([2026, 2025, 2024, 2023, 2022, 2021], new Set([2026, 2025, 2024, 2023, 2022, 2021]), 3)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024]))
+  })
+
+  // #81's core requirement: a fallow year sitting inside the recent window must not itself
+  // count against the budget, or a pilot with a recent multi-year gap would see fewer than N
+  // real flight years expanded.
+  it('does not let a fallow year consume a slot in the budget', () => {
+    const orderedYears = [2026, 2025, 2024, 2023, 2022, 2021, 2020]
+    const yearsWithData = new Set([2026, 2025, 2024, 2023, 2021, 2020]) // 2022 is fallow
+
+    const result = defaultExpandedCalendarYears(orderedYears, yearsWithData, 5)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024, 2023, 2021]))
+  })
+
+  it('returns every flight-bearing year when there are fewer of them than the budget', () => {
+    const result = defaultExpandedCalendarYears([2026, 2025, 2024], new Set([2026, 2025, 2024]), 5)
+
+    expect(result).toEqual(new Set([2026, 2025, 2024]))
   })
 })
