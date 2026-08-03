@@ -163,18 +163,20 @@ async function loadSceneWithColdServerRetry(page: Page, url: string, label: stri
   return { radios, summary }
 }
 
-type SceneContext = { page: Page; radios: RadioState[]; summary: string | null; bad: string[] }
+type SceneContext = { page: Page; radios: RadioState[]; summary: string | null }
 
 // Every scene shares the same open/navigate/close/report-bad-responses skeleton; only the body
-// in between (the scene's own assertions) differs. loadSceneWithColdServerRetry's extra
-// readRadios/readSummary is a no-op in output for scenes that don't already read them, so
-// routing every scene through it (not just scene 1, which needed it) is fine.
+// in between (the scene's own assertions) differs. Routing every scene through
+// loadSceneWithColdServerRetry (not just scene 1, which needed it) is safe because the retry
+// only fires on the exact cold-empty signature documented above (empty radios, null summary,
+// no bad responses, no error boundary); a deterministic regression in scenes 2-6 still trips
+// that signature and survives the retry unchanged, so it still fails downstream.
 async function runScene(options: { tripId: number; label: string; scene: (context: SceneContext) => Promise<void> }): Promise<void> {
   const { tripId, label, scene } = options
   const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
   const bad = trackBadResponses(page)
   const { radios, summary } = await loadSceneWithColdServerRetry(page, `${baseUrl}/flights/${tripId}?__verifyMap`, label, bad)
-  await scene({ page, radios, summary, bad })
+  await scene({ page, radios, summary })
   await page.close()
   report(bad.length === 0, `${label}: no unexpected 4xx/5xx responses or failed requests (saw: ${bad.length ? bad.join('; ') : 'none'})`)
 }
@@ -185,15 +187,15 @@ await runScene({
   tripId: 1001428,
   label: 'trip 1001428',
   scene: async ({ page, radios, summary }) => {
-    const fullSetSourceLoaded = await page
+    const sourceLoaded = await page
       .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
       .catch(() => null)
-    const fullSetMarkerCount = await readTurnpointMarkerCount(page)
+    const markerCount = await readTurnpointMarkerCount(page)
 
     console.log('\n=== trip 1001428 (full set) ===')
     console.log('radios:', radios)
-    console.log('scoring source loaded:', fullSetSourceLoaded)
-    console.log('turnpoint markers:', fullSetMarkerCount)
+    console.log('scoring source loaded:', sourceLoaded)
+    console.log('turnpoint markers:', markerCount)
     console.log('summary text:', summary)
 
     // "Full set" now means the five line-shaped kinds only: track-1001428's own two triangle
@@ -221,8 +223,8 @@ await runScene({
       TRIANGLE_LABELS.every((label) => radios.find((r) => r.label.startsWith(label))?.disabled === true),
       'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle radios are correctly disabled',
     )
-    report(fullSetSourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
-    report(fullSetMarkerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${fullSetMarkerCount})`)
+    report(sourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
+    report(markerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${markerCount})`)
     report(summary === 'Open distance: 48.95 km', `trip 1001428: the summary shows the geometry's own scored distance (got "${summary}")`)
 
     // The scoring line's own colour actually appears on the canvas, not just source/layer
@@ -574,23 +576,23 @@ await runScene({
       .catch(() => {})
     await waitForMapIdle(page)
 
-    const sharedEndpointMarkerCount = await readTurnpointMarkerCount(page)
-    const sharedEndpointLetters = await readTurnpointMarkerLabels(page)
-    const sharedEndpointRects = await readTurnpointMarkerRects(page)
+    const markerCount = await readTurnpointMarkerCount(page)
+    const letters = await readTurnpointMarkerLabels(page)
+    const rects = await readTurnpointMarkerRects(page)
 
-    console.log('turnpoint markers (FAI triangle):', sharedEndpointMarkerCount, sharedEndpointLetters)
+    console.log('turnpoint markers (FAI triangle):', markerCount, letters)
 
     report(
-      sharedEndpointMarkerCount === 4,
-      `trip 984290: the FAI triangle's shared-endpoint turnpoints (D/E, same track_idx) render as 4 markers, not 5 stacked ones (got ${sharedEndpointMarkerCount})`,
+      markerCount === 4,
+      `trip 984290: the FAI triangle's shared-endpoint turnpoints (D/E, same track_idx) render as 4 markers, not 5 stacked ones (got ${markerCount})`,
     )
     report(
-      sharedEndpointLetters.includes('D/E'),
-      `trip 984290: one of the 4 markers carries the merged 'D/E' label (got ${JSON.stringify(sharedEndpointLetters)})`,
+      letters.includes('D/E'),
+      `trip 984290: one of the 4 markers carries the merged 'D/E' label (got ${JSON.stringify(letters)})`,
     )
     report(
-      !anyTwoRectsIntersect(sharedEndpointRects),
-      `trip 984290: no two turnpoint marker bounding rects intersect (${sharedEndpointRects.length} markers checked)`,
+      !anyTwoRectsIntersect(rects),
+      `trip 984290: no two turnpoint marker bounding rects intersect (${rects.length} markers checked)`,
     )
   },
 })
@@ -621,19 +623,19 @@ await runScene({
       .catch(() => {})
     await waitForMapIdle(page)
 
-    const distinctIndexMarkerCount = await readTurnpointMarkerCount(page)
-    const distinctIndexLetters = await readTurnpointMarkerLabels(page)
-    const distinctIndexRects = await readTurnpointMarkerRects(page)
+    const markerCount = await readTurnpointMarkerCount(page)
+    const letters = await readTurnpointMarkerLabels(page)
+    const rects = await readTurnpointMarkerRects(page)
 
-    console.log('turnpoint markers (flat triangle):', distinctIndexMarkerCount, distinctIndexLetters)
+    console.log('turnpoint markers (flat triangle):', markerCount, letters)
 
     report(
-      distinctIndexMarkerCount === 4,
-      `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${distinctIndexMarkerCount})`,
+      markerCount === 4,
+      `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${markerCount})`,
     )
     report(
-      distinctIndexLetters.includes('A/B'),
-      `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(distinctIndexLetters)})`,
+      letters.includes('A/B'),
+      `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(letters)})`,
     )
     // The rect-INTERSECTION oracle (like scene 5's) is deliberately not used here: this same
     // fixture's D and E turnpoints are a NEAR-identical pair (~9.4 m apart, ~3.6 px at this
@@ -642,8 +644,8 @@ await runScene({
     // SAME-POSITION is still a real, precise oracle: it fails only if the merge itself broke and
     // produced two markers on the identical pixel, which D/E's mere proximity can never trigger.
     report(
-      !anyTwoRectsAtSamePosition(distinctIndexRects),
-      `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${distinctIndexRects.length} markers checked)`,
+      !anyTwoRectsAtSamePosition(rects),
+      `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${rects.length} markers checked)`,
     )
   },
 })
