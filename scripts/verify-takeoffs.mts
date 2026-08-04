@@ -2,6 +2,7 @@ import { chromium, type Page } from 'playwright'
 import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
 import { formatRange, inRange } from './lib/range'
 import { createReporter } from './lib/verify-report'
+import { waitForCondition } from './lib/verify-settle'
 
 // #9's end-to-end proof, superseding #38's row-count-only version: a real browser, navigating
 // to the prerendered takeoffs directory, actually issues a network request for the takeoffs
@@ -53,10 +54,7 @@ async function readSharedWindTotal(page: Page, baseUrl: string, octant: string):
   const target = new URL(baseUrl)
   target.searchParams.set('wind', octant)
   await page.goto(target.toString(), { waitUntil: 'domcontentloaded' })
-  const rendered = await page
-    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 20000 })
-    .then(() => true)
-    .catch(() => false)
+  const rendered = await waitForCondition(page, () => /of \d+ matches/.test(document.body.textContent ?? ''), 20000)
   return rendered ? readTotalMatchCount(page) : null
 }
 
@@ -88,17 +86,14 @@ await page.goto(url, { waitUntil: 'domcontentloaded' })
 // A bare substring check is satisfied instantly regardless of the fetch, which means this
 // wait never actually waited for anything — confirmed empirically: without the `\d+` anchor,
 // `mainText()` below captured "Loading takeoffs…" as the "settled" state on a real run.
-const settled = await page
-  .waitForFunction(
-    () => {
-      const text = document.body.textContent ?? ''
-      return /\d+ takeoffs/.test(text) || text.includes('request failed') || text.includes('timed out waiting for a response')
-    },
-    undefined,
-    { timeout: 20000 },
-  )
-  .then(() => true)
-  .catch(() => false)
+const settled = await waitForCondition(
+  page,
+  () => {
+    const text = document.body.textContent ?? ''
+    return /\d+ takeoffs/.test(text) || text.includes('request failed') || text.includes('timed out waiting for a response')
+  },
+  20000,
+)
 report(settled, 'the directory settles (a fetched count or an error renders) within the timeout, instead of hanging on "Loading takeoffs…" forever')
 
 if (settled) {
@@ -146,10 +141,7 @@ if (settled) {
   // Real Norwegian folding, live: "Bodo" (plain ASCII) finding "Bodø" through the actual
   // rendered input, not a unit test calling the fold function directly.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill('Bodo')
-  const filteredSettled = await page
-    .waitForFunction(() => document.querySelector('main')?.textContent?.includes('Bodø'), undefined, { timeout: 10000 })
-    .then(() => true)
-    .catch(() => false)
+  const filteredSettled = await waitForCondition(page, () => document.querySelector('main')?.textContent?.includes('Bodø'), 10000)
   const filteredText = await mainText()
   console.log('rendered <main> text (filtered "Bodo"):', filteredText)
   report(filteredSettled, `typing the plain-ASCII query "Bodo" into the real input finds "Bodø" in the real rendered rows (rendered: "${filteredText.trim()}")`)
@@ -162,10 +154,7 @@ if (settled) {
   // more than MAX_RENDERED_RESULTS takeoffs, so the truncation notice actually renders and
   // there is a real number to compare.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill(BROAD_QUERY)
-  const broadQuerySettled = await page
-    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 10000 })
-    .then(() => true)
-    .catch(() => false)
+  const broadQuerySettled = await waitForCondition(page, () => /of \d+ matches/.test(document.body.textContent ?? ''), 10000)
   report(
     broadQuerySettled,
     `typing the broad query "${BROAD_QUERY}" renders a truncation notice within the timeout (i.e. it matches well over ${MAX_RENDERED_RESULTS} real takeoffs)`,
@@ -242,10 +231,7 @@ if (settled) {
         sharedUrl.searchParams.set('wind', 'N')
         await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
 
-        const sharedContentRendered = await page
-          .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 20000 })
-          .then(() => true)
-          .catch(() => false)
+        const sharedContentRendered = await waitForCondition(page, () => /of \d+ matches/.test(document.body.textContent ?? ''), 20000)
         report(
           sharedContentRendered,
           `opening the shared ${sharedUrl} link renders a filtered match count within the timeout, instead of hanging on "Loading takeoffs…"`,
@@ -326,10 +312,7 @@ if (settled) {
   // The checkbox's real accessible name is "Sort by distance from me" (see index.tsx) — it has
   // never contained "nearby", so a /nearby/i locator never actually matched it.
   await page.getByRole('checkbox', { name: /distance/i }).check()
-  const deniedSettled = await page
-    .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), undefined, { timeout: 10000 })
-    .then(() => true)
-    .catch(() => false)
+  const deniedSettled = await waitForCondition(page, () => document.body.textContent?.includes('Location permission denied'), 10000)
   report(deniedSettled, 'checking "Sort by distance from me" without a granted permission shows the denial hint within the timeout, not a hang')
   if (deniedSettled) {
     const afterNearbyCount = await page.evaluate(() => document.querySelectorAll('li').length)

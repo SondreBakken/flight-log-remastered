@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { launchCaptureBrowser, captureUrlScreenshot, growViewportToDocument } from './lib/screenshot'
 import { createReporter } from './lib/verify-report'
+import { waitForCondition } from './lib/verify-settle'
 
 // #21's pixel-level proof that scripts/shot.mts's capture isn't blank or truncated — see
 // README's #21 section for the full bug history and the fix this pins. This drives
@@ -48,17 +49,14 @@ const browser = await launchCaptureBrowser()
 const truthPage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
 await truthPage.goto(url, { waitUntil: 'domcontentloaded' })
 await truthPage.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() => {})
-const settled = await truthPage
-  .waitForFunction(
-    () =>
-      window.__flightTrackMap !== undefined &&
-      window.__flightTrackMap.isSourceLoaded('flight-track') === true &&
-      window.__flightTrackMap.isSourceLoaded('osm') === true,
-    undefined,
-    { timeout: 20000 },
-  )
-  .then(() => true)
-  .catch(() => false)
+const settled = await waitForCondition(
+  truthPage,
+  () =>
+    window.__flightTrackMap !== undefined &&
+    window.__flightTrackMap.isSourceLoaded('flight-track') === true &&
+    window.__flightTrackMap.isSourceLoaded('osm') === true,
+  20000,
+)
 report(
   settled,
   'the ground-truth page settles: window.__flightTrackMap exists and both its track and osm-tile sources finished loading, within the timeout',

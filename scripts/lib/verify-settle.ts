@@ -8,7 +8,11 @@ import type { Page } from 'playwright'
 // from hover/gradient's), and the same four page listeners (collectPageDiagnostics). Previously
 // copy-pasted, with drift risk, across all four scripts. verify-shot.mts has a structurally
 // identical wait but is not one of the four: it settles on TWO sources (flight-track and osm)
-// conjoined, which waitForMapSettled's single-sourceId signature does not cover.
+// conjoined, which waitForMapSettled's single-sourceId signature does not cover — it, along with
+// verify-takeoffs.mts and verify-feed.mts, instead uses waitForCondition below, which hides
+// Playwright's waitForFunction(fn, arg, options) three-arg contract behind a single
+// argument-free predicate, so no call site can drop the arg position and silently inherit the
+// page's default 30s timeout.
 
 type MapHandle = '__flightTrackMap' | '__takeoffsMap'
 
@@ -26,6 +30,19 @@ export function waitForMapSettled(page: Page, { handle, sourceId }: { handle: Ma
       { handle, sourceId },
       { timeout: 20000 },
     )
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
+ * The one place Playwright's waitForFunction(pageFunction, arg, options) three-arg contract
+ * exists: predicate always goes in as an argument-free pageFunction, undefined in the arg
+ * position, { timeout: timeoutMs } in the options position. Resolves true if predicate becomes
+ * truthy within timeoutMs, false on timeout — mirrors waitForMapSettled, never throws.
+ */
+export function waitForCondition(page: Page, predicate: () => boolean | undefined, timeoutMs: number): Promise<boolean> {
+  return page
+    .waitForFunction(predicate, undefined, { timeout: timeoutMs })
     .then(() => true)
     .catch(() => false)
 }

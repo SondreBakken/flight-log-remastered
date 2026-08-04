@@ -1,5 +1,6 @@
 import { chromium, type Page } from 'playwright'
 import { createReporter } from './lib/verify-report'
+import { waitForCondition } from './lib/verify-settle'
 
 // Real pilot ids from the flightlog.org fixture set (see README): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
@@ -28,13 +29,9 @@ const { report, finish } = createReporter()
 // reported failure instead of silently letting the assertions after it run against
 // whatever (possibly blank) DOM state existed when the timeout fired.
 async function waitForOrReport(page: Page, predicate: () => boolean, label: string): Promise<boolean> {
-  try {
-    await page.waitForFunction(predicate, undefined, { timeout: 20000 })
-    return true
-  } catch {
-    report(false, label)
-    return false
-  }
+  const settled = await waitForCondition(page, predicate, 20000)
+  if (!settled) report(false, label)
+  return settled
 }
 
 // A DEFINITIVE settle condition: rows rendered, or the feed explicitly reports it has
