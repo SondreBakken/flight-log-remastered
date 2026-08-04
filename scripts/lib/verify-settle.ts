@@ -11,8 +11,9 @@ import type { Page } from 'playwright'
 // conjoined, which waitForMapSettled's single-sourceId signature does not cover — it, along with
 // verify-takeoffs.mts and verify-feed.mts, instead uses waitForCondition below, which hides
 // Playwright's waitForFunction(fn, arg, options) three-arg contract behind a single
-// argument-free predicate, so no call site can drop the arg position and silently inherit the
-// page's default 30s timeout.
+// argument-free predicate, so its call sites can't drop the arg position and silently inherit
+// the page's default 30s timeout. verify-takeoffs.mts still hand-writes the three-arg form
+// directly in two places where it needs a real arg, not an argument-free predicate.
 
 type MapHandle = '__flightTrackMap' | '__takeoffsMap'
 
@@ -35,10 +36,12 @@ export function waitForMapSettled(page: Page, { handle, sourceId }: { handle: Ma
 }
 
 /**
- * The one place Playwright's waitForFunction(pageFunction, arg, options) three-arg contract
- * exists: predicate always goes in as an argument-free pageFunction, undefined in the arg
- * position, { timeout: timeoutMs } in the options position. Resolves true if predicate becomes
- * truthy within timeoutMs, false on timeout — mirrors waitForMapSettled, never throws.
+ * The only place the arg position of Playwright's waitForFunction(pageFunction, arg, options)
+ * is always `undefined`: predicate goes in as an argument-free pageFunction, undefined in the
+ * arg position, { timeout: timeoutMs } in the options position. waitForMapSettled above and
+ * verify-takeoffs.mts's two real-arg waits still spell the three-arg contract out by hand.
+ * Resolves true if predicate becomes truthy within timeoutMs, false on timeout — mirrors
+ * waitForMapSettled, never throws.
  */
 export function waitForCondition(page: Page, predicate: () => boolean | undefined, timeoutMs: number): Promise<boolean> {
   return page
