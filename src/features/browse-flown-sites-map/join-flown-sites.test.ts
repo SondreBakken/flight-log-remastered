@@ -69,7 +69,7 @@ describe('joinFlownSites', () => {
     )
 
     expect(result.sites).toEqual([])
-    expect(result.unmatched).toEqual([{ name: 'Unknown takeoff', reason: 'unlinked', flightCount: 4 }])
+    expect(result.unmatched).toEqual([{ name: 'Unknown takeoff', reason: 'unlinked', flightCount: 4, groupKey: 'name:Unknown takeoff' }])
   })
 
   it('flags a flight referencing a non-curated country as unmatched with reason "uncurated-country"', () => {
@@ -80,7 +80,9 @@ describe('joinFlownSites', () => {
     )
 
     expect(result.sites).toEqual([])
-    expect(result.unmatched).toEqual([{ name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 1 }])
+    expect(result.unmatched).toEqual([
+      { name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 1, groupKey: 'ref:73:558' },
+    ])
   })
 
   it('flags a curated-country ref whose takeoffId isn\'t in that country\'s own dataset as "not-found"', () => {
@@ -91,7 +93,9 @@ describe('joinFlownSites', () => {
     )
 
     expect(result.sites).toEqual([])
-    expect(result.unmatched).toEqual([{ name: 'Ghost Site', reason: 'not-found', flightCount: 1 }])
+    expect(result.unmatched).toEqual([
+      { name: 'Ghost Site', reason: 'not-found', flightCount: 1, groupKey: 'ref:160:999999' },
+    ])
   })
 
   it('flags a matched takeoff whose own coordinates are the placeholder/corrupt shape as "no-known-location", never plotted at 0,0', () => {
@@ -102,7 +106,9 @@ describe('joinFlownSites', () => {
     )
 
     expect(result.sites).toEqual([])
-    expect(result.unmatched).toEqual([{ name: 'Trysil, Lerberget', reason: 'no-known-location', flightCount: 1 }])
+    expect(result.unmatched).toEqual([
+      { name: 'Trysil, Lerberget', reason: 'no-known-location', flightCount: 1, groupKey: 'ref:160:15' },
+    ])
   })
 
   it('groups unmatched flights sharing the same ref into one entry (two flights at the same foreign site), not one per flight', () => {
@@ -115,7 +121,9 @@ describe('joinFlownSites', () => {
       CURATED,
     )
 
-    expect(result.unmatched).toEqual([{ name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 3 }])
+    expect(result.unmatched).toEqual([
+      { name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 3, groupKey: 'ref:73:558' },
+    ])
   })
 
   it('groups link-less unmatched flights by display name, since they carry no ref to group by', () => {
@@ -128,7 +136,9 @@ describe('joinFlownSites', () => {
       CURATED,
     )
 
-    expect(result.unmatched).toEqual([{ name: 'Some Site', reason: 'unlinked', flightCount: 3 }])
+    expect(result.unmatched).toEqual([
+      { name: 'Some Site', reason: 'unlinked', flightCount: 3, groupKey: 'name:Some Site' },
+    ])
   })
 
   it('produces distinct sites and unmatched entries from a mixed logbook (matched, foreign and link-less flights together)', () => {

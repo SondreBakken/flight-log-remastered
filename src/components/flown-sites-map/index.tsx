@@ -5,8 +5,7 @@ import { LngLatBounds, MapLibreMap, NavigationControl, Popup, type MapGeoJSONFea
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
-import type { FlownSite } from '@/features/browse-flown-sites-map/join-flown-sites'
-import { buildFlownSitesGeoJSON, type FlownSitesGeoJSON } from './build-flown-sites-geojson'
+import { buildFlownSitesGeoJSON, type FlownSiteMarker, type FlownSitesGeoJSON } from './build-flown-sites-geojson'
 import { FLOWN_SITES_SOURCE_ID, FLOWN_SITES_LAYER_ID } from './site-layer-ids'
 
 export { FLOWN_SITES_SOURCE_ID, FLOWN_SITES_LAYER_ID }
@@ -22,7 +21,7 @@ declare global {
 }
 
 type FlownSitesMapProps = {
-  sites: FlownSite[]
+  sites: FlownSiteMarker[]
   className?: string
 }
 

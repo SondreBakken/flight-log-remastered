@@ -25,7 +25,7 @@ function site(overrides: Partial<FlownSite> = {}): FlownSite {
 }
 
 function unmatched(overrides: Partial<UnmatchedSite> = {}): UnmatchedSite {
-  return { name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 1, ...overrides }
+  return { name: 'Laragne, Chabre', reason: 'uncurated-country', flightCount: 1, groupKey: 'ref:73:558', ...overrides }
 }
 
 async function renderSection() {
@@ -69,7 +69,7 @@ describe('FlownSitesSection', () => {
     mockedGetFlownSites.mockResolvedValue({
       status: 'loaded',
       sites: [site()],
-      unmatched: [unmatched(), unmatched({ name: 'Some Site', reason: 'unlinked' })],
+      unmatched: [unmatched(), unmatched({ name: 'Some Site', reason: 'unlinked', groupKey: 'name:Some Site' })],
     })
 
     await renderSection()
@@ -80,13 +80,35 @@ describe('FlownSitesSection', () => {
     screen.getByText(/Some Site/)
     screen.getByText(/outside the curated takeoff dataset/)
     screen.getByText(/no linkable takeoff on flightlog\.org/)
+    // R10: pins the literal unmatched-list header string scripts/verify-flown-sites.mts depends
+    // on directly — a drift here would fail at unit-test speed, not only against a live browser
+    // run. The "(N flight(s))" half of that same dependency is pinned unambiguously below, in a
+    // single-unmatched-entry case (this test's two entries both read "(1 flight)", which would
+    // match more than one element here).
+    screen.getByText('Takeoffs that could not be located:')
+  })
+
+  // R10, continued: the other DOM string scripts/verify-flown-sites.mts depends on — a single
+  // unmatched entry so "(1 flight)" is unambiguous (unlike the multi-entry test above, where two
+  // entries both read "(1 flight)" and a getByText on that substring would match more than one
+  // element).
+  it('renders a parenthesized "(1 flight)" count for a single-flight unmatched entry', async () => {
+    mockedGetFlownSites.mockResolvedValue({ status: 'loaded', sites: [site()], unmatched: [unmatched({ flightCount: 1 })] })
+
+    await renderSection()
+
+    screen.getByText(/\(1 flight\)/)
   })
 
   // Acceptance criterion 3: zero matched sites with nonzero unmatched must not render an empty
   // map presented as truth. This is the ONLY way sites.length can be 0 while flights exist (a
   // real join-flown-sites.ts invariant), so this is the state to prove distinctly.
   it('does not mount the map when zero sites matched, showing the omission prominently instead', async () => {
-    mockedGetFlownSites.mockResolvedValue({ status: 'loaded', sites: [], unmatched: [unmatched(), unmatched({ name: 'Other Site' })] })
+    mockedGetFlownSites.mockResolvedValue({
+      status: 'loaded',
+      sites: [],
+      unmatched: [unmatched(), unmatched({ name: 'Other Site', groupKey: 'name:Other Site' })],
+    })
 
     await renderSection()
 

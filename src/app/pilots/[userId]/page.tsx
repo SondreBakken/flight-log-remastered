@@ -14,37 +14,57 @@ function yearsCovered(flights: Flight[]): number[] {
   return [...new Set(flights.map(flightYear))]
 }
 
-export default function PilotPage({ params }: { params: PilotParams }) {
-  return (
-    <Suspense fallback={<LogbookSkeleton />}>
-      <Logbook params={params} />
-    </Suspense>
-  )
-}
-
-async function Logbook({ params }: { params: PilotParams }) {
+// Shared by Logbook and FlownSites below, so the pilot-id parse/notFound guard exists in exactly
+// one place rather than drifting into two copies. Pure `params` reads (await + parse, no I/O),
+// so calling it once per sibling Suspense boundary costs nothing worth avoiding — the point of
+// splitting Logbook and FlownSites into siblings is precisely so EACH branch can start its own
+// real fetch without waiting on the other's.
+async function parsePilotId(params: PilotParams): Promise<number> {
   const { userId } = await params
   const pilotId = Number(userId)
   if (!Number.isInteger(pilotId) || pilotId <= 0) notFound()
+  return pilotId
+}
 
-  const { pilot, flights } = await getPilotLogbook(pilotId)
-  const trackedTripIds = await getTrackedTripIds(pilotId, yearsCovered(flights))
-
+// Two sibling Suspense boundaries, not one covering both — Logbook's own fetch chain
+// (getPilotLogbook, then getTrackedTripIds) has nothing FlownSites needs (it only needs
+// pilotId), so nesting FlownSites inside Logbook's tree would serialize its own fetch
+// (getTakeoffs(160)) behind both of Logbook's fetches for no reason. As siblings, both branches'
+// fetches start concurrently the moment pilotId resolves.
+export default function PilotPage({ params }: { params: PilotParams }) {
   return (
     <div className="flex flex-col gap-10">
-      <PilotLogbook pilot={pilot} flights={flights} trackedTripIds={trackedTripIds} />
-      <PilotStatistics flights={flights} />
-      {/* #76: its own nested Suspense boundary, not covered by LogbookSkeleton below — this
-          section has its own fetch (getTakeoffs(160), on top of the logbook this component
-          already awaited above), so it streams in independently once the rest of the
-          dashboard (which needed no new fetch) is already on screen. */}
+      <Suspense fallback={<LogbookSkeleton />}>
+        <Logbook params={params} />
+      </Suspense>
       <Suspense fallback={<FlownSitesSkeleton />}>
-        <FlownSitesSection userId={pilotId} />
+        <FlownSites params={params} />
       </Suspense>
     </div>
   )
 }
 
+async function Logbook({ params }: { params: PilotParams }) {
+  const pilotId = await parsePilotId(params)
+  const { pilot, flights } = await getPilotLogbook(pilotId)
+  const trackedTripIds = await getTrackedTripIds(pilotId, yearsCovered(flights))
+
+  return (
+    <>
+      <PilotLogbook pilot={pilot} flights={flights} trackedTripIds={trackedTripIds} />
+      <PilotStatistics flights={flights} />
+    </>
+  )
+}
+
+async function FlownSites({ params }: { params: PilotParams }) {
+  const pilotId = await parsePilotId(params)
+  return <FlownSitesSection userId={pilotId} />
+}
+
+// #76's fallback for the FlownSites Suspense boundary above — a sibling of Logbook's own, not
+// nested inside it (see PilotPage's own doc comment for why: the two branches' fetches must
+// start concurrently, not serialize one behind the other).
 function FlownSitesSkeleton() {
   return (
     <div className="flex flex-col gap-4">

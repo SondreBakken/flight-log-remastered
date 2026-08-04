@@ -41,6 +41,11 @@ export type UnmatchedSite = {
   name: string
   reason: UnmatchedReason
   flightCount: number
+  // The same grouping key unmatchedGroupKey used to fold flights into this entry — exposed so a
+  // consumer (browse-flown-sites-map/index.tsx's React list) can key its rendering by the same
+  // identity this join actually grouped by, rather than reconstructing (or worse, approximating
+  // with `name`, which two distinct groups can share — see unmatchedGroupKey's own doc comment).
+  groupKey: string
 }
 
 export type FlownSitesJoinResult = {
@@ -98,6 +103,13 @@ function addMatchedFlight(sites: Map<string, FlownSite>, takeoff: Takeoff, fligh
   })
 }
 
+// Same-ref flights whose display name DIFFERS across rows (flightlog.org itself renaming a site
+// between logbook entries, observed only hypothetically — no fixture on hand shows it) collapse
+// into one group by construction (unmatchedGroupKey groups by ref, not name); the LAST flight
+// processed for that group's `name` wins, silently overwriting any earlier one. Not treated as
+// a defect worth a fifth reason or a name-history list: the ref (and therefore the marker/list
+// entry itself) is still correct and singular, only the displayed label could flicker between
+// runs if flightlog.org's own data is genuinely inconsistent for the same site.
 function addUnmatchedFlight(unmatched: Map<string, UnmatchedSite>, flight: Flight, reason: UnmatchedReason): void {
   const key = unmatchedGroupKey(flight)
   const existing = unmatched.get(key)
@@ -105,6 +117,7 @@ function addUnmatchedFlight(unmatched: Map<string, UnmatchedSite>, flight: Fligh
     name: flight.takeoff ?? UNKNOWN_TAKEOFF,
     reason,
     flightCount: (existing?.flightCount ?? 0) + flight.flightCount,
+    groupKey: key,
   })
 }
 

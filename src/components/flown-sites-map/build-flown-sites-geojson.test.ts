@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildFlownSitesGeoJSON } from './build-flown-sites-geojson'
-import type { FlownSite } from '@/features/browse-flown-sites-map/join-flown-sites'
+import { buildFlownSitesGeoJSON, type FlownSiteMarker } from './build-flown-sites-geojson'
 
-function site(overrides: Partial<FlownSite> = {}): FlownSite {
+function site(overrides: Partial<FlownSiteMarker> = {}): FlownSiteMarker {
   return { takeoffId: 15, countryId: 160, name: 'Bismo (Riksanlegget)', lat: 61.6, lon: 8.5, flightCount: 3, ...overrides }
 }
 

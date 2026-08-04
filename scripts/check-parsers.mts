@@ -15,6 +15,7 @@ import { parseTakeoffFlights } from '../src/lib/flightlog/parse-takeoff-flights'
 import { encodeTakeoffRow, isTakeoffRows } from '../src/app/api/countries/[countryId]/takeoffs/contract'
 import { joinFlownSites } from '../src/features/browse-flown-sites-map/join-flown-sites'
 import { CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
+import { hasKnownLocation } from '../src/lib/flightlog/has-known-location'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -372,9 +373,15 @@ assert(
     ]),
   `pilot-4549 x takeoffs-160: the exact 9 unmatched site names (got ${JSON.stringify(unmatchedNames)})`,
 )
+// hasKnownLocation, not a bare lat!==0 && lon!==0 check — the same oracle join-flown-sites.ts
+// itself uses to classify 'no-known-location' (see classifyRef), so this actually pins the
+// invariant the join promises ("no matched site carries a placeholder/corrupt coordinate"),
+// not a narrower one. A bare zero-check would stay green for the OTHER corrupt shapes
+// hasKnownLocation also guards against (one axis dropped to 0, or both corrupted near Null
+// Island) reaching `sites` undetected.
 assert(
-  flownSites.sites.every((site) => site.lat !== 0 && site.lon !== 0),
-  'pilot-4549 x takeoffs-160: every matched site carries real (non-placeholder) coordinates from the takeoffs dataset',
+  flownSites.sites.every(hasKnownLocation),
+  'pilot-4549 x takeoffs-160: every matched site carries a real, known (non-placeholder, non-corrupt) location from the takeoffs dataset',
 )
 
 // The payload-size sanity band that used to live here now lives in

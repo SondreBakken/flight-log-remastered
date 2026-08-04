@@ -1,5 +1,11 @@
 import { flightYear, isCalendarDate } from '@/lib/flightlog/flight-year'
 import type { Flight } from '@/lib/flightlog/types'
+// Re-exported (not just imported) so this module's existing importers (index.tsx,
+// flying-days-calendar.tsx, statistics.test.ts) keep pulling it from here — the shared
+// implementation itself now lives in src/lib/text/pluralize.ts, alongside browse-flown-sites-
+// map's own use of it (R8: was a verbatim duplicate of this file's copy).
+import { pluralize } from '@/lib/text/pluralize'
+export { pluralize }
 
 // A row's `duration` is 'H:MM' or 'HH:MM' (see parse-flights.ts's readDuration) — hours is
 // 1-2 digits, minutes always 2. Never fed an aggregated row's group total here as if it were
@@ -188,10 +194,6 @@ export function flyingDaysByDate(flights: Flight[]): Map<string, number> {
     flightsByDate.set(flight.date, (flightsByDate.get(flight.date) ?? 0) + flight.flightCount)
   }
   return flightsByDate
-}
-
-export function pluralize(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 function toIsoDate(date: Date): string {

@@ -1,4 +1,5 @@
 import { FlownSitesMap } from '@/components/flown-sites-map'
+import { pluralize } from '@/lib/text/pluralize'
 import { getFlownSites, type FlownSitesResult } from './fetch-flown-sites'
 import type { FlownSite, UnmatchedReason, UnmatchedSite } from './join-flown-sites'
 
@@ -49,10 +50,6 @@ function NoFlights() {
   )
 }
 
-function pluralize(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
-}
-
 // The exact visible-omission sentence #76's acceptance criterion 1 requires: a count AND the
 // names, in the summary line itself — never tracked only internally. Reads as a plain "N sites
 // mapped" when every takeoff resolved (unmatched.length === 0), never a dangling ", 0 takeoffs
@@ -98,9 +95,16 @@ function UnmatchedTakeoffs({ unmatched }: { unmatched: UnmatchedSite[] }) {
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
       <p className="font-medium">Takeoffs that could not be located:</p>
-      <ul className="mt-1 list-inside list-disc opacity-80">
+      {/* data-testid, not a role/text selector: scripts/verify-flown-sites.mts reads this
+          container's own textContent to count "(N flight(s))" markers, scoped away from the
+          rest of the page's body text (R4/F4) rather than a page-wide regex that would also
+          match unrelated numbers elsewhere on the page. */}
+      <ul className="mt-1 list-inside list-disc opacity-80" data-testid="unmatched-takeoffs">
         {unmatched.map((entry) => (
-          <li key={`${entry.name}-${entry.reason}`}>
+          // Keyed by the join's own grouping key (R6), not `name` — two distinct groups (e.g. a
+          // link-less flight and a foreign-country flight) can share the same display name, and
+          // `name` alone would collide on React's key uniqueness requirement.
+          <li key={entry.groupKey}>
             {entry.name} — {unmatchedReasonText(entry.reason)} ({pluralize(entry.flightCount, 'flight')})
           </li>
         ))}

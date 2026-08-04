@@ -30,7 +30,7 @@ describe('parseFlights — takeoffRef (#76)', () => {
     expect(flight?.takeoffRef).toEqual({ countryId: 160, takeoffId: 15 })
   })
 
-  it('yields a null ref for a foreign takeoff, while still keeping the display name', () => {
+  it('parses the ref for a foreign (non-curated-country) takeoff too, alongside the display name — filtering by curation is the join\'s job, not the parser\'s', () => {
     const html = flightRowHtml("<a href='?l=1&a=42&country_id=73&start_id=558'>Laragne, Chabre</a>")
 
     const [flight] = parseFlights(html, 4549)
