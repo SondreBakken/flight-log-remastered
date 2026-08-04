@@ -3,7 +3,7 @@ import { chromium, type Page } from 'playwright'
 import { XMLParser } from 'fast-xml-parser'
 import type { GeoJSONSource } from 'maplibre-gl'
 import { createReporter } from './lib/verify-report'
-import { waitForMapSettled, waitForPaintIdle } from './lib/verify-settle'
+import { waitForCondition, waitForMapSettled, waitForPaintIdle } from './lib/verify-settle'
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
 // #15's scoring overlay, checked against a scene per real flight — each one exercising a
@@ -75,7 +75,7 @@ function readTurnpointMarkerCount(page: Page): Promise<number> {
 }
 
 // #78: a turnpoint marker's own data-label carries its merged label ('D/E') once
-// groupTurnpointMarkers has folded co-located turnpoints into one badge.
+// groupTurnpointMarkersByPixelDistance has folded overlapping turnpoints into one badge.
 function readTurnpointMarkerLabels(page: Page): Promise<string[]> {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).map(
@@ -113,19 +113,6 @@ function rectsIntersect(a: DOMRect, b: DOMRect): boolean {
 
 function anyTwoRectsIntersect(rects: DOMRect[]): boolean {
   return rects.some((rect, index) => rects.some((other, otherIndex) => otherIndex > index && rectsIntersect(rect, other)))
-}
-
-// Exact position, not intersection: two markers projected from the identical lon/lat resolve
-// to the identical screen pixel deterministically, so exact equality (not a distance
-// tolerance) is the real oracle for "the merge still works" — and it stays immune to #83's
-// near-identical-but-distinct pairs (measured 3.6 px and 0.7 px apart), which are legitimately
-// close but never bit-for-bit equal.
-function rectsAtSamePosition(a: DOMRect, b: DOMRect): boolean {
-  return a.left === b.left && a.top === b.top
-}
-
-function anyTwoRectsAtSamePosition(rects: DOMRect[]): boolean {
-  return rects.some((rect, index) => rects.some((other, otherIndex) => otherIndex > index && rectsAtSamePosition(rect, other)))
 }
 
 async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void> {
@@ -270,11 +257,12 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
   })
   const toggledRadios = await readRadios(page)
   const toggledMarkerCount = await readTurnpointMarkerCount(page)
+  const toggledLabels = await readTurnpointMarkerLabels(page)
   const toggledSummary = await readSummary(page)
 
   console.log('center/zoom before toggle:', centerBefore)
   console.log('center/zoom after toggle:', centerAfter)
-  console.log('turnpoint markers after toggle:', toggledMarkerCount)
+  console.log('turnpoint markers after toggle:', toggledMarkerCount, toggledLabels)
   console.log('summary after toggle:', toggledSummary)
 
   report(
@@ -289,10 +277,72 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
       centerBefore.zoom === centerAfter.zoom,
     'trip 1001428: toggling the overlay does not move the map (same center/zoom, so the map was synced onto, not recreated)',
   )
-  report(toggledMarkerCount === 5, `trip 1001428: the 5-point overlay renders 5 turnpoint markers, not the 2-marker open-distance leftovers (got ${toggledMarkerCount})`)
+  // Not 5: this flight's own 5-point turnpoints A and B (track_idx 2/233, FsInfo's own 0.91 km
+  // apart) project ~16.4px apart at this flight's fit zoom (~9.38) — under the 20px badge, so
+  // #83's pixel-distance grouping merges them into one 'A/B' badge here too. This geometry has
+  // no exact-coordinate collision at all (#78 never applied to it); the pre-#83 count of 5 was
+  // only ever "no two of these five happen to share a coordinate", not "no two of these five
+  // are close enough to overlap on screen" — the grouping function is the same one used for
+  // every geometry (triangle or line-shaped), so a near pair here merges exactly the way a near
+  // pair on a triangle does.
+  //
+  // The margin on this one is thin: A/B's ~16.4px only needs the fit zoom to climb ~0.29 zoom
+  // levels (a ~22% pixel-distance increase) before it clears the 20px threshold and this
+  // assertion (and the zoom-reactivity one below) would need a different geometry to hold. The
+  // fit zoom itself is not a constant in this file — it falls out of fitBounds(padding: 48)
+  // against this scene's own runScene viewport (1400x1200) and the page's layout (max-w-5xl,
+  // px-6, the map's own h-[70vh]). A future change to any of those four numbers can legitimately
+  // shift the fit zoom enough to flip this merge; if these assertions start failing, check "did
+  // the fit zoom move" before assuming #83's grouping regressed.
+  report(toggledMarkerCount === 4, `trip 1001428: the 5-point overlay renders 4 turnpoint markers, A and B merged into one near-coordinate badge (got ${toggledMarkerCount})`)
+  report(
+    toggledLabels.includes('A/B'),
+    `trip 1001428: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(toggledLabels)})`,
+  )
   report(
     toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== summaryBeforeToggle,
     `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
+  )
+}
+
+// #83's whole point is that grouping is RE-DERIVED on zoom, not computed once at mount and
+// frozen forever — nothing before this scene ever changed zoom at all, so track-map.tsx's own
+// `map.on('moveend', syncTurnpointGroups)` wiring was unpinned: deleting that one line left
+// every other assertion in this file green, because none of them ever drove a zoom change to
+// notice grouping had stopped re-deriving. Picks up where assertToggleToFivePointDistance left
+// off (5-point geometry selected, A and B merged into one 'A/B' badge at this flight's fit zoom
+// ~9.38, per that function's own margin comment above) and zooms in past that ~0.29-zoom-level
+// margin to 10, comfortably clearing the 20px badge threshold.
+async function assertZoomReactiveTurnpointGrouping(page: Page): Promise<void> {
+  await page.evaluate(() => window.__flightTrackMap?.setZoom(10))
+
+  // moveend fires asynchronously (MapLibre settles the camera over at least one render frame),
+  // so the DOM read below has to wait for it rather than run immediately after setZoom resolves.
+  const separated = await waitForCondition(
+    page,
+    () =>
+      !Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).some(
+        (element) => element.getAttribute('data-label') === 'A/B',
+      ),
+    5000,
+  )
+
+  const markerCount = await readTurnpointMarkerCount(page)
+  const labels = await readTurnpointMarkerLabels(page)
+
+  console.log('turnpoint markers after zooming to 10:', markerCount, labels)
+
+  report(
+    separated,
+    `trip 1001428: zooming to 10 re-derives the turnpoint grouping (moveend-driven) and drops the 'A/B' label within 5s (got ${JSON.stringify(labels)})`,
+  )
+  report(
+    markerCount === 5,
+    `trip 1001428: at zoom 10, A and B project well past the 20px badge apart, so all five turnpoints render as distinct markers (got ${markerCount})`,
+  )
+  report(
+    !labels.includes('A/B'),
+    `trip 1001428: no marker carries the merged 'A/B' label at zoom 10 (got ${JSON.stringify(labels)})`,
   )
 }
 
@@ -358,6 +408,7 @@ await runScene({
     }
 
     await assertToggleToFivePointDistance(page, summary)
+    await assertZoomReactiveTurnpointGrouping(page)
   },
 })
 
@@ -617,19 +668,25 @@ await runScene({
   },
 })
 
-// === Scene 6: trip 985713, flat triangle selected — merged turnpoint markers, the OTHER
-// collision shape (#78) =====================================================================
+// === Scene 6: trip 985713, flat triangle selected — merged turnpoint markers, BOTH collision
+// shapes on the one fixture (#78 exact-coordinate, #83 near-coordinate) ====================
 //
-// track-985713's flat triangle hits the same physical point through two DIFFERENT indices
-// (A at track_idx 13, B at track_idx 14) that independently resolve to the identical
-// coordinate, rather than a repeated index the way 984290's FAI triangle does — the case
-// groupTurnpointMarkers's own coordinate-keyed (not index-keyed) grouping exists for.
+// track-985713's flat triangle (FsInfo track_idx="13 14 157 353 354") hits two different
+// turnpoints two different ways: A (track_idx 13) and B (track_idx 14) resolve to the exact
+// same coordinate — the #78 case, through two DIFFERENT indices rather than a repeated one the
+// way 984290's FAI triangle collides. D (track_idx 353) and E (track_idx 354) are NEVER
+// coordinate-equal — they sit ~9.4 m apart, projecting to ~3.55px apart at this flight's fit
+// zoom (~13.86) — but that is still well under the 20px badge
+// (TURNPOINT_GROUPING_THRESHOLD_PX in track-map.tsx), so
+// groupTurnpointMarkersByPixelDistance merges them too (#83). Before #83's fix this scene's own
+// D/E pair was the fixture #83 was filed against: two badges sitting close enough to visually
+// intersect but never merging, which is exactly what this scene now asserts does NOT happen.
 
 await runScene({
   tripId: 985713,
   label: 'trip 985713',
   scene: async ({ page, radios }) => {
-    console.log('\n=== trip 985713 (flat triangle, distinct-index/equal-coordinate turnpoint collision) ===')
+    console.log('\n=== trip 985713 (flat triangle, exact + near turnpoint collisions) ===')
     console.log('radios:', radios)
 
     report(
@@ -648,22 +705,24 @@ await runScene({
     console.log('turnpoint markers (flat triangle):', markerCount, letters)
 
     report(
-      markerCount === 4,
-      `trip 985713: the flat triangle's shared-coordinate turnpoints (A/B, different track_idx) render as 4 markers, not 5 stacked ones (got ${markerCount})`,
+      markerCount === 3,
+      `trip 985713: the flat triangle's five turnpoints render as 3 markers — A/B (exact-coordinate, #78) and D/E (near-coordinate, #83) each merge, C stays alone (got ${markerCount})`,
     )
     report(
       letters.includes('A/B'),
-      `trip 985713: one of the 4 markers carries the merged 'A/B' label (got ${JSON.stringify(letters)})`,
+      `trip 985713: one of the 3 markers carries the exact-coordinate merged 'A/B' label (got ${JSON.stringify(letters)})`,
     )
-    // The rect-INTERSECTION oracle (like scene 5's) is deliberately not used here: this same
-    // fixture's D and E turnpoints are a NEAR-identical pair (~9.4 m apart, ~3.6 px at this
-    // flight's fit zoom 13.86 — not an exact coordinate match) that #83 explicitly scopes out of
-    // this fix, and their badges legitimately sit close enough on screen to intersect. Exact
-    // SAME-POSITION is still a real, precise oracle: it fails only if the merge itself broke and
-    // produced two markers on the identical pixel, which D/E's mere proximity can never trigger.
     report(
-      !anyTwoRectsAtSamePosition(rects),
-      `trip 985713: no two turnpoint marker bounding rects sit at the exact same screen position (${rects.length} markers checked)`,
+      letters.includes('D/E'),
+      `trip 985713: one of the 3 markers carries the near-coordinate merged 'D/E' label (got ${JSON.stringify(letters)})`,
+    )
+    // Same stricter oracle scene 5 uses for 984290: with #83 fixed, D/E no longer legitimately
+    // sit un-merged-but-touching — every real collision on this fixture (exact or near) now
+    // merges into one badge, so no two rendered badges should intersect at all, not just avoid
+    // the exact-same-pixel case the pre-#83 oracle was limited to.
+    report(
+      !anyTwoRectsIntersect(rects),
+      `trip 985713: no two turnpoint marker bounding rects intersect (${rects.length} markers checked)`,
     )
   },
 })
