@@ -70,6 +70,17 @@ that boundary today:
   excludedCount + plottedCount SUM (not against plottedCount alone derived by interval
   subtraction, which used to let individually-impossible excluded/plotted combinations pass),
   plus its own excluded-count band.
+- `verify-flown-sites.mts` (#76) is the one exception to this whole section: it pins no live
+  count or band at all, against pilot 4549's own live logbook, deliberately — a pilot's flight
+  count grows over time on flightlog.org's own schedule same as everything else here, but
+  unlike a takeoff/club roster there is no natural floor/ceiling to band it between. Every
+  assertion instead checks a STRUCTURAL invariant between three independent readings taken from
+  the SAME live page load (the summary line's own counts, the map's `__flownSitesMapData`, and
+  MapLibre's actually-rendered marker count) — self-consistency that holds regardless of how
+  many flights this pilot has logged by the time this runs. The exact matched/unmatched split
+  (22/9) is pinned instead in `check:parsers`, against the frozen fixture pair
+  (`pilot-4549.html` x `takeoffs-160.html`), a legitimate frozen-vs-frozen pin per this
+  section's own rule.
 - `check:clubs-prerender` pins Norway's live CLUB count exactly (91), not as a band. That is a
   deliberate choice, not an oversight left over from before #55: a club is an organisation
   actually forming or dissolving, an event rare enough that a one-line bump when it happens is
@@ -104,13 +115,14 @@ difference property.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
-`verify-shot.mts`) are a different
+`verify-flown-sites.mts`, `verify-shot.mts`) are a different
 kind of check: they drive a real headless browser against a running app, so they are deliberately
 **not** part of `pnpm run check` or any other automated gate — there is nothing in this repo that
 starts a server, waits for it, and tears it down again. Run them by hand after touching the
 relevant feature. `verify-map.mts` and `verify-feed.mts` are the only two that run against
-`pnpm dev` (e.g. `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts` and
-`verify-sites-map.mts` must run against `pnpm run build && pnpm run start`, never `pnpm dev`. Dev
+`pnpm dev` (e.g. `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts`,
+`verify-sites-map.mts` and `verify-flown-sites.mts` must run against `pnpm run build && pnpm run
+start`, never `pnpm dev`. Dev
 can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
 flightlog.org live instead of exercising the prerendered static takeoffs artifact
 `check:takeoffs-prerender` proves exists, which only exists after a real build. That difference is

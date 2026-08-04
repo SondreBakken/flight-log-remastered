@@ -13,6 +13,8 @@ import { parseRegions } from '../src/lib/flightlog/parse-regions'
 import { parseTakeoffDetail } from '../src/lib/flightlog/parse-takeoff-detail'
 import { parseTakeoffFlights } from '../src/lib/flightlog/parse-takeoff-flights'
 import { encodeTakeoffRow, isTakeoffRows } from '../src/app/api/countries/[countryId]/takeoffs/contract'
+import { joinFlownSites } from '../src/features/browse-flown-sites-map/join-flown-sites'
+import { CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
 
 // fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
@@ -324,6 +326,56 @@ assert(
   'takeoffs-160.html: every encoded row has exactly 10 fields, independent of TAKEOFF_ROW_LENGTH (no dropped or duplicated field, and no field count bumped alongside it)',
 )
 assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes the wire-boundary shape check')
+
+// #76: the join module cross-checked against pilot-4549's FULL real logbook (134 rows) and
+// Norway's full curated takeoff dataset — the only case that can prove the real-world matched/
+// unmatched split, which a small trimmed inline HTML snippet (join-flown-sites.test.ts's own
+// synthetic cases) cannot reproduce. Exact counts pinned here are fixture-vs-fixture (both
+// sides frozen at the same curation time — see the README's "Frozen pins vs. live pins"
+// section), not a live-vs-frozen countdown, so this can stay an exact equality like
+// check:parsers' other fixture-vs-fixture pins. Measured directly against these two fixtures,
+// not copied from the issue's own scouted estimate (which undercounted this split — this
+// pilot's logbook carries flights from Norway plus 3 other countries, France, Italy and Spain/
+// Canary Islands, 8 distinct foreign ("uncurated-country") sites, plus one matched-by-id
+// Norwegian takeoff ("...") whose own coordinates are flightlog.org's 0,0 placeholder
+// ("no-known-location") — 9 unmatched in total, not the issue's scouted 5).
+const pilot4549Flights = parseFlights(readFileSync('fixtures/pilot-4549.html', 'utf8'), 4549)
+const flownSites = joinFlownSites(pilot4549Flights, takeoffs, CURATED_TAKEOFF_COUNTRY_IDS)
+const unmatchedNames = flownSites.unmatched.map((u) => u.name).sort()
+console.log(`pilot-4549.html x takeoffs-160.html: matched=${flownSites.sites.length} unmatched=${flownSites.unmatched.length}`)
+assert(flownSites.sites.length === 22, `pilot-4549 x takeoffs-160: 22 distinct, plottable matched sites (got ${flownSites.sites.length})`)
+assert(flownSites.unmatched.length === 9, `pilot-4549 x takeoffs-160: 9 distinct unmatched takeoffs (got ${flownSites.unmatched.length})`)
+assert(
+  flownSites.unmatched.filter((u) => u.reason === 'uncurated-country').length === 8,
+  `pilot-4549 x takeoffs-160: 8 of the 9 unmatched are foreign/uncurated-country (got ${flownSites.unmatched.filter((u) => u.reason === 'uncurated-country').length})`,
+)
+assert(
+  flownSites.unmatched.filter((u) => u.reason === 'no-known-location').length === 1,
+  `pilot-4549 x takeoffs-160: exactly 1 of the 9 unmatched is a matched-but-uncoordinated Norwegian takeoff (got ${flownSites.unmatched.filter((u) => u.reason === 'no-known-location').length})`,
+)
+assert(
+  flownSites.unmatched.every((u) => u.reason !== 'unlinked' && u.reason !== 'not-found'),
+  `pilot-4549 x takeoffs-160: no flight in this fixture is link-less or references a curated-country id absent from the dataset (reasons: ${flownSites.unmatched.map((u) => u.reason).join(', ')})`,
+)
+assert(
+  JSON.stringify(unmatchedNames) ===
+    JSON.stringify([
+      '...',
+      'Brosso, Cima Cavallaria, Manifestazione',
+      'Lanzarote, Famara Upper start',
+      'Lanzarote, Famara,  lower start',
+      'Lanzarote, Mala',
+      'Lanzarote, Mirador del Rio',
+      'Lanzarote, Tinasoria',
+      'Lanzarote, el Cuchillo',
+      'Laragne, Chabre',
+    ]),
+  `pilot-4549 x takeoffs-160: the exact 9 unmatched site names (got ${JSON.stringify(unmatchedNames)})`,
+)
+assert(
+  flownSites.sites.every((site) => site.lat !== 0 && site.lon !== 0),
+  'pilot-4549 x takeoffs-160: every matched site carries real (non-placeholder) coordinates from the takeoffs dataset',
+)
 
 // The payload-size sanity band that used to live here now lives in
 // check-takeoffs-prerender.mts (see scripts/lib/curated-country-expectations.ts's

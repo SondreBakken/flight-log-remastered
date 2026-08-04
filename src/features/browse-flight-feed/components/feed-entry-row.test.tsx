@@ -32,6 +32,7 @@ const baseEntry: FeedEntry = {
     date: '2026-05-01',
     country: null,
     takeoff: 'Voss',
+    takeoffRef: null,
     glider: null,
     duration: '2:15',
     flightCount: 1,
