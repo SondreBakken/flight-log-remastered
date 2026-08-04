@@ -80,10 +80,22 @@ function requestOnce(path: string, session: Session, referer: string, init: Flig
   })
 }
 
-// A 302 to the root means either a dead session or a request the site won't serve.
-// We cannot tell those apart from the response, so we re-mint once and retry.
+// A 302 to the root means either a dead session or a request the site won't serve (docs/
+// flightlog-api.md: "Without [the session cookie] every fl.html request → 302 → /"). We cannot
+// tell those two apart from the response, so we re-mint once and retry. A 302 to anything else
+// is not that — e.g. a=114 pilot search 302s straight to `a=28&user_id=<id>` when exactly one
+// pilot matches, a real answer the caller needs, not a gate to retry past. A missing Location
+// is treated as a gate too: the ambiguous case above already can't be told apart from a genuine
+// gate, so there is nothing here to hand a caller either.
 function isSessionGate(result: GatedFetchResult): boolean {
-  return result.status === 302
+  if (result.status !== 302) return false
+  const location = result.headers.get('location')
+  return location === null || isFlightlogRoot(location)
+}
+
+function isFlightlogRoot(location: string): boolean {
+  const resolved = new URL(location, FLIGHTLOG_ORIGIN)
+  return resolved.origin === new URL(FLIGHTLOG_ORIGIN).origin && resolved.pathname === '/'
 }
 
 async function retryAfterReminting(path: string, referer: string, init?: FlightlogRequestInit): Promise<GatedFetchResult> {
@@ -96,17 +108,31 @@ async function retryAfterReminting(path: string, referer: string, init?: Flightl
 }
 
 // Shared by fetchFlightlogText and postFlightlogText: decide whether the first attempt hit
-// the session gate (re-mint and retry once if so), then turn a non-ok response into a thrown
-// error. Whether re-issuing `init` a second time is actually safe is a per-caller question —
-// see postFlightlogText's own comment at its call site, since a GET and a POST don't carry
-// the same idempotency guarantee just because they share this plumbing.
+// the session gate, re-minting and retrying once if so. Whether re-issuing `init` a second
+// time is actually safe is a per-caller question — see postFlightlogText's own comment at its
+// call site, since a GET and a POST don't carry the same idempotency guarantee just because
+// they share this plumbing.
+async function resolveGatedResult(
+  path: string,
+  firstAttempt: GatedFetchResult,
+  referer: string,
+  init?: FlightlogRequestInit,
+): Promise<GatedFetchResult> {
+  return isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer, init) : firstAttempt
+}
+
+// fetchFlightlogText's own non-ok handling: every one of its callers (clubs.ts, tracks.ts,
+// takeoffs.ts, …) fetches a fixed rqtid=/a= resource and has never observed anything but a
+// session-gate 302 or a genuine failure — no caller expects a redirect-shaped response, so
+// this keeps the old string-or-throw contract rather than exposing the Location the way
+// postFlightlogText does.
 async function resolveGatedText(
   path: string,
   firstAttempt: GatedFetchResult,
   referer: string,
   init?: FlightlogRequestInit,
 ): Promise<string> {
-  const result = isSessionGate(firstAttempt) ? await retryAfterReminting(path, referer, init) : firstAttempt
+  const result = await resolveGatedResult(path, firstAttempt, referer, init)
 
   if (!result.ok) {
     throw new Error(`flightlog.org returned ${result.status} for ${path}`)
@@ -122,6 +148,12 @@ export async function fetchFlightlogText(
   return resolveGatedText(path, firstAttempt, referer)
 }
 
+// postFlightlogText's one caller (pilot-search.ts) needs more than fetchFlightlogText's
+// callers do: a=114 pilot search can 302 straight to the single matching pilot's profile
+// (isSessionGate above already tells that apart from a genuine gate), and that Location is
+// the actual answer, not noise to retry past — so it comes back as data, not a thrown error.
+export type GatedTextResult = { kind: 'ok'; text: string } | { kind: 'redirect'; location: string | null }
+
 // The sibling POST fetcher — first write-shaped verb in this file, though the one request it
 // currently backs (a=114 pilot search) is not itself a write. Body is caller-supplied,
 // already `application/x-www-form-urlencoded`-encoded (see pilot-search.ts's buildSearchBody,
@@ -130,7 +162,7 @@ export async function postFlightlogText(
   path: string,
   body: string,
   { referer = FLIGHTLOG_ORIGIN }: { referer?: string } = {},
-): Promise<string> {
+): Promise<GatedTextResult> {
   const init: FlightlogRequestInit = {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -138,7 +170,7 @@ export async function postFlightlogText(
   }
 
   const firstAttempt = await requestOnce(path, await getSession(), referer, init)
-  // resolveGatedText re-issues `init` verbatim against a freshly-minted session when the
+  // resolveGatedResult re-issues `init` verbatim against a freshly-minted session when the
   // first attempt hits the session gate — the same policy fetchFlightlogText uses, but that
   // policy was reasoned for a GET with no body, safe to repeat by construction. Repeating
   // this POST is safe for a different, POST-specific reason: `form=find_user` performs a
@@ -147,5 +179,13 @@ export async function postFlightlogText(
   // anything. That argument is specific to this one target; a future POST added here for an
   // actual write (e.g. a=30's new-flight wizard, a=37 login) must not inherit it — a
   // session-gated write needs its own judgement about whether retrying is safe, not this one.
-  return resolveGatedText(path, firstAttempt, referer, init)
+  const result = await resolveGatedResult(path, firstAttempt, referer, init)
+
+  if (result.status === 302) {
+    return { kind: 'redirect', location: result.headers.get('location') }
+  }
+  if (!result.ok) {
+    throw new Error(`flightlog.org returned ${result.status} for ${path}`)
+  }
+  return { kind: 'ok', text: result.text }
 }

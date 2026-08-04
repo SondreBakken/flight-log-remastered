@@ -2,10 +2,26 @@ import 'server-only'
 import { postFlightlogText, FLIGHTLOG_ORIGIN } from './http'
 import { ENGLISH } from './config'
 import { parsePilotSearch } from './parse-pilot-search'
+import { isValidPilotId } from './types'
 import type { PilotSearchResult } from './types'
 
 const PILOT_SEARCH_ACTION = 114
 const PILOT_SEARCH_PATH = `/fl.html?l=${ENGLISH}&a=${PILOT_SEARCH_ACTION}`
+// The same profile action a=114 itself links every result row through (parse-pilot-search.ts's
+// PROFILE_LINK_ACTION) — a=114 redirects here directly, instead of rendering a results page,
+// when exactly one pilot matches (established live: q=viljar -> user_id=11348, not yet in
+// docs/flightlog-api.md).
+const PROFILE_ACTION = 28
+
+// The two shapes a completed search can settle into. Kept as a discriminated union rather than
+// an optional `userId` alongside `results` for the same reason ScoringGeometryResult (types.ts)
+// is a union and not an optional-field bag: a single-match redirect and a results page are
+// genuinely different responses from flightlog.org, and a caller checking `kind` can't
+// accidentally read `results` off a single-match outcome (or vice versa) the way an all-optional
+// shape would let it.
+export type PilotSearchOutcome =
+  | { kind: 'results'; results: PilotSearchResult[] }
+  | { kind: 'single-match'; userId: number }
 // The real page a browser has open when it submits this form — a=114 itself, confirmed live
 // (see docs/flightlog-api.md) — not some other page in this app's own tree, mirroring
 // clubs.ts's COUNTRY_INDEX_PAGE referer choice for the same reason: this is what flightlog.org
@@ -56,7 +72,28 @@ function buildSearchBody(query: string): string {
   return new URLSearchParams({ form: 'find_user', user_fullname: query, go: 'Go' }).toString()
 }
 
-export async function searchPilots(query: string): Promise<PilotSearchResult[]> {
+// http.ts's postFlightlogText already tells a genuine session gate (302 to the origin root)
+// apart from any other redirect and retries/throws for that case before this function ever
+// sees it — so a `redirect` outcome here always carries something this app might actually
+// understand: an a=28 profile link, or markup drift neither of us has seen before. Anything
+// that isn't recognisably the former is thrown, not swallowed into an empty result set — the
+// same policy parsePilotSearch itself uses for HTML it can't recognise.
+function readSingleMatchUserId(location: string | null): number {
+  if (location === null) {
+    throw new Error('flightlog.org redirected the pilot search with no Location header')
+  }
+
+  const resolved = new URL(location, FLIGHTLOG_ORIGIN)
+  const userId = Number(resolved.searchParams.get('user_id'))
+  const isProfileRedirect = resolved.pathname === '/fl.html' && resolved.searchParams.get('a') === String(PROFILE_ACTION) && isValidPilotId(userId)
+
+  if (!isProfileRedirect) {
+    throw new Error(`flightlog.org redirected the pilot search to an unrecognized location: ${location}`)
+  }
+  return userId
+}
+
+export async function searchPilots(query: string): Promise<PilotSearchOutcome> {
   // Trimmed once, here, and that single value feeds both the guard and the request body below —
   // isValidSearchQuery trims internally too (so callers checking it directly against a raw query
   // still get the right answer), but that trim happening a second time is a no-op. What must not
@@ -70,10 +107,14 @@ export async function searchPilots(query: string): Promise<PilotSearchResult[]> 
   // show a distinct "type more" message instead of a silent empty state), but the check that
   // actually matters is this one: it is the last thing standing between a caller and the
   // network call below.
-  if (!isValidSearchQuery(trimmedQuery)) return []
+  if (!isValidSearchQuery(trimmedQuery)) return { kind: 'results', results: [] }
 
-  const html = await postFlightlogText(PILOT_SEARCH_PATH, buildSearchBody(trimmedQuery), {
+  const response = await postFlightlogText(PILOT_SEARCH_PATH, buildSearchBody(trimmedQuery), {
     referer: PILOT_SEARCH_PAGE_REFERER,
   })
-  return parsePilotSearch(html)
+
+  if (response.kind === 'redirect') {
+    return { kind: 'single-match', userId: readSingleMatchUserId(response.location) }
+  }
+  return { kind: 'results', results: parsePilotSearch(response.text) }
 }
