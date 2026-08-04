@@ -54,6 +54,7 @@ function makeFlight(overrides: Partial<Flight> & { date: string }): Flight {
     userId: 1,
     country: null,
     takeoff: null,
+    takeoffRef: null,
     glider: null,
     duration: '1:00',
     flightCount: 1,

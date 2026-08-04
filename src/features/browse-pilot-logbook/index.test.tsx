@@ -17,6 +17,7 @@ function flight(overrides: Partial<Flight>): Flight {
     date: '2026-07-23',
     country: 'Norway',
     takeoff: 'Voss, Hjelle/Gjelle',
+    takeoffRef: null,
     glider: 'skywalk Mescal 6',
     duration: '00:10',
     flightCount: 1,

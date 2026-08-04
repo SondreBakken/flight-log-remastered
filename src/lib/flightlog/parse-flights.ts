@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio'
 import type { Nodes } from './parse-flightlog-table'
-import type { Flight, Pilot } from './types'
+import type { Flight, Pilot, TakeoffRef } from './types'
 
 const FLIGHT_ROW_CELL_COUNT = 7
 const COUNTRY_LINK_ACTION = 47
@@ -37,10 +37,34 @@ function textOrNull(value: string): string | null {
 }
 
 // The date cell packs date, country link and takeoff link together; the links are told
-// apart by which action code they point at.
-function readLinkByAction(cell: Nodes, action: number): string | null {
+// apart by which action code they point at. Shared by readLinkByAction (display text) and
+// readLinkHrefByAction (the href itself, for #76's takeoffRef) so both read the same node
+// rather than re-running the selector twice per cell.
+function findLinkByAction(cell: Nodes, action: number): Nodes | null {
   const link = cell.find(`a[href*="a=${action}"]`).first()
-  return link.length === 0 ? null : textOrNull(link.text())
+  return link.length === 0 ? null : link
+}
+
+function readLinkByAction(cell: Nodes, action: number): string | null {
+  return textOrNull(findLinkByAction(cell, action)?.text() ?? '')
+}
+
+function readLinkHrefByAction(cell: Nodes, action: number): string | undefined {
+  return findLinkByAction(cell, action)?.attr('href')
+}
+
+// #76's approved join key: the takeoff link's own `country_id`/`start_id` query params
+// (`?l=1&a=42&country_id=160&start_id=15`), not its display text — verified 5/5 sampled across
+// 4 countries to equal the takeoffs dataset's own countryId/takeoffId. A link-less cell (no
+// `a=42` at all) or a malformed href (either param missing) yields null rather than a partial
+// ref — a flight with a null ref still keeps its `takeoff` display text (read independently,
+// above) and is a visible unmatched site in the join, never a dropped one (see
+// browse-flown-sites-map/join-flown-sites.ts).
+function readTakeoffRef(href: string | undefined): TakeoffRef | null {
+  const countryId = href?.match(/country_id=(\d+)/)?.[1]
+  const takeoffId = href?.match(/start_id=(\d+)/)?.[1]
+  if (countryId === undefined || takeoffId === undefined) return null
+  return { countryId: Number(countryId), takeoffId: Number(takeoffId) }
 }
 
 export function parsePilot(html: string, userId: number): Pilot {
@@ -83,6 +107,7 @@ function toFlight(cells: Nodes, userId: number): Flight | null {
     date,
     country: readLinkByAction(dateCell, COUNTRY_LINK_ACTION),
     takeoff: readLinkByAction(dateCell, TAKEOFF_LINK_ACTION),
+    takeoffRef: readTakeoffRef(readLinkHrefByAction(dateCell, TAKEOFF_LINK_ACTION)),
     glider: textOrNull(cells.eq(2).text()),
     duration: readDuration(cells.eq(3).text()),
     flightCount: readFlightCount(cells.eq(3).text()),

@@ -18,6 +18,15 @@ export function isValidPilotId(value: unknown): value is PilotId {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
+// The `country_id`/`start_id` pair carried in the logbook's own takeoff link (`a=42&country_id=
+// N&start_id=M`) — the approved #76 join key against `Takeoff.countryId`/`takeoffId`, verified
+// 5/5 sampled across 4 countries against fixtures/takeoffs-160.html. `takeoff` (below) is
+// display text scraped independently of this ref, so a flight can carry a name with no ref
+// (link-less or malformed href — see parse-flights.ts's readTakeoffRef) or, in principle, a ref
+// whose id isn't in a given takeoff dataset; either case is this app's business to render as a
+// visible unmatched omission (see browse-flown-sites-map/join-flown-sites.ts), never to drop.
+export type TakeoffRef = { countryId: number; takeoffId: number }
+
 // A row from a=28's pilot logbook. flightlog.org aggregates same-day, same-glider flights
 // into a single row (rendered `"00:10/ 2"`) — when `flightCount > 1`, `duration` is the GROUP
 // TOTAL across those flights, not a per-flight duration (#68, measured against rqtid=1's
@@ -32,6 +41,7 @@ export type Flight = {
   date: string
   country: string | null
   takeoff: string | null
+  takeoffRef: TakeoffRef | null
   glider: string | null
   duration: string | null
   flightCount: number

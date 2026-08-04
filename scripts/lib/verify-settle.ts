@@ -15,7 +15,7 @@ import type { Page } from 'playwright'
 // the page's default 30s timeout. Two of verify-takeoffs.mts's waits need a real arg rather than
 // an argument-free predicate; they use waitForConditionWithArg below for that.
 
-type MapHandle = '__flightTrackMap' | '__takeoffsMap'
+type MapHandle = '__flightTrackMap' | '__takeoffsMap' | '__flownSitesMap'
 
 /**
  * The definitive settle condition every caller above needs: the window map handle exists AND

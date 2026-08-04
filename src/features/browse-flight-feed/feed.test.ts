@@ -28,6 +28,7 @@ function makeFlight(overrides: Partial<Flight> = {}): Flight {
     date: '2026-01-01',
     country: null,
     takeoff: null,
+    takeoffRef: null,
     glider: null,
     duration: '1:00',
     flightCount: 1,
