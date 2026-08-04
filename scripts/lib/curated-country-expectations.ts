@@ -3,7 +3,7 @@
 // reads a byte or row-count band — only check-takeoffs-prerender.mts and
 // check-clubs-prerender.mts do — so this is check configuration, not a curation decision, and
 // grew too large (~45 lines) to keep buried inside the file that decides which ids the app
-// itself serves. See the README's "Frozen pins vs. live pins" section for the general rule
+// itself serves. See docs/testing.md's "Frozen pins vs. live pins" section for the general rule
 // this file's bands follow; each export below only carries the reasoning specific to it.
 //
 // Every artifact these bound is populated by a REAL BUILD fetching flightlog.org LIVE, never
@@ -53,7 +53,7 @@ export const CLUB_ROSTER_EXPECTATIONS: readonly {
   // by the rule above (it is still pinned against a real build's live fetch, so it WILL go
   // stale the day a Norwegian club count changes) — it is a deliberate choice to accept a rare,
   // one-line bump over the engineering cost of a band this file's own takeoffs pin needed, not
-  // a claim that this pin is somehow exempt from the frozen-vs-live rule. See the README's
+  // a claim that this pin is somehow exempt from the frozen-vs-live rule. See docs/testing.md's
   // "Frozen pins vs. live pins" section, which lists this as the fourth live-crossing check.
   rowCount: number
   // A coarse sanity band on the rendered HTML PAGE's total byte size — not a field-shape guard,

@@ -35,13 +35,13 @@ export async function growViewportToDocument(page: Page): Promise<ViewportSize> 
 
 /**
  * Captures the whole document, not just the viewport: resize to the document's real size
- * (growViewportToDocument above), THEN `fullPage: true` on top of that. See README's #21
- * section for the full story this is the fix for. In short: `fullPage` alone discards the
- * WebGL drawing buffer on a page holding a MapLibre canvas; the resize alone truncates a
- * page whose height is itself a function of viewport height, because growing the viewport
- * can grow the document past the size just measured. Neither problem survives the
- * combination — measured repeatedly: the resize is what keeps the WebGL canvas painted,
- * `fullPage`'s stitching is what then picks up the further growth the resize itself causes.
+ * (growViewportToDocument above), THEN `fullPage: true` on top of that. See docs/testing.md's
+ * "verify-shot and the #21 capture bug" section for the full story this is the fix for. In short:
+ * `fullPage` alone discards the WebGL drawing buffer on a page holding a MapLibre canvas; the
+ * resize alone truncates a page whose height is itself a function of viewport height, because
+ * growing the viewport can grow the document past the size just measured. Neither problem
+ * survives the combination — measured repeatedly: the resize is what keeps the WebGL canvas
+ * painted, `fullPage`'s stitching is what then picks up the further growth the resize itself causes.
  *
  * `preserveDrawingBuffer: true` on the MapLibre context was considered and rejected: it
  * would force the browser to retain (and pay a real per-frame copy cost for) the drawing

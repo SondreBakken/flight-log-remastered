@@ -38,7 +38,7 @@ const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs?__v
 
 // This page's data comes from a REAL BUILD's LIVE fetch of flightlog.org (same as
 // check-takeoffs-prerender.mts and verify-takeoffs.mts), not from fixtures/takeoffs-160.html
-// directly — see the README's "Frozen pins vs. live pins" section for the general rule; bands,
+// directly — see docs/testing.md's "Frozen pins vs. live pins" section for the general rule; bands,
 // not exact counts, still wide enough to fail hard for an empty, near-empty, or still-corrupt
 // source (see hasKnownLocation in src/lib/flightlog/has-known-location.ts for what "corrupt"
 // means here).
