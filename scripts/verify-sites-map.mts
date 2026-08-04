@@ -11,6 +11,7 @@ import { RAY_MIN_ZOOM } from '../src/components/takeoffs-map/build-takeoffs-geoj
 import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
 import { formatRange, inRange } from './lib/range'
 import { createReporter } from './lib/verify-report'
+import { waitForMapSettled } from './lib/verify-settle'
 
 // #10's end-to-end proof that a green build proves nothing about a map in this repo — that has
 // literally happened here (a clean build once coexisted with a completely blank one, see
@@ -110,14 +111,7 @@ await page.waitForSelector('.maplibregl-canvas', { timeout: 20000 }).catch(() =>
 // finished loading — not just "the canvas element is in the DOM," which the raster tile layer
 // alone would already satisfy with the GeoJSON source still empty (the exact class of silent
 // failure #10's own issue calls out for maplibre-gl v6/Turbopack).
-const settled = await page
-  .waitForFunction(
-    (sourceId) => window.__takeoffsMap !== undefined && window.__takeoffsMap.isSourceLoaded(sourceId) === true,
-    SITES_SOURCE_ID,
-    { timeout: 20000 },
-  )
-  .then(() => true)
-  .catch(() => false)
+const settled = await waitForMapSettled(page, { handle: '__takeoffsMap', sourceId: SITES_SOURCE_ID })
 report(settled, 'the map settles: window.__takeoffsMap exists and its takeoff-sites source finished loading, within the timeout')
 
 if (settled) {

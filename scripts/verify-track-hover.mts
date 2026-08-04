@@ -1,4 +1,5 @@
 import { chromium } from 'playwright'
+import { waitForMapSettled, waitForPaintIdle, collectPageDiagnostics } from './lib/verify-settle'
 
 // Headless, never the Chrome extension: an unfocused extension window pauses
 // requestAnimationFrame, which would make a real hover interaction silently never resolve
@@ -25,14 +26,7 @@ const SECONDS_TOLERANCE = 180
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
-const logs: string[] = []
-const bad: string[] = []
-page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`))
-page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`))
-page.on('response', (r) => {
-  if (r.status() >= 400) bad.push(`${r.status()} ${r.url()}`)
-})
-page.on('requestfailed', (r) => bad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
+const { logs, bad } = collectPageDiagnostics(page)
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
@@ -42,13 +36,7 @@ await page.goto(url, { waitUntil: 'domcontentloaded' })
 // all (a Suspense skeleton, or a client-side navigation error). The paint-idle wait below
 // resolves immediately when `map` is undefined, so a still-loading or dead page would sail
 // through as "settled" and only fail downstream as a misleading hover-position mismatch.
-const settled = await page
-  .waitForFunction(
-    () => window.__flightTrackMap !== undefined && window.__flightTrackMap.isSourceLoaded('flight-track') === true,
-    { timeout: 20000 },
-  )
-  .then(() => true)
-  .catch(() => false)
+const settled = await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'flight-track' })
 if (!settled) {
   console.error('FAIL - the scene did not settle: window.__flightTrackMap never appeared with its flight-track source loaded, within the timeout')
   console.log('bad responses:', bad.length ? bad : 'none')
@@ -66,18 +54,7 @@ if (!settled) {
 // layer's first paint, is queued. A settle condition satisfied before the thing under test is
 // actually ready is exactly the failure shape this repo's verify scripts otherwise guard
 // against.
-await page
-  .evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        const map = window.__flightTrackMap
-        if (!map || map.loaded()) return resolve()
-        map.once('idle', () => resolve())
-        setTimeout(resolve, 15000)
-      }),
-  )
-  .catch(() => {})
-await page.waitForTimeout(1000)
+await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 1000 })
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
