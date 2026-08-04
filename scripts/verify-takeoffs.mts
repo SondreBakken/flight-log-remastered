@@ -2,7 +2,7 @@ import { chromium, type Page } from 'playwright'
 import { TAKEOFF_ROW_COUNT_EXPECTATIONS } from './lib/curated-country-expectations'
 import { formatRange, inRange } from './lib/range'
 import { createReporter } from './lib/verify-report'
-import { waitForCondition } from './lib/verify-settle'
+import { waitForCondition, waitForConditionWithArg } from './lib/verify-settle'
 
 // #9's end-to-end proof, superseding #38's row-count-only version: a real browser, navigating
 // to the prerendered takeoffs directory, actually issues a network request for the takeoffs
@@ -180,30 +180,30 @@ if (settled) {
   // silently never printed instead of reporting FAIL.
   if (renderedRowCount !== null) {
     await page.getByRole('textbox', { name: /takeoff name/i }).fill('')
-    const clearedBackToTotal = await page
-      .waitForFunction(
-        (expected) => {
-          const match = document.body.textContent?.match(/of (\d+) matches/)
-          return match !== null && Number(match[1]) === expected
-        },
-        renderedRowCount,
-        { timeout: 10000 },
-      )
-      .then(() => true)
-      .catch(() => false)
+    const clearedBackToTotal = await waitForConditionWithArg(
+      page,
+      (expected) => {
+        const match = document.body.textContent?.match(/of (\d+) matches/)
+        return match !== null && Number(match[1]) === expected
+      },
+      renderedRowCount,
+      10000,
+    )
     report(clearedBackToTotal, `clearing the query returns the total match count to the original ${renderedRowCount} within the timeout`)
 
     if (clearedBackToTotal) {
       const beforeWindTotal = await readTotalMatchCount(page)
       await page.getByRole('combobox', { name: /wind direction/i }).selectOption('N')
-      const windSettled = await page
-        .waitForFunction((prev) => {
+      const windSettled = await waitForConditionWithArg(
+        page,
+        (prev) => {
           const match = document.body.textContent?.match(/of (\d+) matches/)
           const total = match ? Number(match[1]) : null
           return total !== null && total !== prev
-        }, beforeWindTotal, { timeout: 10000 })
-        .then(() => true)
-        .catch(() => false)
+        },
+        beforeWindTotal,
+        10000,
+      )
       report(windSettled, 'selecting "Works in N" changes the total match count within the timeout')
       if (windSettled) {
         const afterWindTotal = await readTotalMatchCount(page)
