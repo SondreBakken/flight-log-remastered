@@ -32,6 +32,8 @@ pnpm exec tsx scripts/shot.mts <url> <out.png>
 pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof shot.mts's capture isn't blank (#21); see note below
 ```
 
+## Checks and gates
+
 `pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with two
 exceptions**: `check:takeoffs-prerender` and `check:clubs-prerender` both read
 `.next/prerender-manifest.json` and need a local `pnpm run build` to exist and be currently up to
@@ -40,7 +42,9 @@ passing, if the build is missing or stale — see `scripts/lib/prerender-manifes
 both). Run `pnpm run build` before `pnpm run check` if you've touched anything under `src/` since
 your last build.
 
-**Frozen pins vs. live pins.** Several checks pin a number derived from `fixtures/takeoffs-160.html`
+## Frozen pins vs. live pins
+
+Several checks pin a number derived from `fixtures/takeoffs-160.html`
 at the time it was scraped. Whether that pin stays exact or needs to tolerate a range depends on
 what it's compared against, not on where the number came from. A pin between two things that both
 come from the same fixture (`check:parsers`' hardcoded row counts, for example) is stable forever:
@@ -89,41 +93,28 @@ that boundary today:
   changes; it is simply expected to change far less often. See
   `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
 - `verify-scoring.mts` (#15, extended by #58, #78, #83) pins several numbers against a live KML
-  fetch of trip 1001428: the open-distance summary text (`48.95 km`), the turnpoint marker count
-  for that geometry (`2`), and the per-flight disabled/enabled state of each radio option across
-  six real flights — including, for trip 233524, the map's own scoring-overlay GeoJSON source
-  shape after selecting the flat triangle (two features: a 4-coordinate closed loop, a
-  2-coordinate connector); and, for trips 1001428 (its 5-point geometry), 984290 and 985713, the
-  merged turnpoint-marker labels #78 and #83 introduced — two or more of a geometry's five
-  turnpoints collapse into one badge whenever their screen positions land within the badge's own
-  20px diameter of each other, whether that closeness comes from an exact shared coordinate
-  (#78 — 984290 via a repeated track_idx resolving to the same array element, 985713 via two
-  distinct indices that independently resolve to the identical coordinate) or from two genuinely
-  different, merely nearby coordinates a real map zoom can still render on top of each other
-  (#83 — 985713's own D/E turnpoints, ~9.4 m apart on the ground, and 1001428's A/B turnpoints,
-  0.91 km apart on the ground but close at that flight's low fit zoom). This pin checks both the
-  resulting marker count and the merged label actually rendered. Unlike the other four, what it
-  pins against is not a roster that grows or shrinks over time, it is a handful of specific
-  historical flights' already-flown GPS tracks and flightlog.org's own already-computed scoring
-  geometry for each. Neither changes after the fact the way a takeoff or club roster does, so
-  this pin is closer to the frozen-vs-frozen case above than a countdown, even though one side of
-  it is still a live fetch.
+  fetch of six real historical flights' already-flown GPS tracks and flightlog.org's own
+  already-computed scoring geometry for each, not a roster that grows or shifts over time. Neither
+  the tracks nor their scoring geometry change after the fact, so despite one side being a live
+  fetch, this pin is closer to the frozen-vs-frozen case above than a countdown. See "Browser
+  verify scripts (verify-*.mts)" below for the full scene-by-scene detail of what it pins.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
 difference property.
 
+## Browser verify scripts (verify-*.mts)
+
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
-`verify-flown-sites.mts`, `verify-shot.mts`) are a different
-kind of check: they drive a real headless browser against a running app, so they are deliberately
-**not** part of `pnpm run check` or any other automated gate — there is nothing in this repo that
-starts a server, waits for it, and tears it down again. Run them by hand after touching the
-relevant feature. `verify-map.mts` and `verify-feed.mts` are the only two that run against
-`pnpm dev` (e.g. `pnpm exec tsx scripts/verify-feed.mts`). `verify-takeoffs.mts`,
-`verify-sites-map.mts` and `verify-flown-sites.mts` must run against `pnpm run build && pnpm run
-start`, never `pnpm dev`. Dev
-can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
+`verify-flown-sites.mts`, `verify-shot.mts`) are a different kind of check: they drive a real
+headless browser against a running app, so they are deliberately **not** part of `pnpm run check`
+or any other automated gate — there is nothing in this repo that starts a server, waits for it,
+and tears it down again. Run them by hand after touching the relevant feature. `verify-map.mts`
+and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g. `pnpm exec tsx
+scripts/verify-feed.mts`). `verify-takeoffs.mts`, `verify-sites-map.mts` and
+`verify-flown-sites.mts` must run against `pnpm run build && pnpm run start`, never `pnpm dev`.
+Dev can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
 flightlog.org live instead of exercising the prerendered static takeoffs artifact
 `check:takeoffs-prerender` proves exists, which only exists after a real build. That difference is
 not just about data freshness: a vacuous settle condition in `verify-takeoffs.mts` once read FAIL
@@ -143,34 +134,34 @@ maplibre-gl v6/Turbopack note below).
 `verify-scoring.mts` (#15, extended by #58, #78, #83) shares `verify-track-hover.mts`'s
 `?__verifyMap` gate to check the scoring overlay against six real flights, each exercising a
 different shape: 1001428 (all five line-shaped geometries enabled and Open distance selected by
-default, its map source actually loads and renders 2 turnpoint markers — both triangle radios
-correctly DISABLED, since this fixture's own triangle placemarks are the metadata-only stub, not
-real geometry; toggling to the 5-point geometry renders 4 markers, not 5 — #83: this flight's own
-A and B turnpoints are 0.91 km apart in real terms but project only ~16px apart at this flight's
-low fit zoom, close enough to merge into one 'A/B' badge even though nothing about them is
-coordinate-equal), 991729 (the degenerate 5- and 4-point geometries render as disabled radio
-options, not silently selectable), 235690 (the entirely-missing out-and-return placemark is
-likewise disabled), 233524 (#58: both triangle radios enabled — real, non-degenerate geometry —
-and, after selecting the flat triangle, the map's own scoring-overlay source carries exactly two
-line features: a self-closing 4-coordinate loop and a 2-coordinate connector), 984290 (#78: the
-FAI triangle's own D and E turnpoints resolve to the identical array element — a repeated
-track_idx, not two different indices — so five turnpoints render as 4 markers, one of them
-carrying the merged 'D/E' label; asserted alongside a rect-intersection oracle confirming no two
-of the 4 rendered markers' bounding boxes touch on screen), and 985713 (both collision shapes on
-one fixture: #78's A and B turnpoints collide through two DIFFERENT indices that independently
-resolve to the exact same coordinate — the case an index-keyed grouping would silently miss — and
-#83's D and E turnpoints, ~9.4 m apart in real terms and never coordinate-equal, project close
-enough on screen (~3.6px at this flight's fit zoom, under the 20px badge) to merge too; five
-turnpoints render as 3 markers, 'A/B' and 'D/E', asserted with the same rect-intersection oracle
-984290 uses — before #83's fix this exact fixture's D/E pair was two badges sitting close enough
-to visually intersect without ever merging, which is what that oracle now catches). That 233524
-scene is the browser-level oracle for the triangle RENDER path (`scoring-line.ts`'s
-scoringLineCoordinates): nothing else — not Vitest, not `check-scoring.mts` — ever looks at what
-the map's own GeoJSON source actually contains, so a render-path regression (e.g. drawing
-turnpointIndices as one naive zigzag instead of loop-plus-connector) previously left every other
-check green. The 1001428 5-point toggle, 984290, and 985713 scenes are the equivalent oracle for
-the merged-MARKER path (`turnpoint-markers.ts`'s groupTurnpointMarkersByPixelDistance): nothing
-else drives a real map and reads back what a merged turnpoint marker's own label and screen
+default — its open-distance summary text reads `48.95 km` — its map source actually loads and
+renders 2 turnpoint markers — both triangle radios correctly DISABLED, since this fixture's own
+triangle placemarks are the metadata-only stub, not real geometry; toggling to the 5-point
+geometry renders 4 markers, not 5 — #83: this flight's own A and B turnpoints are 0.91 km apart in
+real terms but project only ~16px apart at this flight's low fit zoom, close enough to merge into
+one 'A/B' badge even though nothing about them is coordinate-equal), 991729 (the degenerate 5- and
+4-point geometries render as disabled radio options, not silently selectable), 235690 (the
+entirely-missing out-and-return placemark is likewise disabled), 233524 (#58: both triangle radios
+enabled — real, non-degenerate geometry — and, after selecting the flat triangle, the map's own
+scoring-overlay source carries exactly two line features: a self-closing 4-coordinate loop and a
+2-coordinate connector), 984290 (#78: the FAI triangle's own D and E turnpoints resolve to the
+identical array element — a repeated track_idx, not two different indices — so five turnpoints
+render as 4 markers, one of them carrying the merged 'D/E' label; asserted alongside a
+rect-intersection oracle confirming no two of the 4 rendered markers' bounding boxes touch on
+screen), and 985713 (both collision shapes on one fixture: #78's A and B turnpoints collide through
+two DIFFERENT indices that independently resolve to the exact same coordinate — the case an
+index-keyed grouping would silently miss — and #83's D and E turnpoints, ~9.4 m apart in real terms
+and never coordinate-equal, project close enough on screen (~3.6px at this flight's fit zoom, under
+the 20px badge) to merge too; five turnpoints render as 3 markers, 'A/B' and 'D/E', asserted with
+the same rect-intersection oracle 984290 uses — before #83's fix this exact fixture's D/E pair was
+two badges sitting close enough to visually intersect without ever merging, which is what that
+oracle now catches). That 233524 scene is the browser-level oracle for the triangle RENDER path
+(`scoring-line.ts`'s scoringLineCoordinates): nothing else — not Vitest, not `check-scoring.mts` —
+ever looks at what the map's own GeoJSON source actually contains, so a render-path regression
+(e.g. drawing turnpointIndices as one naive zigzag instead of loop-plus-connector) previously left
+every other check green. The 1001428 5-point toggle, 984290, and 985713 scenes are the equivalent
+oracle for the merged-MARKER path (`turnpoint-markers.ts`'s groupTurnpointMarkersByPixelDistance):
+nothing else drives a real map and reads back what a merged turnpoint marker's own label and screen
 position actually are. For 1001428 it also samples the capture's own pixels for the overlay's
 amber line colour (existence of a source/layer alone would still pass for a wholly wrong or empty
 geometry), and drives an actual toggle between two overlays to check that the map's own
@@ -179,6 +170,8 @@ map-creation effect specifically so switching overlays doesn't reset a user's pa
 nothing exercised that path before. Run against `pnpm run build && pnpm run start`, same reason as
 `verify-track-gradient.mts`: the overlay's map source is exactly the kind of thing the
 maplibre-gl v6/Turbopack bug would silently fail to load.
+
+### verify-shot and the #21 capture bug
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls
@@ -218,6 +211,8 @@ script never performs, and the takeoffs directory page is exactly one viewport t
 this fix depends on is a no-op there). Run against `pnpm run build && pnpm run start`, same reason
 as `verify-track-gradient.mts`.
 
+### Vitest is not a browser
+
 Vitest runs under jsdom, not a real browser, and its transform is Vite's, not Turbopack's — code
 under test is not React Compiler transformed the way it is under `next build`, and it never touches
 Turbopack. A passing Vitest test is not evidence the same code works in the app: this repo already
@@ -226,7 +221,7 @@ lost time once to a bundler-specific failure (maplibre v6's worker resolving thr
 source just never loaded). Confirm anything Vitest touches with `pnpm dev` or a `verify-*.mts` run
 too.
 
-### Fixtures
+## Fixtures
 
 `scripts/check-parsers.mts` runs against saved pages under `fixtures/`, which are **not committed**:
 scraped profile pages carry contact details, both the account owner's and other pilots'. Absent
@@ -309,13 +304,15 @@ curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=42&country_id=160&start_id=999999999" -o fixtures/a42-nonexistent-flights.html
 ```
 
-Routes:
+## Routes
 
 - `/` a feed of recent flights across every followed pilot (the follow list lives in
   `localStorage`, read client-side via `/api/pilots/[userId]/recent-flights`)
-- `/pilots/[userId]` logbook, one row per flight, linking flights that have a GPS track
+- `/pilots/[userId]` logbook, one row per flight, linking flights that have a GPS track, plus a
+  pilot statistics dashboard (#16) and a flown-sites map with counted unmatched takeoffs (#76)
 - `/pilots/search` find a pilot by name, with a follow button per result
-- `/flights/[tripId]` track on a map plus flight statistics
+- `/flights/[tripId]` track on a map plus flight statistics, a scoring-overlay selector, and the
+  altitude-coloured track
 - `/countries` every country, linking into its club list
 - `/countries/[countryId]` clubs in that country, with each club's member count, linking
   into each club's own page
@@ -383,8 +380,6 @@ keystroke — there is nothing for a debounce to throttle. What *is* enforced is
 - Writes. Login is `POST fl.html?l=1&a=37` (`form=login`, `login_name`, `pw`, no CSRF) and flight
   creation is a two-step wizard from `a=30`. Read-only for now.
 - Private flights and the XLSX export (`a=214`) need an authenticated session.
-- Altitude-coloured track, scoring geometries. The KML already carries all of it: FAI 3/4/5 point
-  distance, open distance, out-and-return, flat and FAI triangle, plus per-point timestamps.
 
 ## Before running this against flightlog.org at any volume
 
