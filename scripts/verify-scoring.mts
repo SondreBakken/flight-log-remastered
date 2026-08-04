@@ -3,7 +3,7 @@ import { chromium, type Page } from 'playwright'
 import { XMLParser } from 'fast-xml-parser'
 import type { GeoJSONSource } from 'maplibre-gl'
 import { createReporter } from './lib/verify-report'
-import { waitForMapSettled, waitForPaintIdle } from './lib/verify-settle'
+import { waitForCondition, waitForMapSettled, waitForPaintIdle } from './lib/verify-settle'
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
 // #15's scoring overlay, checked against a scene per real flight — each one exercising a
@@ -75,7 +75,7 @@ function readTurnpointMarkerCount(page: Page): Promise<number> {
 }
 
 // #78: a turnpoint marker's own data-label carries its merged label ('D/E') once
-// groupTurnpointMarkers has folded co-located turnpoints into one badge.
+// groupTurnpointMarkersByPixelDistance has folded overlapping turnpoints into one badge.
 function readTurnpointMarkerLabels(page: Page): Promise<string[]> {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).map(
@@ -285,6 +285,15 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
   // are close enough to overlap on screen" — the grouping function is the same one used for
   // every geometry (triangle or line-shaped), so a near pair here merges exactly the way a near
   // pair on a triangle does.
+  //
+  // The margin on this one is thin: A/B's ~16.4px only needs the fit zoom to climb ~0.29 zoom
+  // levels (a ~22% pixel-distance increase) before it clears the 20px threshold and this
+  // assertion (and the zoom-reactivity one below) would need a different geometry to hold. The
+  // fit zoom itself is not a constant in this file — it falls out of fitBounds(padding: 48)
+  // against this scene's own runScene viewport (1400x1200) and the page's layout (max-w-5xl,
+  // px-6, the map's own h-[70vh]). A future change to any of those four numbers can legitimately
+  // shift the fit zoom enough to flip this merge; if these assertions start failing, check "did
+  // the fit zoom move" before assuming #83's grouping regressed.
   report(toggledMarkerCount === 4, `trip 1001428: the 5-point overlay renders 4 turnpoint markers, A and B merged into one near-coordinate badge (got ${toggledMarkerCount})`)
   report(
     toggledLabels.includes('A/B'),
@@ -293,6 +302,47 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
   report(
     toggledSummary !== null && toggledSummary.startsWith('Distance over 5 points:') && toggledSummary !== summaryBeforeToggle,
     `trip 1001428: the summary actually updated to the newly selected geometry (got "${toggledSummary}")`,
+  )
+}
+
+// #83's whole point is that grouping is RE-DERIVED on zoom, not computed once at mount and
+// frozen forever — nothing before this scene ever changed zoom at all, so track-map.tsx's own
+// `map.on('moveend', syncTurnpointGroups)` wiring was unpinned: deleting that one line left
+// every other assertion in this file green, because none of them ever drove a zoom change to
+// notice grouping had stopped re-deriving. Picks up where assertToggleToFivePointDistance left
+// off (5-point geometry selected, A and B merged into one 'A/B' badge at this flight's fit zoom
+// ~9.38, per that function's own margin comment above) and zooms in past that ~0.29-zoom-level
+// margin to 10, comfortably clearing the 20px badge threshold.
+async function assertZoomReactiveTurnpointGrouping(page: Page): Promise<void> {
+  await page.evaluate(() => window.__flightTrackMap?.setZoom(10))
+
+  // moveend fires asynchronously (MapLibre settles the camera over at least one render frame),
+  // so the DOM read below has to wait for it rather than run immediately after setZoom resolves.
+  const separated = await waitForCondition(
+    page,
+    () =>
+      !Array.from(document.querySelectorAll('[data-testid="turnpoint-marker"]')).some(
+        (element) => element.getAttribute('data-label') === 'A/B',
+      ),
+    5000,
+  )
+
+  const markerCount = await readTurnpointMarkerCount(page)
+  const labels = await readTurnpointMarkerLabels(page)
+
+  console.log('turnpoint markers after zooming to 10:', markerCount, labels)
+
+  report(
+    separated,
+    `trip 1001428: zooming to 10 re-derives the turnpoint grouping (moveend-driven) and drops the 'A/B' label within 5s (got ${JSON.stringify(labels)})`,
+  )
+  report(
+    markerCount === 5,
+    `trip 1001428: at zoom 10, A and B project well past the 20px badge apart, so all five turnpoints render as distinct markers (got ${markerCount})`,
+  )
+  report(
+    !labels.includes('A/B'),
+    `trip 1001428: no marker carries the merged 'A/B' label at zoom 10 (got ${JSON.stringify(labels)})`,
   )
 }
 
@@ -358,6 +408,7 @@ await runScene({
     }
 
     await assertToggleToFivePointDistance(page, summary)
+    await assertZoomReactiveTurnpointGrouping(page)
   },
 })
 

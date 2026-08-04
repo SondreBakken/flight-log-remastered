@@ -16,7 +16,13 @@ import { formatAltitude } from './format-altitude'
 import { SCORING_LINE_COLOR, TRACK_LINE_COLOR } from './colors'
 import { scoringLineCoordinates, toLngLat } from './scoring-line'
 import { nearestIndexByLocation } from './track-hover'
-import { groupTurnpointMarkersByPixelDistance, turnpointGroupLabel, type TurnpointMarkerGroup } from './turnpoint-markers'
+import {
+  groupTurnpointMarkersByPixelDistance,
+  turnpointGroupLabel,
+  turnpointGroupsSignature,
+  TURNPOINT_GROUPING_THRESHOLD_PX,
+  type TurnpointMarkerGroup,
+} from './turnpoint-markers'
 
 declare global {
   interface Window {
@@ -48,11 +54,6 @@ const SCORING_SOURCE_ID = 'scoring-overlay'
 const SCORING_LAYER_ID = 'scoring-overlay-line'
 const DEFAULT_SIZE_CLASSES = 'h-[70vh] w-full'
 
-// The badge is a 20x20 circle (see createTurnpointElement's own `h-5`/`min-w-5` below), so two
-// badge centers less than 20px apart on screen already overlap — that diameter is the natural
-// pixel-distance threshold for grouping two turnpoints into one badge (#83).
-const TURNPOINT_GROUPING_THRESHOLD_PX = 20
-
 // One Feature per line: a plain track or a line-shaped scoring geometry draws as a single
 // entry, a triangle as two (loop, connector — see scoring-line.ts's scoringLineCoordinates).
 // A single GeoJSON source/layer renders every feature it's given with the same paint, so two
@@ -76,9 +77,9 @@ function trackLineData(points: TrackPoint[]): TrackLineData {
 // see scoring-overlay.ts's turnpointLetter), or several letters joined ('D/E') when
 // groupTurnpointMarkersByPixelDistance has merged overlapping turnpoints into one marker (#78,
 // #83). MapLibre's Marker only positions a DOM element it's handed; it has no built-in
-// labelled-pin primitive,
-// which is why every other marker in this file (start/end/hover) is a plain colour dot and
-// this is the first one that needs its own element rather than just a `color` option.
+// labelled-pin primitive, which is why every other marker in this file (start/end/hover) is a
+// plain colour dot and this is the first one that needs its own element rather than just a
+// `color` option.
 // `min-w-5` (not a fixed `w-5`) with `px-1` lets a merged label's badge grow wide enough not
 // to clip, while a single letter stays exactly the same 20x20 circle it always was: its own
 // glyph plus padding never exceeds the 20px floor `min-w-5`/`h-5` sets.
@@ -116,13 +117,6 @@ function toLineGradientExpression(stops: GradientStop[]): ExpressionSpecificatio
 
 function classes(...values: Array<string | undefined>): string {
   return values.filter(Boolean).join(' ')
-}
-
-// A cheap identity for "did the grouping actually change" (label plus anchor coordinate, since
-// two groups can share a label — e.g. neither exists yet — but never share both), so a zoomend
-// that leaves every badge's membership unchanged skips tearing down and re-adding markers.
-function turnpointGroupsSignature(groups: TurnpointMarkerGroup[]): string {
-  return groups.map((group) => `${turnpointGroupLabel(group)}@${group.point.lon},${group.point.lat}`).join('|')
 }
 
 export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, className }: TrackMapProps) {
@@ -278,10 +272,10 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       })
     }
 
-    // Re-derives which turnpoints overlap at the CURRENT zoom and only touches the DOM when
-    // that answer actually changed (#83): re-adding bit-identical markers on every zoomend
-    // would tear down and recreate every badge (and its hover/DOM state) for gestures that
-    // never crossed a grouping boundary at all.
+    // Re-derives which turnpoints overlap at the CURRENT camera position and only touches the
+    // DOM when that answer actually changed (#83): re-adding bit-identical markers on every
+    // moveend would tear down and recreate every badge (and its hover/DOM state) for gestures
+    // that never crossed a grouping boundary at all.
     const syncTurnpointGroups = () => {
       if (!scoringGeometry) return
       const groups = groupTurnpointMarkersByPixelDistance(
@@ -333,11 +327,17 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
     if (map.isStyleLoaded()) syncScoringOverlay()
     else map.once('style.load', syncScoringOverlay)
 
-    // Pixel distance between two fixed geo points is invariant under pan — only a zoom change
-    // rescales the projection between them — so only 'zoomend' is wired here, the same
-    // settled-gesture precedent takeoffs-map.tsx's wireRayRescaling uses, and no pan/move
-    // listener is needed at all.
-    map.on('zoomend', syncTurnpointGroups)
+    // Pixel distance between two fixed geo points is NOT pan-invariant once pitch is in play:
+    // map.project applies the map's full transform, and MapLibre v5's defaults leave
+    // dragRotate/pitchWithRotate/touchPitch all enabled, so a pitch or rotate gesture changes
+    // screen-space distances (and therefore grouping) without ever firing 'zoomend'. 'moveend'
+    // is wired here instead — a strict superset of 'zoomend' that also settles at the end of a
+    // pan, rotate, pitch, or resize — the same settled-gesture precedent takeoffs-map.tsx's
+    // wireRayRescaling uses, just on the listener that actually covers every camera change this
+    // function's own math depends on. Free even for gestures that don't touch grouping (a pure
+    // pan): syncTurnpointGroups's signature guard above already turns those into pixel-project
+    // work with no DOM churn, not a re-render.
+    map.on('moveend', syncTurnpointGroups)
 
     return () => {
       // `once` self-removes after firing, but never fires at all if this effect's cleanup
@@ -345,7 +345,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       // still loading) — `off` is what stops that listener outliving the run that added it,
       // mirroring the addTrackLayer effect above's own `style.load` subscription.
       map.off('style.load', syncScoringOverlay)
-      map.off('zoomend', syncTurnpointGroups)
+      map.off('moveend', syncTurnpointGroups)
       turnpointMarkersRef.current.forEach((marker) => marker.remove())
       turnpointMarkersRef.current = []
     }

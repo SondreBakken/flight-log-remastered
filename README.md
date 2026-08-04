@@ -159,14 +159,14 @@ turnpointIndices as one naive zigzag instead of loop-plus-connector) previously 
 check green. The 1001428 5-point toggle, 984290, and 985713 scenes are the equivalent oracle for
 the merged-MARKER path (`turnpoint-markers.ts`'s groupTurnpointMarkersByPixelDistance): nothing
 else drives a real map and reads back what a merged turnpoint marker's own label and screen
-position actually are. For 1001428 it also samples the capture's
-own pixels for the overlay's amber line colour (existence of a source/layer alone would still
-pass for a wholly wrong or empty geometry), and drives an actual toggle between two overlays to
-check that the map's own center/zoom stay put across it: the effect that syncs the overlay is
-kept separate from the map-creation effect specifically so switching overlays doesn't reset a
-user's pan/zoom, and nothing exercised that path before. Run against `pnpm run build && pnpm run
-start`, same reason as `verify-track-gradient.mts`: the overlay's map source is exactly the kind
-of thing the maplibre-gl v6/Turbopack bug would silently fail to load.
+position actually are. For 1001428 it also samples the capture's own pixels for the overlay's
+amber line colour (existence of a source/layer alone would still pass for a wholly wrong or empty
+geometry), and drives an actual toggle between two overlays to check that the map's own
+center/zoom stay put across it: the effect that syncs the overlay is kept separate from the
+map-creation effect specifically so switching overlays doesn't reset a user's pan/zoom, and
+nothing exercised that path before. Run against `pnpm run build && pnpm run start`, same reason as
+`verify-track-gradient.mts`: the overlay's map source is exactly the kind of thing the
+maplibre-gl v6/Turbopack bug would silently fail to load.
 
 `verify-shot.mts` (#21) is the odd one out: it doesn't verify a page, it verifies `scripts/shot.mts`
 itself, by driving the exact capture function that script's CLI calls

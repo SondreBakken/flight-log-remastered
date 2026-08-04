@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { TrackPoint } from '@/lib/flightlog/types'
-import { groupTurnpointMarkersByPixelDistance, turnpointGroupLabel } from './turnpoint-markers'
+import {
+  groupTurnpointMarkersByPixelDistance,
+  turnpointGroupLabel,
+  turnpointGroupsSignature,
+  TURNPOINT_GROUPING_THRESHOLD_PX,
+} from './turnpoint-markers'
 
 // Six points, indices 0-5, lon/lat spaced so a wrong index picks a visibly wrong coordinate —
 // except index 5, deliberately set to the exact same coordinate as index 0 (a different array
@@ -112,7 +117,7 @@ function webMercatorProjector(zoom: number) {
 const FLAT_TRIANGLE_D: TrackPoint = { lon: 10.045983, lat: 59.762133, altitude: 289, secondsFromStart: 354 }
 const FLAT_TRIANGLE_E: TrackPoint = { lon: 10.04595, lat: 59.76205, altitude: 288, secondsFromStart: 355 }
 const FIT_ZOOM = 13.86
-const BADGE_DIAMETER_PX = 20
+const BADGE_DIAMETER_PX = TURNPOINT_GROUPING_THRESHOLD_PX
 
 describe('groupTurnpointMarkersByPixelDistance — near-identical collisions (#83), Web Mercator projector', () => {
   it('near pair within threshold merges: 985713 flat-triangle D/E, ~3.55px apart at fit zoom 13.86, under the 20px badge', () => {
@@ -144,7 +149,7 @@ describe('groupTurnpointMarkersByPixelDistance — near-identical collisions (#8
     expect(atZoomedIn.map(turnpointGroupLabel)).toEqual(['A', 'B'])
   })
 
-  it('transitive chain: A-near-B and B-near-C (but A and C themselves beyond threshold) still merge into one A/B/C badge', () => {
+  it('chain in index order: A-near-B and B-near-C, visited A/B/C, merge into one A/B/C badge', () => {
     // Pixel-space fixture, not real geo coordinates: the projector below reads back whatever
     // fake lon each point carries as its pixel x, so A/B/C land at x=0/15/30 — each adjacent
     // pair 15px apart (within a 20px threshold), but A and C 30px apart (beyond it).
@@ -156,5 +161,42 @@ describe('groupTurnpointMarkersByPixelDistance — near-identical collisions (#8
     expect(groups).toHaveLength(1)
     expect(turnpointGroupLabel(groups[0])).toBe('A/B/C')
     expect(groups[0].letters).toEqual(['A', 'B', 'C'])
+  })
+
+  it('order-dependent, not transitive: the same three collinear points visited A/B/C but placed at x=0/30/15 never merge B in', () => {
+    // A (x=0) is visited first and starts its own group. B (x=30) is more than 20px from A, so
+    // it starts a second group. C (x=15) is visited last: it is within 20px of A (15px), so it
+    // joins A's group — but it is also within 20px of B (15px), and never gets tested against
+    // B, because the algorithm stops at the FIRST group with a member in range and A's group
+    // was found first. B is left in a group of its own. This is the adversarial ordering of the
+    // same three pixel positions the chain-in-index-order test above uses (0/15/30), reordered
+    // to pin the documented order-dependent behaviour: this greedy single pass never merges two
+    // groups that already exist, it only tests a new point against the groups formed so far.
+    const chainProjector = (point: { lon: number; lat: number }) => ({ x: point.lon, y: 0 })
+    const points: TrackPoint[] = [0, 30, 15].map((x) => ({ lon: x, lat: 0, altitude: 0, secondsFromStart: 0 }))
+
+    const groups = groupTurnpointMarkersByPixelDistance([0, 1, 2], points, chainProjector, BADGE_DIAMETER_PX)
+
+    expect(groups).toHaveLength(2)
+    expect(groups.map(turnpointGroupLabel)).toEqual(['A/C', 'B'])
+    expect(groups[0].letters).toEqual(['A', 'C'])
+    expect(groups[1].letters).toEqual(['B'])
+  })
+})
+
+describe('turnpointGroupsSignature', () => {
+  it('differs when the label sequence differs', () => {
+    const groupsAB = groupTurnpointMarkersByPixelDistance([0, 1], POINTS, identityProjector, 0)
+    const groupsMerged = groupTurnpointMarkersByPixelDistance([0, 5], POINTS, identityProjector, 0)
+
+    expect(turnpointGroupsSignature(groupsAB)).not.toBe(turnpointGroupsSignature(groupsMerged))
+  })
+
+  it('is identical for two independently-computed groupings with the same label sequence', () => {
+    const first = groupTurnpointMarkersByPixelDistance([0, 1, 2, 3, 4], POINTS, identityProjector, 0)
+    const second = groupTurnpointMarkersByPixelDistance([0, 1, 2, 3, 4], POINTS, identityProjector, 0)
+
+    expect(turnpointGroupsSignature(first)).toBe(turnpointGroupsSignature(second))
+    expect(turnpointGroupsSignature(first)).toBe('A|B|C|D|E')
   })
 })
