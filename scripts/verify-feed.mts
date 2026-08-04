@@ -29,7 +29,7 @@ const { report, finish } = createReporter()
 // whatever (possibly blank) DOM state existed when the timeout fired.
 async function waitForOrReport(page: Page, predicate: () => boolean, label: string): Promise<boolean> {
   try {
-    await page.waitForFunction(predicate, { timeout: 20000 })
+    await page.waitForFunction(predicate, undefined, { timeout: 20000 })
     return true
   } catch {
     report(false, label)

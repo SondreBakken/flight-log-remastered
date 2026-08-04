@@ -54,6 +54,7 @@ const settled = await truthPage
       window.__flightTrackMap !== undefined &&
       window.__flightTrackMap.isSourceLoaded('flight-track') === true &&
       window.__flightTrackMap.isSourceLoaded('osm') === true,
+    undefined,
     { timeout: 20000 },
   )
   .then(() => true)
