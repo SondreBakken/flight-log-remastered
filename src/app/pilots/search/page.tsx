@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
+import { redirect } from 'next/navigation'
 import SearchPilots from '@/features/search-pilots'
 import { isValidSearchQuery, MIN_SIGNIFICANT_QUERY_LENGTH, searchPilots } from '@/lib/flightlog/pilot-search'
-import type { PilotSearchResult } from '@/lib/flightlog/types'
 
 type SearchPageParams = Promise<{ q?: string | string[] }>
 
@@ -27,9 +27,21 @@ export async function Search({ searchParams }: { searchParams: SearchPageParams 
   // query internally (it also guards itself — see its own doc comment) — that's what lets
   // `results` stay `null` here for "too short to search", distinct from `[]` for "searched,
   // zero matches", which SearchPilots renders as two different messages.
-  const results: PilotSearchResult[] | null = isValidSearchQuery(query) ? await searchPilots(query) : null
+  if (!isValidSearchQuery(query)) {
+    return <SearchPilots query={query} minLength={MIN_SIGNIFICANT_QUERY_LENGTH} results={null} />
+  }
 
-  return <SearchPilots query={query} minLength={MIN_SIGNIFICANT_QUERY_LENGTH} results={results} />
+  const outcome = await searchPilots(query)
+
+  // A query matching exactly one pilot goes straight to that pilot's page — the same place a
+  // real browser submitting this search on flightlog.org itself ends up (a=114's own 302, see
+  // pilot-search.ts) — rather than a results page showing a single row. redirect() throws to
+  // signal the navigation, so this must stay outside any try/catch that could swallow it.
+  if (outcome.kind === 'single-match') {
+    redirect(`/pilots/${outcome.userId}`)
+  }
+
+  return <SearchPilots query={query} minLength={MIN_SIGNIFICANT_QUERY_LENGTH} results={outcome.results} />
 }
 
 function SearchSkeleton() {

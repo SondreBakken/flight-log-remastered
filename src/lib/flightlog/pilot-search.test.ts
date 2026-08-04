@@ -83,18 +83,18 @@ describe('isValidSearchQuery', () => {
 
 describe('searchPilots', () => {
   it('never reaches the network for a query below the significant-length floor', async () => {
-    const results = await searchPilots('%')
+    const outcome = await searchPilots('%')
 
     expect(mockedPost).not.toHaveBeenCalled()
     expect(mockedParse).not.toHaveBeenCalled()
-    expect(results).toEqual([])
+    expect(outcome).toEqual({ kind: 'results', results: [] })
   })
 
   it('POSTs the a=114 path with form=find_user/user_fullname/go, the a=114 page as referer, and returns the parsed results', async () => {
-    mockedPost.mockResolvedValue('<html>results stub</html>')
+    mockedPost.mockResolvedValue({ kind: 'ok', text: '<html>results stub</html>' })
     mockedParse.mockReturnValue([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
 
-    const results = await searchPilots('Henden')
+    const outcome = await searchPilots('Henden')
 
     expect(mockedPost).toHaveBeenCalledWith(
       '/fl.html?l=1&a=114',
@@ -102,11 +102,14 @@ describe('searchPilots', () => {
       { referer: 'https://flightlog.org/fl.html?l=1&a=114' },
     )
     expect(mockedParse).toHaveBeenCalledWith('<html>results stub</html>')
-    expect(results).toEqual([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
+    expect(outcome).toEqual({
+      kind: 'results',
+      results: [{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }],
+    })
   })
 
   it('percent-encodes a non-ASCII query (å, ø, æ) the way URLSearchParams does, not raw', async () => {
-    mockedPost.mockResolvedValue('<html></html>')
+    mockedPost.mockResolvedValue({ kind: 'ok', text: '<html></html>' })
     mockedParse.mockReturnValue([])
 
     await searchPilots('Åge Ødegård')
@@ -119,7 +122,7 @@ describe('searchPilots', () => {
   })
 
   it('sends % and _ verbatim in the body — they are live SQL LIKE wildcards, not characters to sanitise away', async () => {
-    mockedPost.mockResolvedValue('<html></html>')
+    mockedPost.mockResolvedValue({ kind: 'ok', text: '<html></html>' })
     mockedParse.mockReturnValue([])
 
     await searchPilots('H_nden')
@@ -132,10 +135,10 @@ describe('searchPilots', () => {
   })
 
   it('trims the query once and sends that same trimmed value in the body — the guard and the payload must agree', async () => {
-    mockedPost.mockResolvedValue('<html></html>')
+    mockedPost.mockResolvedValue({ kind: 'ok', text: '<html></html>' })
     mockedParse.mockReturnValue([])
 
-    const results = await searchPilots('  abc  ')
+    const outcome = await searchPilots('  abc  ')
 
     // If the guard measured the trimmed query but the body sent the raw one, this would have
     // gone out as `user_fullname=++abc++` instead — same string the guard validated, on the wire.
@@ -144,6 +147,49 @@ describe('searchPilots', () => {
       'form=find_user&user_fullname=abc&go=Go',
       expect.anything(),
     )
-    expect(results).toEqual([])
+    expect(outcome).toEqual({ kind: 'results', results: [] })
+  })
+
+  // The bug this fix targets: a=114 302s straight to the single matching pilot's profile
+  // (`a=28&user_id=<id>`) when exactly one pilot matches (docs/flightlog-api.md doesn't cover
+  // this — established live against `q=viljar` -> user_id=11348). http.ts's postFlightlogText
+  // already tells this apart from a session gate and hands back the raw Location; parsing the
+  // matched pilot out of it is pilot-search.ts's job, not http.ts's, since only this caller
+  // knows what a=28's own URL shape means.
+  it('returns a single-match outcome, without ever calling the parser, when the redirect Location is an a=28 profile URL', async () => {
+    mockedPost.mockResolvedValue({
+      kind: 'redirect',
+      location: 'https://flightlog.org/fl.html?l=1&a=28&user_id=11348&user=Viljar',
+    })
+
+    const outcome = await searchPilots('viljar')
+
+    expect(mockedParse).not.toHaveBeenCalled()
+    expect(outcome).toEqual({ kind: 'single-match', userId: 11348 })
+  })
+
+  it('parses user_id out of a relative a=28 redirect Location the same way', async () => {
+    mockedPost.mockResolvedValue({ kind: 'redirect', location: '/fl.html?l=1&a=28&user_id=754' })
+
+    const outcome = await searchPilots('Henden')
+
+    expect(outcome).toEqual({ kind: 'single-match', userId: 754 })
+  })
+
+  // A 302 that is neither the session-gate root (http.ts already retries and throws for that
+  // before this function ever sees it) nor a recognised a=28 profile URL is markup drift this
+  // app doesn't understand — it must fail loudly, the same way parse-pilot-search.ts throws on
+  // unrecognised HTML rather than quietly returning zero results.
+  it('throws a named error for a redirect Location that is neither the session-gate root nor an a=28 profile URL', async () => {
+    mockedPost.mockResolvedValue({ kind: 'redirect', location: 'https://flightlog.org/fl.html?l=1&a=999' })
+
+    await expect(searchPilots('viljar')).rejects.toThrow(/unrecognized/)
+    expect(mockedParse).not.toHaveBeenCalled()
+  })
+
+  it('throws a named error when a redirect carries no Location header at all', async () => {
+    mockedPost.mockResolvedValue({ kind: 'redirect', location: null })
+
+    await expect(searchPilots('viljar')).rejects.toThrow(/no Location/)
   })
 })
