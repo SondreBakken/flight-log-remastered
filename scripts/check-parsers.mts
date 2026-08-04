@@ -17,7 +17,7 @@ import { joinFlownSites } from '../src/features/browse-flown-sites-map/join-flow
 import { CURATED_TAKEOFF_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
 import { hasKnownLocation } from '../src/lib/flightlog/has-known-location'
 
-// fixtures/ is gitignored (scraped pages carry personal data — see README), so it does not
+// fixtures/ is gitignored (scraped pages carry personal data — see docs/testing.md), so it does not
 // exist in a clean checkout or in CI. That must not fail the gate: it means "nothing to
 // check here," not "something is broken." A missing-fixtures exit code of 1 previously made
 // this indistinguishable from a real assertion failure, and this check was never wired into
@@ -65,7 +65,7 @@ if (missing.length > 0) {
   console.log(
     `SKIP - check:parsers: missing ${missing.join(', ')}\n` +
       'These are gitignored scraped pages, not present in a clean checkout. Regenerate ' +
-      'them locally per the README "Fixtures" section to actually exercise the parsers.',
+      'them locally per docs/testing.md\'s "Fixtures" section to actually exercise the parsers.',
   )
   process.exit(0)
 }
@@ -300,7 +300,7 @@ assert(zeroMatchSearch.length === 0, `pilot-search-zero.html: genuinely zero mat
 // Exact equality, deliberately unchanged by #55: both sides here are frozen. `takeoffs` comes
 // from parsing THIS fixture file, and 6012 is what that exact, immutable file has always parsed
 // to — a fixture-vs-fixture pin like this can't go stale on flightlog.org's schedule, only on a
-// deliberate fixture regeneration (see the README's "Fixtures" section), unlike
+// deliberate fixture regeneration (see docs/testing.md's "Fixtures" section), unlike
 // check-takeoffs-prerender.mts's row-count band, which compares this same fixture-time number
 // against a REAL BUILD's LIVE fetch and had to widen into a range for exactly that reason.
 const takeoffs = parseTakeoffs(readFileSync('fixtures/takeoffs-160.html', 'utf8'), 160)
@@ -332,7 +332,7 @@ assert(isTakeoffRows(takeoffRows), 'takeoffs-160.html: every encoded row passes 
 // Norway's full curated takeoff dataset — the only case that can prove the real-world matched/
 // unmatched split, which a small trimmed inline HTML snippet (join-flown-sites.test.ts's own
 // synthetic cases) cannot reproduce. Exact counts pinned here are fixture-vs-fixture (both
-// sides frozen at the same curation time — see the README's "Frozen pins vs. live pins"
+// sides frozen at the same curation time — see docs/testing.md's "Frozen pins vs. live pins"
 // section), not a live-vs-frozen countdown, so this can stay an exact equality like
 // check:parsers' other fixture-vs-fixture pins. Measured directly against these two fixtures,
 // not copied from the issue's own scouted estimate (which undercounted this split — this

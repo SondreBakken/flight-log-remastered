@@ -32,7 +32,7 @@ if (missing.length > 0) {
   console.log(
     `SKIP - check:scoring: missing ${missing.join(', ')}\n` +
       'These are gitignored scraped KML tracklogs, not present in a clean checkout. ' +
-      'Regenerate them locally per the README "Fixtures" section to actually exercise the ' +
+      'Regenerate them locally per docs/testing.md\'s "Fixtures" section to actually exercise the ' +
       'scoring-overlay parser.',
   )
   process.exit(0)

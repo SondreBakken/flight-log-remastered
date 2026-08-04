@@ -4,7 +4,8 @@ import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 
 // #21's pixel-level proof that scripts/shot.mts's capture isn't blank or truncated — see
-// README's #21 section for the full bug history and the fix this pins. This drives
+// docs/testing.md's "verify-shot and the #21 capture bug" section for the full bug history and
+// the fix this pins. This drives
 // scripts/lib/screenshot.ts's captureUrlScreenshot, the exact function shot.mts's CLI
 // calls, not a reimplementation, so a regression in the real capture path fails here too.
 //

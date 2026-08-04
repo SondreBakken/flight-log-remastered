@@ -137,7 +137,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       fitBoundsOptions: { padding: 48, maxZoom: 14 },
     })
     mapRef.current = map
-    // Vitest runs under jsdom, not a real browser (see README's own note on this), so it can't
+    // Vitest runs under jsdom, not a real browser (see docs/testing.md's own note on this), so it can't
     // hold a live MapLibre GL instance; browser verification scripts (scripts/verify-track-gradient.mts,
     // scripts/verify-track-hover.mts) drive a real page instead and need a handle on the live map to
     // assert source/layer state programmatically rather than trust a screenshot alone — and, per

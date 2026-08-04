@@ -13,8 +13,8 @@ import { parseCanonicalCountryId } from './country-id'
 // prerender.mts / check-clubs-prerender.mts assert the resulting artifact against live in
 // `scripts/lib/curated-country-expectations.ts` instead (#55) — nothing under `src/` reads
 // them, only those two check scripts do, so they were config for a check, not a curation
-// decision, and didn't belong mixed in here. See that file, and the README's "Frozen pins vs.
-// live pins" section, for what each expectation bounds and why.
+// decision, and didn't belong mixed in here. See that file, and docs/testing.md's "Frozen pins
+// vs. live pins" section, for what each expectation bounds and why.
 //
 // `readonly number[]`, not a `readonly [160]` tuple: every caller either maps over this or
 // checks membership with `.includes`, neither of which benefits from literal-type narrowing,

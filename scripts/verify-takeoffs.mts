@@ -19,7 +19,7 @@ import { waitForCondition, waitForConditionWithArg } from './lib/verify-settle'
 const url = process.argv[2] ?? 'http://localhost:3000/countries/160/takeoffs'
 
 // This script reads numbers off a REAL BUILD's LIVE fetch of flightlog.org, not off
-// fixtures/takeoffs-160.html directly — see the README's "Frozen pins vs. live pins" section
+// fixtures/takeoffs-160.html directly — see docs/testing.md's "Frozen pins vs. live pins" section
 // for the general rule. TOTAL_TAKEOFF_COUNT_RANGE is imported, shared verbatim with
 // check-takeoffs-prerender.mts and verify-sites-map.mts (#55): all three bound the same
 // real-world quantity (Norway's live takeoff count), so it's declared once
@@ -226,7 +226,7 @@ if (settled) {
         // so that wait resolved instantly regardless of whether this feature works, and the
         // checks below it then read the DOM before the real content existed. The exact same bug
         // read as a hard FAIL against a build and a false PASS against dev, purely from how much
-        // slack each mode's own overhead left before the vacuous wait resolved (see README.md).
+        // slack each mode's own overhead left before the vacuous wait resolved (see docs/testing.md).
         const sharedUrl = new URL(url)
         sharedUrl.searchParams.set('wind', 'N')
         await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })

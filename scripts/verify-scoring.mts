@@ -7,8 +7,8 @@ import { waitForCondition, waitForMapSettled, waitForPaintIdle } from './lib/ver
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
 // #15's scoring overlay, checked against a scene per real flight — each one exercising a
-// different absence/degenerate/collision shape — plus one toggle; see README's own section on
-// this script for the current scene-by-scene list and why each exists (kept there, not
+// different absence/degenerate/collision shape — plus one toggle; see docs/testing.md's own
+// section on this script for the current scene-by-scene list and why each exists (kept there, not
 // re-counted here, so this comment doesn't go stale the next time a scene is added).
 // `?__verifyMap` and `pnpm run build && pnpm run start` for the same reason as
 // verify-track-gradient.mts/verify-track-hover.mts (#47): the overlay's map source is exactly
@@ -599,7 +599,7 @@ await runScene({
 
     // fixtures/track-233524.kml is gitignored (a scraped copy of the same rqtid=19 KML the app's
     // own server fetched to render this page) — present in a checkout with fixtures regenerated per
-    // the README, absent otherwise. SKIP (not FAIL) this specific comparison when it's missing,
+    // docs/testing.md, absent otherwise. SKIP (not FAIL) this specific comparison when it's missing,
     // the same convention check-scoring.mts/check-parsers.mts use for the same reason, rather than
     // failing an otherwise-legitimate run over a file this repo deliberately doesn't commit.
     const triangleFixturePath = 'fixtures/track-233524.kml'
@@ -616,7 +616,7 @@ await runScene({
     } else {
       console.log(
         `SKIP - trip 233524: ${triangleFixturePath} absent, skipping the coordinate-identity check against the ` +
-          'raw MultiGeometry of the flat triangle placemark (regenerate fixtures per the README to exercise it)',
+          'raw MultiGeometry of the flat triangle placemark (regenerate fixtures per docs/testing.md to exercise it)',
       )
     }
   },

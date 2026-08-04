@@ -5,7 +5,7 @@ import TakeoffDirectory from './index'
 // The one gate in this repo that can see a hydration-only defect. #51 exists because #49's fix
 // — the mount effect that syncs the wind <select>'s DOM value — could be deleted outright with
 // `tsc`, `lint`, `pnpm run check` and every test still green. The only thing that noticed was a
-// browser script the README documents as outside every gate and run by hand.
+// browser script docs/testing.md documents as outside every gate and run by hand.
 //
 // The reason no ordinary test can see it: every other one mounts client-only, so the DOM and
 // the state are built by the same code and cannot disagree. This one renders the server's

@@ -2,7 +2,7 @@ import { chromium, type Page } from 'playwright'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 
-// Real pilot ids from the flightlog.org fixture set (see README): 4549 has flights with
+// Real pilot ids from the flightlog.org fixture set (see docs/testing.md): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
 // with a track — together they exercise both the "has a track" and "no track" link
 // states, each proven against ITS OWN single-pilot feed (see scenarios 2 and 3) rather
@@ -216,7 +216,7 @@ await page.unroute(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`)
 
 console.log('final logs:', logs.length ? logs : 'none')
 // Plain `fullPage: true`, not scripts/lib/screenshot.ts's capture: this page has no WebGL
-// canvas, so it was never exposed to #21's drawing-buffer bug (see README) and doesn't need
+// canvas, so it was never exposed to #21's drawing-buffer bug (see docs/testing.md) and doesn't need
 // the resize-then-fullPage fix. Noted so a future reader doesn't have to re-derive that.
 await page.screenshot({ path: out, fullPage: true })
 await browser.close()
