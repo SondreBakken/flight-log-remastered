@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:verify-waits": "tsx scripts/check-verify-waits.mts",
     "check:parsers": "tsx scripts/check-parsers.mts",
     "check:barogram": "tsx scripts/check-barogram.mts",
     "check:track-gradient": "tsx scripts/check-track-gradient.mts",
@@ -21,7 +22,7 @@
     "check:takeoffs-prerender": "tsx scripts/check-takeoffs-prerender.mts",
     "check:clubs-prerender": "tsx scripts/check-clubs-prerender.mts",
     "test": "vitest run",
-    "check": "tsc --noEmit && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:scoring && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:watermark-store && pnpm check:seen-trip-store && pnpm check:request-gate && pnpm check:takeoffs-prerender && pnpm check:clubs-prerender && pnpm test"
+    "check": "tsc --noEmit && pnpm check:verify-waits && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:scoring && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:watermark-store && pnpm check:seen-trip-store && pnpm check:request-gate && pnpm check:takeoffs-prerender && pnpm check:clubs-prerender && pnpm test"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
