@@ -3,6 +3,7 @@ import { chromium, type Page } from 'playwright'
 import { XMLParser } from 'fast-xml-parser'
 import type { GeoJSONSource } from 'maplibre-gl'
 import { createReporter } from './lib/verify-report'
+import { waitForMapSettled, waitForPaintIdle } from './lib/verify-settle'
 import { SCORING_LINE_COLOR } from '../src/features/show-flight-track/colors'
 
 // #15's scoring overlay, checked against a scene per real flight — each one exercising a
@@ -29,12 +30,10 @@ function trackBadResponses(page: Page): string[] {
   return bad
 }
 
-// A DEFINITIVE settle condition, the same one verify-sites-map.mts uses: the map instance
-// exists AND its flight-track source has actually finished loading, not just "the canvas
-// selector resolved or timed out". The previous version of this wait swallowed both the
-// selector timeout and the evaluate's own undefined-map case, so on a page with no map at
-// all (a Suspense skeleton, or a client-side navigation error) it resolved immediately and
-// vacuously, reporting settled where nothing had actually loaded.
+// The previous version of this wait swallowed both the selector timeout and the evaluate's own
+// undefined-map case, so on a page with no map at all (a Suspense skeleton, or a client-side
+// navigation error) it resolved immediately and vacuously, reporting settled where nothing had
+// actually loaded.
 //
 // Unlike verify-sites-map.mts's unconditional report(settled, ...), this boolean is only
 // reported on the callers' failure paths (loadSceneWithColdServerRetry's error-boundary/retry/
@@ -42,36 +41,10 @@ function trackBadResponses(page: Page): string[] {
 // change the warm-path report output every scene emits, and its absence already unambiguously
 // implies settled, since every other path returns before reaching a scene's own assertions.
 async function waitForSceneSettled(page: Page): Promise<boolean> {
-  const settled = await page
-    .waitForFunction(
-      () => window.__flightTrackMap !== undefined && window.__flightTrackMap.isSourceLoaded('flight-track') === true,
-      { timeout: 20000 },
-    )
-    .then(() => true)
-    .catch(() => false)
+  const settled = await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'flight-track' })
   if (!settled) return false
-  await waitForPaintIdle(page)
+  await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
   return true
-}
-
-// Shared by waitForSceneSettled's own initial-load path above and the post-click call sites
-// (scenes 4-6): waits for MapLibre's own idle signal that no further rendering is queued, plus
-// a settling tail. Never vacuous at either call site, since the map's existence is always
-// proved (by waitForSceneSettled's waitForFunction, or by the caller's own waitForFunction
-// before a post-click call) before this runs.
-async function waitForPaintIdle(page: Page): Promise<void> {
-  await page
-    .evaluate(
-      () =>
-        new Promise<void>((resolve) => {
-          const map = window.__flightTrackMap
-          if (!map || map.loaded()) return resolve()
-          map.once('idle', () => resolve())
-          setTimeout(resolve, 15000)
-        }),
-    )
-    .catch(() => {})
-  await page.waitForTimeout(500)
 }
 
 // data-testid, not the earlier `fieldset label`/`fieldset p` tag selectors: the same PR gives
@@ -531,7 +504,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForPaintIdle(page)
+    await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     // `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
     // effect passed to `addSource` — not `querySourceFeatures`, which reads back from the rendered
@@ -625,7 +598,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForPaintIdle(page)
+    await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     const markerCount = await readTurnpointMarkerCount(page)
     const letters = await readTurnpointMarkerLabels(page)
@@ -672,7 +645,7 @@ await runScene({
     await page
       .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
       .catch(() => {})
-    await waitForPaintIdle(page)
+    await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     const markerCount = await readTurnpointMarkerCount(page)
     const letters = await readTurnpointMarkerLabels(page)

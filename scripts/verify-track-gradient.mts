@@ -1,4 +1,5 @@
 import { chromium } from 'playwright'
+import { waitForMapSettled, waitForPaintIdle, collectPageDiagnostics } from './lib/verify-settle'
 
 // Headless, never the Chrome extension: an unfocused extension window pauses
 // requestAnimationFrame and would photograph (and let map internals report) an empty
@@ -25,16 +26,7 @@ const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 // aborts the whole script on a dead server rather than letting a broken assertion run anyway.
 const baseUrl = url.split('?')[0]
 const negativePage = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
-const negativeLogs: string[] = []
-const negativeBad: string[] = []
-negativePage.on('console', (m) => negativeLogs.push(`[${m.type()}] ${m.text()}`))
-negativePage.on('pageerror', (e) =>
-  negativeLogs.push(`[pageerror] ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`),
-)
-negativePage.on('response', (r) => {
-  if (r.status() >= 400) negativeBad.push(`${r.status()} ${r.url()}`)
-})
-negativePage.on('requestfailed', (r) => negativeBad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
+const { logs: negativeLogs, bad: negativeBad } = collectPageDiagnostics(negativePage)
 
 await negativePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
 // "the handle stays undefined" is only meaningful if the map had a chance to render first: on
@@ -68,29 +60,15 @@ console.log(
 )
 
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } })
-const logs: string[] = []
-const bad: string[] = []
-page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`))
-page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`))
-page.on('response', (r) => {
-  if (r.status() >= 400) bad.push(`${r.status()} ${r.url()}`)
-})
-page.on('requestfailed', (r) => bad.push(`FAILED ${r.failure()?.errorText} ${r.url()}`))
+const { logs, bad } = collectPageDiagnostics(page)
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
-// A DEFINITIVE settle condition, the same one verify-track-hover.mts uses: the map instance
-// exists AND its flight-track source has actually finished loading. The previous canvas
-// waitForSelector + swallowed waitForFunction here settled vacuously on a page with no map at
-// all (a Suspense skeleton, or a client-side navigation error), and the assertion below would
-// then just read "window.__flightTrackMap is not set" off a page that never got a chance to load.
-const settled = await page
-  .waitForFunction(
-    () => window.__flightTrackMap !== undefined && window.__flightTrackMap.isSourceLoaded('flight-track') === true,
-    { timeout: 20000 },
-  )
-  .then(() => true)
-  .catch(() => false)
+// The previous canvas waitForSelector + swallowed waitForFunction here settled vacuously on a
+// page with no map at all (a Suspense skeleton, or a client-side navigation error), and the
+// assertion below would then just read "window.__flightTrackMap is not set" off a page that
+// never got a chance to load.
+const settled = await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'flight-track' })
 if (!settled) {
   console.error(
     'FAIL - the scene did not settle: window.__flightTrackMap never appeared with its flight-track source loaded, within the timeout',
@@ -100,21 +78,7 @@ if (!settled) {
   await browser.close()
   process.exit(1)
 }
-// isSourceLoaded only reports that the GeoJSON parsed and indexed, not that MapLibre has
-// painted a frame with it. This mirrors the paint-idle wait the sibling verify-track-*
-// scripts use after the same isSourceLoaded check.
-await page
-  .evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        const map = window.__flightTrackMap
-        if (!map || map.loaded()) return resolve()
-        map.once('idle', () => resolve())
-        setTimeout(resolve, 15000)
-      }),
-  )
-  .catch(() => {})
-await page.waitForTimeout(1000)
+await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 1000 })
 
 const assertion = await page.evaluate(() => {
   const map = window.__flightTrackMap
