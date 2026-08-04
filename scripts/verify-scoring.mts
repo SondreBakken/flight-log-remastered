@@ -502,7 +502,7 @@ await runScene({
 
     await clickRadioByLabelPrefix(page, 'Flat triangle')
     await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
       .catch(() => {})
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
@@ -596,7 +596,7 @@ await runScene({
 
     await clickRadioByLabelPrefix(page, 'FAI triangle')
     await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
       .catch(() => {})
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
@@ -643,7 +643,7 @@ await runScene({
 
     await clickRadioByLabelPrefix(page, 'Flat triangle')
     await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, { timeout: 20000 })
+      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
       .catch(() => {})
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 

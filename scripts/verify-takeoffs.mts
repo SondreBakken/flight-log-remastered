@@ -54,7 +54,7 @@ async function readSharedWindTotal(page: Page, baseUrl: string, octant: string):
   target.searchParams.set('wind', octant)
   await page.goto(target.toString(), { waitUntil: 'domcontentloaded' })
   const rendered = await page
-    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), { timeout: 20000 })
+    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 20000 })
     .then(() => true)
     .catch(() => false)
   return rendered ? readTotalMatchCount(page) : null
@@ -94,6 +94,7 @@ const settled = await page
       const text = document.body.textContent ?? ''
       return /\d+ takeoffs/.test(text) || text.includes('request failed') || text.includes('timed out waiting for a response')
     },
+    undefined,
     { timeout: 20000 },
   )
   .then(() => true)
@@ -146,7 +147,7 @@ if (settled) {
   // rendered input, not a unit test calling the fold function directly.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill('Bodo')
   const filteredSettled = await page
-    .waitForFunction(() => document.querySelector('main')?.textContent?.includes('Bodø'), { timeout: 10000 })
+    .waitForFunction(() => document.querySelector('main')?.textContent?.includes('Bodø'), undefined, { timeout: 10000 })
     .then(() => true)
     .catch(() => false)
   const filteredText = await mainText()
@@ -162,7 +163,7 @@ if (settled) {
   // there is a real number to compare.
   await page.getByRole('textbox', { name: /takeoff name/i }).fill(BROAD_QUERY)
   const broadQuerySettled = await page
-    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), { timeout: 10000 })
+    .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 10000 })
     .then(() => true)
     .catch(() => false)
   report(
@@ -242,7 +243,7 @@ if (settled) {
         await page.goto(sharedUrl.toString(), { waitUntil: 'domcontentloaded' })
 
         const sharedContentRendered = await page
-          .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), { timeout: 20000 })
+          .waitForFunction(() => /of \d+ matches/.test(document.body.textContent ?? ''), undefined, { timeout: 20000 })
           .then(() => true)
           .catch(() => false)
         report(
@@ -326,7 +327,7 @@ if (settled) {
   // never contained "nearby", so a /nearby/i locator never actually matched it.
   await page.getByRole('checkbox', { name: /distance/i }).check()
   const deniedSettled = await page
-    .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), { timeout: 10000 })
+    .waitForFunction(() => document.body.textContent?.includes('Location permission denied'), undefined, { timeout: 10000 })
     .then(() => true)
     .catch(() => false)
   report(deniedSettled, 'checking "Sort by distance from me" without a granted permission shows the denial hint within the timeout, not a hang')
