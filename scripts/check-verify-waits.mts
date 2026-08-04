@@ -10,6 +10,18 @@ import ts from 'typescript'
 // knows to avoid it. AST-based (ts.createSourceFile + ts.forEachChild), so comment-only prose
 // mentions of "waitForFunction" (verify-track-gradient.mts, verify-settle.ts's own doc comments)
 // can never trip this — there is nothing to grep, only real CallExpression nodes.
+//
+// The options check requires a literal `timeout` property on the object literal in args[2] by
+// design: a spread ({ ...opts }) or a computed key ({ [key]: value }) is rejected even when it
+// would set the timeout correctly at runtime, because the point of this guard is that the
+// timeout is literally visible at the call site, not merely present somewhere upstream.
+//
+// This AST match has known blind spots, accepted because the threat model here is an in-place
+// tidy-up of scripts/, not deliberate evasion: an aliased call (const w = page.waitForFunction;
+// w(...)) or an element-access call (page['waitForFunction'](...)) is not detected. Matching on
+// the method name alone, regardless of receiver, is intentional rather than an oversight — it
+// is what also catches frame.waitForFunction, which carries the same argument-position trap as
+// page.waitForFunction, so this must not later be narrowed to only Page.
 
 const SCAN_ROOT = 'scripts'
 const LIB_FILE = 'scripts/lib/verify-settle.ts'
@@ -57,9 +69,24 @@ function findWaitForFunctionCalls(file: string): CallSite[] {
   return sites
 }
 
-const callSites = walkFiles(SCAN_ROOT)
-  .flatMap(findWaitForFunctionCalls)
-  .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)
+let callSites: CallSite[]
+try {
+  callSites = walkFiles(SCAN_ROOT)
+    .flatMap(findWaitForFunctionCalls)
+    .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)
+} catch (error) {
+  assert(false, `${SCAN_ROOT}: scan root missing or unreadable (${error instanceof Error ? error.message : String(error)})`)
+  console.log(`\nFAIL - ${failures} failure(s) (0 waitForFunction call site(s) scanned)`)
+  process.exit(1)
+}
+
+// If the lib's wrappers ever stop calling waitForFunction (renamed, refactored away, or the
+// file moved), callSites for LIB_FILE goes to zero and the loop below has nothing left to
+// fail — a silent, vacuous PASS with zero real assertions. This keeps that failure mode loud.
+assert(
+  callSites.some((site) => site.file === LIB_FILE),
+  `${LIB_FILE} still contains the wrappers this guard exists to check`,
+)
 
 for (const site of callSites) {
   const location = `${site.file}:${site.line}`
