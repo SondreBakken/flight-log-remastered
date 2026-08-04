@@ -30,12 +30,10 @@ function trackBadResponses(page: Page): string[] {
   return bad
 }
 
-// A DEFINITIVE settle condition, the same one verify-sites-map.mts uses: the map instance
-// exists AND its flight-track source has actually finished loading, not just "the canvas
-// selector resolved or timed out". The previous version of this wait swallowed both the
-// selector timeout and the evaluate's own undefined-map case, so on a page with no map at
-// all (a Suspense skeleton, or a client-side navigation error) it resolved immediately and
-// vacuously, reporting settled where nothing had actually loaded.
+// The previous version of this wait swallowed both the selector timeout and the evaluate's own
+// undefined-map case, so on a page with no map at all (a Suspense skeleton, or a client-side
+// navigation error) it resolved immediately and vacuously, reporting settled where nothing had
+// actually loaded.
 //
 // Unlike verify-sites-map.mts's unconditional report(settled, ...), this boolean is only
 // reported on the callers' failure paths (loadSceneWithColdServerRetry's error-boundary/retry/

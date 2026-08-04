@@ -30,12 +30,11 @@ const { logs, bad } = collectPageDiagnostics(page)
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
-// A DEFINITIVE settle condition, the same one verify-sites-map.mts uses: the map instance
-// exists AND its flight-track source has actually finished loading. The previous canvas
-// waitForSelector + swallowed waitForFunction here settled vacuously on a page with no map at
-// all (a Suspense skeleton, or a client-side navigation error). The paint-idle wait below
-// resolves immediately when `map` is undefined, so a still-loading or dead page would sail
-// through as "settled" and only fail downstream as a misleading hover-position mismatch.
+// The previous canvas waitForSelector + swallowed waitForFunction here settled vacuously on a
+// page with no map at all (a Suspense skeleton, or a client-side navigation error). The
+// paint-idle wait below resolves immediately when `map` is undefined, so a still-loading or dead
+// page would sail through as "settled" and only fail downstream as a misleading hover-position
+// mismatch.
 const settled = await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'flight-track' })
 if (!settled) {
   console.error('FAIL - the scene did not settle: window.__flightTrackMap never appeared with its flight-track source loaded, within the timeout')

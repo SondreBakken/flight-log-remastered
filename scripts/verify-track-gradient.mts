@@ -64,11 +64,10 @@ const { logs, bad } = collectPageDiagnostics(page)
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 
-// A DEFINITIVE settle condition, the same one verify-track-hover.mts uses: the map instance
-// exists AND its flight-track source has actually finished loading. The previous canvas
-// waitForSelector + swallowed waitForFunction here settled vacuously on a page with no map at
-// all (a Suspense skeleton, or a client-side navigation error), and the assertion below would
-// then just read "window.__flightTrackMap is not set" off a page that never got a chance to load.
+// The previous canvas waitForSelector + swallowed waitForFunction here settled vacuously on a
+// page with no map at all (a Suspense skeleton, or a client-side navigation error), and the
+// assertion below would then just read "window.__flightTrackMap is not set" off a page that
+// never got a chance to load.
 const settled = await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'flight-track' })
 if (!settled) {
   console.error(
@@ -79,9 +78,6 @@ if (!settled) {
   await browser.close()
   process.exit(1)
 }
-// isSourceLoaded only reports that the GeoJSON parsed and indexed, not that MapLibre has
-// painted a frame with it. This mirrors the paint-idle wait the sibling verify-track-*
-// scripts use after the same isSourceLoaded check.
 await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 1000 })
 
 const assertion = await page.evaluate(() => {

@@ -6,7 +6,9 @@ import type { Page } from 'playwright'
 // actually finished loading, waitForMapSettled), the same paint-idle wait once settled
 // (waitForPaintIdle, kept separate since sites-map never paint-idles and scoring's tail differs
 // from hover/gradient's), and the same four page listeners (collectPageDiagnostics). Previously
-// copy-pasted, with drift risk, across all four scripts.
+// copy-pasted, with drift risk, across all four scripts. verify-shot.mts has a structurally
+// identical wait but is not one of the four: it settles on TWO sources (flight-track and osm)
+// conjoined, which waitForMapSettled's single-sourceId signature does not cover.
 
 type MapHandle = '__flightTrackMap' | '__takeoffsMap'
 
