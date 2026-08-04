@@ -12,8 +12,8 @@ import type { Page } from 'playwright'
 // verify-takeoffs.mts and verify-feed.mts, instead uses waitForCondition below, which hides
 // Playwright's waitForFunction(fn, arg, options) three-arg contract behind a single
 // argument-free predicate, so its call sites can't drop the arg position and silently inherit
-// the page's default 30s timeout. verify-takeoffs.mts still hand-writes the three-arg form
-// directly in two places where it needs a real arg, not an argument-free predicate.
+// the page's default 30s timeout. Two of verify-takeoffs.mts's waits need a real arg rather than
+// an argument-free predicate; they use waitForConditionWithArg below for that.
 
 type MapHandle = '__flightTrackMap' | '__takeoffsMap'
 
@@ -38,14 +38,32 @@ export function waitForMapSettled(page: Page, { handle, sourceId }: { handle: Ma
 /**
  * The only place the arg position of Playwright's waitForFunction(pageFunction, arg, options)
  * is always `undefined`: predicate goes in as an argument-free pageFunction, undefined in the
- * arg position, { timeout: timeoutMs } in the options position. waitForMapSettled above and
- * verify-takeoffs.mts's two real-arg waits still spell the three-arg contract out by hand.
- * Resolves true if predicate becomes truthy within timeoutMs, false on timeout — mirrors
- * waitForMapSettled, never throws.
+ * arg position, { timeout: timeoutMs } in the options position. waitForConditionWithArg below
+ * is the sibling for predicates that need a real arg instead. Resolves true if predicate becomes
+ * truthy within timeoutMs, false on timeout — mirrors waitForMapSettled, never throws.
  */
 export function waitForCondition(page: Page, predicate: () => boolean | undefined, timeoutMs: number): Promise<boolean> {
   return page
     .waitForFunction(predicate, undefined, { timeout: timeoutMs })
+    .then(() => true)
+    .catch(() => false)
+}
+
+/**
+ * waitForCondition's sibling for predicates that need a real arg (not just `undefined`) in
+ * Playwright's waitForFunction(pageFunction, arg, options) arg position — the arg is serialized
+ * across the page-function boundary, so A must be a serializable value. Resolves true if
+ * predicate becomes truthy within timeoutMs, false on timeout — mirrors waitForCondition, never
+ * throws.
+ */
+export function waitForConditionWithArg<A>(
+  page: Page,
+  predicate: (arg: A) => boolean | undefined,
+  arg: A,
+  timeoutMs: number,
+): Promise<boolean> {
+  return page
+    .waitForFunction(predicate as (arg: unknown) => boolean | undefined, arg, { timeout: timeoutMs })
     .then(() => true)
     .catch(() => false)
 }
