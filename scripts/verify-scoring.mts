@@ -501,9 +501,7 @@ await runScene({
     )
 
     await clickRadioByLabelPrefix(page, 'Flat triangle')
-    await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
-      .catch(() => {})
+    await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     // `source.serialize().data` reads the exact GeoJSON object track-map.tsx's own syncScoringOverlay
@@ -595,9 +593,7 @@ await runScene({
     )
 
     await clickRadioByLabelPrefix(page, 'FAI triangle')
-    await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
-      .catch(() => {})
+    await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     const markerCount = await readTurnpointMarkerCount(page)
@@ -642,9 +638,7 @@ await runScene({
     )
 
     await clickRadioByLabelPrefix(page, 'Flat triangle')
-    await page
-      .waitForFunction(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') === true, undefined, { timeout: 20000 })
-      .catch(() => {})
+    await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
     const markerCount = await readTurnpointMarkerCount(page)
