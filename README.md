@@ -77,22 +77,26 @@ that boundary today:
   as the other three, pinned against a live number, and will go stale the day that number
   changes; it is simply expected to change far less often. See
   `scripts/lib/curated-country-expectations.ts`'s own comment on `CLUB_ROSTER_EXPECTATIONS.rowCount`.
-- `verify-scoring.mts` (#15, extended by #58, #78) pins several numbers against a live KML fetch
-  of trip 1001428: the open-distance summary text (`48.95 km`), the turnpoint marker count for
-  that geometry (`2`), and the per-flight disabled/enabled state of each radio option across six
-  real flights — including, for trip 233524, the map's own scoring-overlay GeoJSON source shape
-  after selecting the flat triangle (two features: a 4-coordinate closed loop, a 2-coordinate
-  connector); and, for trips 984290 and 985713, the merged turnpoint-marker labels #78 introduced
-  — a triangle whose connector shares an endpoint with its loop collapses two of its five
-  turnpoints into one badge ('D/E' or 'A/B'), through two different mechanisms (984290 via a
-  repeated track_idx resolving to the same array element, 985713 via two distinct indices that
-  independently resolve to the identical coordinate), and this pin checks both the resulting
-  marker count and the merged label actually rendered. Unlike the other four, what it pins
-  against is not a roster that grows or shrinks over time, it is a handful of specific historical
-  flights' already-flown GPS tracks and flightlog.org's own already-computed scoring geometry for
-  each. Neither changes after the fact the way a takeoff or club roster does, so this pin is
-  closer to the frozen-vs-frozen case above than a countdown, even though one side of it is still
-  a live fetch.
+- `verify-scoring.mts` (#15, extended by #58, #78, #83) pins several numbers against a live KML
+  fetch of trip 1001428: the open-distance summary text (`48.95 km`), the turnpoint marker count
+  for that geometry (`2`), and the per-flight disabled/enabled state of each radio option across
+  six real flights — including, for trip 233524, the map's own scoring-overlay GeoJSON source
+  shape after selecting the flat triangle (two features: a 4-coordinate closed loop, a
+  2-coordinate connector); and, for trips 1001428 (its 5-point geometry), 984290 and 985713, the
+  merged turnpoint-marker labels #78 and #83 introduced — two or more of a geometry's five
+  turnpoints collapse into one badge whenever their screen positions land within the badge's own
+  20px diameter of each other, whether that closeness comes from an exact shared coordinate
+  (#78 — 984290 via a repeated track_idx resolving to the same array element, 985713 via two
+  distinct indices that independently resolve to the identical coordinate) or from two genuinely
+  different, merely nearby coordinates a real map zoom can still render on top of each other
+  (#83 — 985713's own D/E turnpoints, ~9.4 m apart on the ground, and 1001428's A/B turnpoints,
+  0.91 km apart on the ground but close at that flight's low fit zoom). This pin checks both the
+  resulting marker count and the merged label actually rendered. Unlike the other four, what it
+  pins against is not a roster that grows or shrinks over time, it is a handful of specific
+  historical flights' already-flown GPS tracks and flightlog.org's own already-computed scoring
+  geometry for each. Neither changes after the fact the way a takeoff or club roster does, so
+  this pin is closer to the frozen-vs-frozen case above than a countdown, even though one side of
+  it is still a live fetch.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
@@ -124,32 +128,38 @@ anyway, by preference rather than necessity: dev is not forbidden, just the leas
 reproduce a bundler-specific failure, which is the whole reason these two scripts exist (see the
 maplibre-gl v6/Turbopack note below).
 
-`verify-scoring.mts` (#15, extended by #58, #78) shares `verify-track-hover.mts`'s `?__verifyMap`
-gate to check the scoring overlay against six real flights, each exercising a different shape:
-1001428 (all five line-shaped geometries enabled and Open distance selected by default, its map
-source actually loads and renders 2 turnpoint markers — both triangle radios correctly DISABLED,
-since this fixture's own triangle placemarks are the metadata-only stub, not real geometry),
-991729 (the degenerate 5- and 4-point geometries render as disabled radio options, not silently
-selectable), 235690 (the entirely-missing out-and-return placemark is likewise disabled), 233524
-(#58: both triangle radios enabled — real, non-degenerate geometry — and, after selecting the
-flat triangle, the map's own scoring-overlay source carries exactly two line features: a
-self-closing 4-coordinate loop and a 2-coordinate connector), 984290 (#78: the FAI triangle's own
-D and E turnpoints resolve to the identical array element — a repeated track_idx, not two
-different indices — so five turnpoints render as 4 markers, one of them carrying the merged
-'D/E' label; asserted alongside a rect-intersection oracle confirming no two of the 4 rendered
-markers' bounding boxes touch on screen), and 985713 (#78: the flat triangle's A and B turnpoints
-instead collide through two DIFFERENT indices that independently resolve to the same coordinate
-— the case an index-keyed grouping would silently miss — again rendering 4 markers with a merged
-'A/B' label; asserted alongside an exact-same-position oracle rather than rect-intersection,
-since this fixture's own D/E pair sits close enough on screen at this flight's zoom to make an
-intersection check unreliable there — see #83). That 233524 scene is the browser-level oracle for
-the triangle RENDER path (`scoring-line.ts`'s scoringLineCoordinates): nothing else — not Vitest,
-not `check-scoring.mts` — ever looks at what the map's own GeoJSON source actually contains, so a
-render-path regression (e.g. drawing turnpointIndices as one naive zigzag instead of
-loop-plus-connector) previously left every other check green. The 984290 and 985713 scenes are
-the equivalent oracle for the merged-MARKER path (`turnpoint-markers.ts`'s
-groupTurnpointMarkers): nothing else drives a real map and reads back what a merged turnpoint
-marker's own label and screen position actually are. For 1001428 it also samples the capture's
+`verify-scoring.mts` (#15, extended by #58, #78, #83) shares `verify-track-hover.mts`'s
+`?__verifyMap` gate to check the scoring overlay against six real flights, each exercising a
+different shape: 1001428 (all five line-shaped geometries enabled and Open distance selected by
+default, its map source actually loads and renders 2 turnpoint markers — both triangle radios
+correctly DISABLED, since this fixture's own triangle placemarks are the metadata-only stub, not
+real geometry; toggling to the 5-point geometry renders 4 markers, not 5 — #83: this flight's own
+A and B turnpoints are 0.91 km apart in real terms but project only ~16px apart at this flight's
+low fit zoom, close enough to merge into one 'A/B' badge even though nothing about them is
+coordinate-equal), 991729 (the degenerate 5- and 4-point geometries render as disabled radio
+options, not silently selectable), 235690 (the entirely-missing out-and-return placemark is
+likewise disabled), 233524 (#58: both triangle radios enabled — real, non-degenerate geometry —
+and, after selecting the flat triangle, the map's own scoring-overlay source carries exactly two
+line features: a self-closing 4-coordinate loop and a 2-coordinate connector), 984290 (#78: the
+FAI triangle's own D and E turnpoints resolve to the identical array element — a repeated
+track_idx, not two different indices — so five turnpoints render as 4 markers, one of them
+carrying the merged 'D/E' label; asserted alongside a rect-intersection oracle confirming no two
+of the 4 rendered markers' bounding boxes touch on screen), and 985713 (both collision shapes on
+one fixture: #78's A and B turnpoints collide through two DIFFERENT indices that independently
+resolve to the exact same coordinate — the case an index-keyed grouping would silently miss — and
+#83's D and E turnpoints, ~9.4 m apart in real terms and never coordinate-equal, project close
+enough on screen (~3.6px at this flight's fit zoom, under the 20px badge) to merge too; five
+turnpoints render as 3 markers, 'A/B' and 'D/E', asserted with the same rect-intersection oracle
+984290 uses — before #83's fix this exact fixture's D/E pair was two badges sitting close enough
+to visually intersect without ever merging, which is what that oracle now catches). That 233524
+scene is the browser-level oracle for the triangle RENDER path (`scoring-line.ts`'s
+scoringLineCoordinates): nothing else — not Vitest, not `check-scoring.mts` — ever looks at what
+the map's own GeoJSON source actually contains, so a render-path regression (e.g. drawing
+turnpointIndices as one naive zigzag instead of loop-plus-connector) previously left every other
+check green. The 1001428 5-point toggle, 984290, and 985713 scenes are the equivalent oracle for
+the merged-MARKER path (`turnpoint-markers.ts`'s groupTurnpointMarkersByPixelDistance): nothing
+else drives a real map and reads back what a merged turnpoint marker's own label and screen
+position actually are. For 1001428 it also samples the capture's
 own pixels for the overlay's amber line colour (existence of a source/layer alone would still
 pass for a wholly wrong or empty geometry), and drives an actual toggle between two overlays to
 check that the map's own center/zoom stay put across it: the effect that syncs the overlay is
