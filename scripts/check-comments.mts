@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { postComment } from '../src/lib/comments/post-comment'
 import { getComments } from '../src/lib/comments/get-comments'
+import { deleteComment } from '../src/lib/comments/delete-comment'
 import { commentFormStateFor } from '../src/features/comment-on-flight/comment-form-state'
 
 let failures = 0
@@ -31,7 +32,14 @@ function assert(condition: boolean, label: string): void {
 // builder resolves — cast through `unknown` at the boundary since this fake's shape is
 // deliberately narrower than the real (heavily generic) SupabaseClient type.
 
-type FakeCommentRow = { id: string; user_id: string; trip_id: number; body: string; created_at: string }
+type FakeCommentRow = {
+  id: string
+  user_id: string
+  trip_id: number
+  body: string
+  created_at: string
+  deleted_at?: string | null
+}
 
 type SelectOptions = { count?: 'exact'; head?: boolean }
 
@@ -39,10 +47,12 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
   const rows: FakeCommentRow[] = [...seedRows]
   let nextId = rows.length + 1
   let insertCalls = 0
+  let updateCalls = 0
   let countQueryCalls = 0
   let listQueryCalls = 0
   let forcedError: { message: string } | null = null
   let forcedInsertError: { message: string } | null = null
+  let forcedUpdateError: { message: string } | null = null
 
   function makeQuery(opts?: SelectOptions) {
     let tripIdFilter: number | null = null
@@ -76,8 +86,12 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
           return
         }
 
+        // Mirrors the "comments are publicly readable when not deleted" RLS policy, which
+        // applies to every select against this table regardless of caller — including
+        // postComment's own rate-limit count query, not just getComments's list query.
         const matching = rows.filter(
           (row) =>
+            !row.deleted_at &&
             (tripIdFilter === null || row.trip_id === tripIdFilter) &&
             (userIdFilter === null || row.user_id === userIdFilter) &&
             (sinceFilter === null || row.created_at > sinceFilter),
@@ -120,10 +134,48 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
                 trip_id: row.trip_id,
                 body: row.body,
                 created_at: new Date().toISOString(),
+                deleted_at: null,
               })
               resolve({ error: null })
             },
           }
+        },
+        update(values: { deleted_at: string }) {
+          let idFilter: string | null = null
+          let userIdFilter: string | null = null
+
+          const updateQuery = {
+            eq(column: string, value: unknown) {
+              if (column === 'id') idFilter = value as string
+              if (column === 'user_id') userIdFilter = value as string
+              return updateQuery
+            },
+            select() {
+              return {
+                then(resolve: (result: { data: FakeCommentRow[] | null; error: { message: string } | null }) => void) {
+                  updateCalls++
+                  if (forcedUpdateError) {
+                    resolve({ data: null, error: forcedUpdateError })
+                    return
+                  }
+
+                  // Mirrors the "authors can soft-delete their own comments" UPDATE policy's
+                  // `using (auth.uid() = user_id)`: a row matching only the id, only the
+                  // user_id, or neither is affected the same way a mismatched RLS check would
+                  // be — 0 rows, no error. See delete-comment.ts's doc comment.
+                  const target = rows.find((row) => row.id === idFilter && row.user_id === userIdFilter)
+                  if (!target) {
+                    resolve({ data: [], error: null })
+                    return
+                  }
+
+                  target.deleted_at = values.deleted_at
+                  resolve({ data: [{ ...target }], error: null })
+                },
+              }
+            },
+          }
+          return updateQuery
         },
       }
     },
@@ -138,8 +190,14 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
     forceInsertError(message: string): void {
       forcedInsertError = { message }
     },
+    forceUpdateError(message: string): void {
+      forcedUpdateError = { message }
+    },
     get insertCalls() {
       return insertCalls
+    },
+    get updateCalls() {
+      return updateCalls
     },
     get countQueryCalls() {
       return countQueryCalls
@@ -256,6 +314,67 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   fake.forceError('connection refused')
   const comments = await getComments(fake.client, 1)
   assertEqual(comments, [], 'getComments returns an empty list, not a thrown exception, when the query fails')
+}
+
+// --- deleteComment: an author deleting their own comment ---
+
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
+  ])
+  const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
+  assertEqual(result, { kind: 'deleted' }, 'an author soft-deleting their own comment succeeds')
+  assert(typeof fake.rows[0]?.deleted_at === 'string' && fake.rows[0].deleted_at !== null, 'deleted_at is stamped with a timestamp, not left null')
+}
+
+// --- deleteComment: removes it from the public list for every viewer, without a manual reload ---
+// (the "reload" itself is a Server Action concern — actions.test.ts asserts revalidatePath is
+// called — this proves the data layer underneath it: once deleted_at is set, the same public
+// read RLS policy that already filters it for everyone stops returning the row here too.)
+
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
+    { id: '2', user_id: 'user-b', trip_id: 1, body: 'someone else\'s', created_at: '2026-01-02T00:00:00.000Z' },
+  ])
+  await deleteComment(fake.client, { id: '1', userId: 'user-a' })
+  const comments = await getComments(fake.client, 1)
+  assertEqual(
+    comments,
+    [{ id: '2', userId: 'user-b', body: "someone else's", createdAt: '2026-01-02T00:00:00.000Z' }],
+    'a deleted comment no longer appears in getComments, for any viewer',
+  )
+}
+
+// --- deleteComment: a non-author cannot delete, same as an RLS rejection would behave ---
+
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'not yours', created_at: '2026-01-01T00:00:00.000Z' },
+  ])
+  const result = await deleteComment(fake.client, { id: '1', userId: 'user-b' })
+  assertEqual(result, { kind: 'not-found' }, "a non-author's delete attempt matches no row, same as the UPDATE policy's own auth.uid() = user_id check would enforce")
+  assertEqual(fake.rows[0]?.deleted_at ?? null, null, "the comment is left untouched when the acting user isn't its author")
+}
+
+// --- deleteComment: an unknown comment id is reported the same way as an unauthorized one ---
+
+{
+  const fake = makeFakeSupabase()
+  const result = await deleteComment(fake.client, { id: 'missing', userId: 'user-a' })
+  assertEqual(result, { kind: 'not-found' }, "deleting a comment id that doesn't exist reports not-found")
+}
+
+// --- deleteComment: db errors surface, don't throw ---
+
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
+  ])
+  fake.forceUpdateError('connection refused')
+  const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
+  assertEqual(result, { kind: 'db-error', message: 'failed to delete the comment' }, 'a failed update surfaces as db-error, not a thrown exception')
+  assert(fake.updateCalls === 1, 'the failed update is still counted as attempted')
 }
 
 // --- commentFormStateFor: the pure result -> form-state mapping ---
