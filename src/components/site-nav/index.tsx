@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import AuthStatus from './auth-status'
 
 // The intended loop is search a pilot, follow them, search again for the next one — but until
 // this existed, the only in-app link to /pilots/search lived in the flight feed's empty state
@@ -15,15 +16,18 @@ const NAV_LINKS = [
 export default function SiteNav() {
   return (
     <nav aria-label="Main" className="border-b border-black/10 dark:border-white/15">
-      <ul className="mx-auto flex w-full max-w-5xl gap-4 px-6 py-3 text-sm">
-        {NAV_LINKS.map((link) => (
-          <li key={link.href}>
-            <Link className="underline-offset-2 hover:underline" href={link.href}>
-              {link.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-3 text-sm">
+        <ul className="flex gap-4">
+          {NAV_LINKS.map((link) => (
+            <li key={link.href}>
+              <Link className="underline-offset-2 hover:underline" href={link.href}>
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <AuthStatus />
+      </div>
     </nav>
   )
 }
