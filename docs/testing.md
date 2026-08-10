@@ -111,7 +111,10 @@ headless browser against a running app, so they are deliberately **not** part of
 or any other automated gate — there is nothing in this repo that starts a server, waits for it,
 and tears it down again. Run them by hand after touching the relevant feature. `verify-map.mts`
 and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g. `pnpm exec tsx
-scripts/verify-feed.mts`). `verify-takeoffs.mts`, `verify-sites-map.mts` and
+scripts/verify-feed.mts`). Three of `verify-feed.mts`'s four scenarios (pilot-with-track,
+pilot-without-track, failure-surfacing) currently fail: the follow list moved server-side and the
+script still seeds it via localStorage — see the comment at `scripts/verify-feed.mts:5-13` and
+#128, which tracks the full rewrite. `verify-takeoffs.mts`, `verify-sites-map.mts` and
 `verify-flown-sites.mts` must run against `pnpm run build && pnpm run start`, never `pnpm dev`.
 Dev can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
 flightlog.org live instead of exercising the prerendered static takeoffs artifact
