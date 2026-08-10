@@ -25,6 +25,8 @@
     "check": "tsc --noEmit && pnpm check:verify-waits && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:scoring && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:watermark-store && pnpm check:seen-trip-store && pnpm check:request-gate && pnpm check:takeoffs-prerender && pnpm check:clubs-prerender && pnpm test"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.2",
     "cheerio": "^1.2.0",
     "fast-xml-parser": "^5.10.1",
     "maplibre-gl": "^5.24.0",
