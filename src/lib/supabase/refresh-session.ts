@@ -8,10 +8,16 @@ import { getSupabaseEnv } from './env'
 // re-issues both the request's and the response's cookies so a refreshed session reaches the
 // Server Components rendering this same request.
 export async function updateSession(request: NextRequest) {
+  const env = getSupabaseEnv()
+  // Supabase not provisioned in this environment — nothing to refresh. Falling through to a
+  // plain pass-through response (rather than throwing) is what keeps every other page working
+  // when only auth is unconfigured; see env.ts's doc comment on getSupabaseEnv vs
+  // requireSupabaseEnv.
+  if (!env) return NextResponse.next({ request })
+
   let response = NextResponse.next({ request })
 
-  const { url, anonKey } = getSupabaseEnv()
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(env.url, env.anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll()

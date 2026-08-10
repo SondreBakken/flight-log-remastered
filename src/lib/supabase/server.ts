@@ -1,9 +1,12 @@
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
-import { getSupabaseEnv } from './env'
+import { requireSupabaseEnv } from './env'
 
-// Called from Server Components, Route Handlers, and the auth callback — never at module
-// scope, see env.ts's doc comment. Async because `cookies()` is a request-time API.
+// Called from Route Handlers that genuinely need Supabase (the auth callback, sign-out) —
+// never at module scope, see env.ts's doc comment. Async because `cookies()` is a
+// request-time API. Throws when unconfigured (via requireSupabaseEnv), which is correct for
+// both current callers: reaching either one already implies a magic link was requested, which
+// itself required a configured project.
 export async function createClient() {
   // cookies() has to be the first await: it's what tells Next.js's Cache Components this
   // component is dynamic and belongs behind its Suspense boundary, deferred to request time.
@@ -11,7 +14,7 @@ export async function createClient() {
   // synchronous build-time failure instead of runtime content to defer — see the "Uncached
   // data was accessed outside of <Suspense>" vs. a hard build crash difference.
   const cookieStore = await cookies()
-  const { url, anonKey } = getSupabaseEnv()
+  const { url, anonKey } = requireSupabaseEnv()
 
   return createServerClient(url, anonKey, {
     cookies: {
