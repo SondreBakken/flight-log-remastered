@@ -43,16 +43,22 @@ type FakeCommentRow = {
 
 type SelectOptions = { count?: 'exact'; head?: boolean }
 
-function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
+// asUser models which session this fake client belongs to — the real soft_delete_own_comment
+// RPC (supabase/migrations/20260810010000_..._policy.sql) derives auth.uid() from the caller's
+// own session, not from any argument the RPC call passes in, so the fake needs its own notion
+// of "who is this client authenticated as" independent of whatever userId a test passes into
+// deleteComment's input.
+function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: string }) {
   const rows: FakeCommentRow[] = [...seedRows]
+  const sessionUserId = options?.asUser ?? null
   let nextId = rows.length + 1
   let insertCalls = 0
-  let updateCalls = 0
+  let rpcCalls = 0
   let countQueryCalls = 0
   let listQueryCalls = 0
   let forcedError: { message: string } | null = null
   let forcedInsertError: { message: string } | null = null
-  let forcedUpdateError: { message: string } | null = null
+  let forcedRpcError: { message: string } | null = null
 
   function makeQuery(opts?: SelectOptions) {
     let tripIdFilter: number | null = null
@@ -140,42 +146,30 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
             },
           }
         },
-        update(values: { deleted_at: string }) {
-          let idFilter: string | null = null
-          let userIdFilter: string | null = null
-
-          const updateQuery = {
-            eq(column: string, value: unknown) {
-              if (column === 'id') idFilter = value as string
-              if (column === 'user_id') userIdFilter = value as string
-              return updateQuery
-            },
-            select() {
-              return {
-                then(resolve: (result: { data: FakeCommentRow[] | null; error: { message: string } | null }) => void) {
-                  updateCalls++
-                  if (forcedUpdateError) {
-                    resolve({ data: null, error: forcedUpdateError })
-                    return
-                  }
-
-                  // Mirrors the "authors can soft-delete their own comments" UPDATE policy's
-                  // `using (auth.uid() = user_id)`: a row matching only the id, only the
-                  // user_id, or neither is affected the same way a mismatched RLS check would
-                  // be — 0 rows, no error. See delete-comment.ts's doc comment.
-                  const target = rows.find((row) => row.id === idFilter && row.user_id === userIdFilter)
-                  if (!target) {
-                    resolve({ data: [], error: null })
-                    return
-                  }
-
-                  target.deleted_at = values.deleted_at
-                  resolve({ data: [{ ...target }], error: null })
-                },
-              }
-            },
+      }
+    },
+    rpc(fnName: string, args: { comment_id: string }) {
+      if (fnName !== 'soft_delete_own_comment') throw new Error(`unexpected rpc: ${fnName}`)
+      return {
+        then(resolve: (result: { data: boolean | null; error: { message: string } | null }) => void) {
+          rpcCalls++
+          if (forcedRpcError) {
+            resolve({ data: null, error: forcedRpcError })
+            return
           }
-          return updateQuery
+
+          // Mirrors soft_delete_own_comment's own body: `where id = comment_id and user_id =
+          // auth.uid() and deleted_at is null`. auth.uid() is sessionUserId here, never a value
+          // read off `args` — the RPC call itself only ever sends comment_id (see
+          // delete-comment.ts), same as the real function never trusts a caller-supplied user id.
+          const target = rows.find((row) => row.id === args.comment_id && row.user_id === sessionUserId && !row.deleted_at)
+          if (!target) {
+            resolve({ data: false, error: null })
+            return
+          }
+
+          target.deleted_at = new Date().toISOString()
+          resolve({ data: true, error: null })
         },
       }
     },
@@ -190,14 +184,14 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = []) {
     forceInsertError(message: string): void {
       forcedInsertError = { message }
     },
-    forceUpdateError(message: string): void {
-      forcedUpdateError = { message }
+    forceRpcError(message: string): void {
+      forcedRpcError = { message }
     },
     get insertCalls() {
       return insertCalls
     },
-    get updateCalls() {
-      return updateCalls
+    get rpcCalls() {
+      return rpcCalls
     },
     get countQueryCalls() {
       return countQueryCalls
@@ -319,9 +313,10 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
 // --- deleteComment: an author deleting their own comment ---
 
 {
-  const fake = makeFakeSupabase([
-    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
-  ])
+  const fake = makeFakeSupabase(
+    [{ id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' }],
+    { asUser: 'user-a' },
+  )
   const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
   assertEqual(result, { kind: 'deleted' }, 'an author soft-deleting their own comment succeeds')
   assert(typeof fake.rows[0]?.deleted_at === 'string' && fake.rows[0].deleted_at !== null, 'deleted_at is stamped with a timestamp, not left null')
@@ -333,10 +328,13 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
 // read RLS policy that already filters it for everyone stops returning the row here too.)
 
 {
-  const fake = makeFakeSupabase([
-    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
-    { id: '2', user_id: 'user-b', trip_id: 1, body: 'someone else\'s', created_at: '2026-01-02T00:00:00.000Z' },
-  ])
+  const fake = makeFakeSupabase(
+    [
+      { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
+      { id: '2', user_id: 'user-b', trip_id: 1, body: 'someone else\'s', created_at: '2026-01-02T00:00:00.000Z' },
+    ],
+    { asUser: 'user-a' },
+  )
   await deleteComment(fake.client, { id: '1', userId: 'user-a' })
   const comments = await getComments(fake.client, 1)
   assertEqual(
@@ -347,20 +345,40 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
 }
 
 // --- deleteComment: a non-author cannot delete, same as an RLS rejection would behave ---
+//
+// The fake's session (asUser) is 'user-b', not the row's own 'user-a' — and the input passed to
+// deleteComment claims userId 'user-a' anyway, an attacker-controlled value pretending to be the
+// author. The soft_delete_own_comment RPC never reads that claim (see delete-comment.ts and the
+// migration's function body): only the session's real identity decides this, same as it would
+// against a live database.
 
 {
-  const fake = makeFakeSupabase([
-    { id: '1', user_id: 'user-a', trip_id: 1, body: 'not yours', created_at: '2026-01-01T00:00:00.000Z' },
-  ])
-  const result = await deleteComment(fake.client, { id: '1', userId: 'user-b' })
-  assertEqual(result, { kind: 'not-found' }, "a non-author's delete attempt matches no row, same as the UPDATE policy's own auth.uid() = user_id check would enforce")
-  assertEqual(fake.rows[0]?.deleted_at ?? null, null, "the comment is left untouched when the acting user isn't its author")
+  const fake = makeFakeSupabase(
+    [{ id: '1', user_id: 'user-a', trip_id: 1, body: 'not yours', created_at: '2026-01-01T00:00:00.000Z' }],
+    { asUser: 'user-b' },
+  )
+  const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
+  assertEqual(result, { kind: 'not-found' }, "a non-author's delete attempt matches no row, same as the RPC's own auth.uid() = user_id check would enforce, even when the input claims to be the author")
+  assertEqual(fake.rows[0]?.deleted_at ?? null, null, "the comment is left untouched when the acting session isn't its author")
+}
+
+// --- deleteComment: re-deleting an already-deleted comment reports not-found, not a second "deleted" ---
+// (matches deleteCommentAction's own doc comment: 'not-found' already covers "an already-deleted
+// comment" — this proves the RPC's `and deleted_at is null` guard is what makes that true.)
+
+{
+  const fake = makeFakeSupabase(
+    [{ id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z', deleted_at: '2026-01-02T00:00:00.000Z' }],
+    { asUser: 'user-a' },
+  )
+  const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
+  assertEqual(result, { kind: 'not-found' }, "deleting an already-deleted comment reports not-found instead of re-stamping it")
 }
 
 // --- deleteComment: an unknown comment id is reported the same way as an unauthorized one ---
 
 {
-  const fake = makeFakeSupabase()
+  const fake = makeFakeSupabase([], { asUser: 'user-a' })
   const result = await deleteComment(fake.client, { id: 'missing', userId: 'user-a' })
   assertEqual(result, { kind: 'not-found' }, "deleting a comment id that doesn't exist reports not-found")
 }
@@ -368,13 +386,14 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
 // --- deleteComment: db errors surface, don't throw ---
 
 {
-  const fake = makeFakeSupabase([
-    { id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' },
-  ])
-  fake.forceUpdateError('connection refused')
+  const fake = makeFakeSupabase(
+    [{ id: '1', user_id: 'user-a', trip_id: 1, body: 'mine', created_at: '2026-01-01T00:00:00.000Z' }],
+    { asUser: 'user-a' },
+  )
+  fake.forceRpcError('connection refused')
   const result = await deleteComment(fake.client, { id: '1', userId: 'user-a' })
-  assertEqual(result, { kind: 'db-error', message: 'failed to delete the comment' }, 'a failed update surfaces as db-error, not a thrown exception')
-  assert(fake.updateCalls === 1, 'the failed update is still counted as attempted')
+  assertEqual(result, { kind: 'db-error', message: 'failed to delete the comment' }, 'a failed rpc call surfaces as db-error, not a thrown exception')
+  assert(fake.rpcCalls === 1, 'the failed rpc call is still counted as attempted')
 }
 
 // --- commentFormStateFor: the pure result -> form-state mapping ---
