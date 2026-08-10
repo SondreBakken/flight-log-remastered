@@ -40,7 +40,9 @@ export function CommentForm({ tripId }: { tripId: number }) {
       >
         {pending ? 'Posting…' : 'Post comment'}
       </button>
-      {state.status === 'error' && <p className="text-sm text-red-600 dark:text-red-400">{state.message}</p>}
+      <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
+        {state.status === 'error' && state.message}
+      </p>
     </form>
   )
 }

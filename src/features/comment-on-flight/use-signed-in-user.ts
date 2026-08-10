@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from './client'
-import { getSupabaseEnv } from './env'
+import { createClient } from '@/lib/supabase/client'
+import { getSupabaseEnv } from '@/lib/supabase/env'
 
 export type SignedInUserState =
   | { kind: 'loading' }

@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useSignedInUser } from '@/lib/supabase/use-signed-in-user'
+import { useSignedInUser } from './use-signed-in-user'
 import { CommentForm } from './comment-form'
 
 // Signed-out visitor sees a sign-in prompt instead of the form (spec's Comments section) — the
