@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import FlightTrack from '@/features/show-flight-track'
+import CommentsOnFlight from '@/features/comment-on-flight'
 import { flightlogFlightUrl } from '@/lib/flightlog/config'
 import { getTrack } from '@/lib/flightlog/tracks'
 
@@ -41,6 +42,7 @@ async function Flight({ params }: { params: FlightParams }) {
         </a>
       </header>
       <FlightTrack track={track} />
+      <CommentsOnFlight tripId={id} />
     </>
   )
 }
