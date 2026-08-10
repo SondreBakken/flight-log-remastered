@@ -54,7 +54,15 @@ describe('PilotLogbook header', () => {
     ]
     const trackedTripIds = new Set([1002600, 1001964])
 
-    render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
+    render(
+      <PilotLogbook
+        pilot={PILOT}
+        flights={flights}
+        trackedTripIds={trackedTripIds}
+        isFollowed={false}
+        isSignedIn={false}
+      />,
+    )
 
     screen.getByText('10 flights shown · 2 GPS tracks')
   })
@@ -70,7 +78,15 @@ describe('PilotLogbook header', () => {
     ]
     const trackedTripIds = new Set([1002600, 999])
 
-    render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
+    render(
+      <PilotLogbook
+        pilot={PILOT}
+        flights={flights}
+        trackedTripIds={trackedTripIds}
+        isFollowed={false}
+        isSignedIn={false}
+      />,
+    )
 
     screen.getByText('7 flights shown · 1 GPS tracks')
   })
@@ -86,7 +102,15 @@ describe('PilotLogbook header', () => {
     ]
     const trackedTripIds = new Set([1, 3])
 
-    render(<PilotLogbook pilot={PILOT} flights={flights} trackedTripIds={trackedTripIds} />)
+    render(
+      <PilotLogbook
+        pilot={PILOT}
+        flights={flights}
+        trackedTripIds={trackedTripIds}
+        isFollowed={false}
+        isSignedIn={false}
+      />,
+    )
 
     screen.getByText('3 flights shown · 2 GPS tracks')
   })

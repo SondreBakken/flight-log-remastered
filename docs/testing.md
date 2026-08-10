@@ -18,8 +18,8 @@ pnpm run check:barogram                   # barogram downsampling and scaling ma
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
 pnpm run check:scoring                    # scoring-overlay geometries against saved KML fixtures; SKIPs (exit 0) if fixtures/ is absent
-pnpm run check:follow-store               # followed-pilots store, pure core + storage adapter
-pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes)
+pnpm run check:follow-store               # follow/unfollow/list-followed-ids logic, stubbed Supabase client
+pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes) and sign-in-prompt sizing
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
 pnpm run check:watermark-store            # per-pilot "new since last visit" watermark, pure core + storage adapter
 pnpm run check:seen-trip-store            # per-pilot remembered UNTRACKED trip ids, pure core + storage adapter

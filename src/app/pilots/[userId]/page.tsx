@@ -6,6 +6,7 @@ import PilotStatistics from '@/features/browse-pilot-statistics'
 import { flightYear } from '@/lib/flightlog/flight-year'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import { getTrackedTripIds } from '@/lib/flightlog/tracks'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 import type { Flight } from '@/lib/flightlog/types'
 
 type PilotParams = Promise<{ userId: string }>
@@ -47,11 +48,20 @@ export default function PilotPage({ params }: { params: PilotParams }) {
 async function Logbook({ params }: { params: PilotParams }) {
   const pilotId = await parsePilotId(params)
   const { pilot, flights } = await getPilotLogbook(pilotId)
-  const trackedTripIds = await getTrackedTripIds(pilotId, yearsCovered(flights))
+  const [trackedTripIds, { isSignedIn, followedPilotIds }] = await Promise.all([
+    getTrackedTripIds(pilotId, yearsCovered(flights)),
+    resolveViewerFollowState([pilotId]),
+  ])
 
   return (
     <>
-      <PilotLogbook pilot={pilot} flights={flights} trackedTripIds={trackedTripIds} />
+      <PilotLogbook
+        pilot={pilot}
+        flights={flights}
+        trackedTripIds={trackedTripIds}
+        isFollowed={followedPilotIds.includes(pilotId)}
+        isSignedIn={isSignedIn}
+      />
       <PilotStatistics flights={flights} />
     </>
   )

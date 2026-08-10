@@ -4,7 +4,7 @@ import { FlightFeedView } from './index'
 
 describe('FlightFeedView empty state', () => {
   it('links to /countries, the actual browse-countries route, not a typo of it', () => {
-    render(<FlightFeedView hasHydrated followedIds={new Set()} defaultPilotId={4549} />)
+    render(<FlightFeedView followedPilotIds={[]} defaultPilotId={4549} />)
 
     expect(
       screen.getByRole('link', { name: /browse clubs by country/i }).getAttribute('href'),

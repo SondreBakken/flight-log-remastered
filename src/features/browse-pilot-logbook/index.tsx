@@ -8,15 +8,21 @@ type PilotLogbookProps = {
   pilot: Pilot
   flights: Flight[]
   trackedTripIds: Set<number>
+  // Resolved once server-side by the page (see resolve-viewer-follow-state.ts) — a single
+  // pilot's own follow button, so no candidate-id set is needed, just the one boolean.
+  isFollowed: boolean
+  isSignedIn: boolean
 }
 
-export default function PilotLogbook({ pilot, flights, trackedTripIds }: PilotLogbookProps) {
+export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
       <PilotHeader
         pilot={pilot}
         flightCount={totalFlightCount(flights)}
         trackCount={trackedRowCount(flights, trackedTripIds)}
+        isFollowed={isFollowed}
+        isSignedIn={isSignedIn}
       />
       {flights.length === 0 ? <EmptyLogbook /> : (
         <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
@@ -47,17 +53,21 @@ function PilotHeader({
   pilot,
   flightCount,
   trackCount,
+  isFollowed,
+  isSignedIn,
 }: {
   pilot: Pilot
   flightCount: number
   trackCount: number
+  isFollowed: boolean
+  isSignedIn: boolean
 }) {
   return (
     <header className="flex flex-col gap-1">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{pilot.name}</h1>
         <span className="shrink-0 whitespace-nowrap">
-          <FollowButton pilotId={pilot.userId} variant="prominent" />
+          <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={pilot.userId} variant="prominent" />
         </span>
       </div>
       <p className="text-sm opacity-70">

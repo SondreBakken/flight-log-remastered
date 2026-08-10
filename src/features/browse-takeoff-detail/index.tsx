@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
-import type { SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
+import type { PilotId, SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
 
 type TakeoffDetailViewProps = {
@@ -15,6 +15,10 @@ type TakeoffDetailViewProps = {
   // entirely in that case, not rendered with a placeholder, per #11's own scope note.
   mapEntry: Takeoff | null
   currentYear: number
+  // Resolved once server-side by the page (see resolve-viewer-follow-state.ts), scoped to this
+  // year's flight rows' own userIds.
+  isSignedIn: boolean
+  followedPilotIds: PilotId[]
 }
 
 // #11's takeoff detail page: name/region/altitude/description/site-records from a=22, flights
@@ -29,6 +33,8 @@ export default function TakeoffDetailView({
   flights,
   mapEntry,
   currentYear,
+  isSignedIn,
+  followedPilotIds,
 }: TakeoffDetailViewProps) {
   return (
     <section className="flex flex-col gap-6">
@@ -43,7 +49,12 @@ export default function TakeoffDetailView({
           smaller className than the directory's own h-[70vh]: one marker doesn't need a
           viewport-scale map. */}
       {mapEntry && <TakeoffsMap takeoffs={[mapEntry]} countryId={countryId} className="h-64 w-full" />}
-      <TakeoffFlights flights={flights} currentYear={currentYear} />
+      <TakeoffFlights
+        flights={flights}
+        currentYear={currentYear}
+        isSignedIn={isSignedIn}
+        followedPilotIds={new Set(followedPilotIds)}
+      />
     </section>
   )
 }
@@ -137,7 +148,17 @@ function TakeoffMetadata({ createdAt, updatedAt }: { createdAt: string | null; u
   )
 }
 
-function TakeoffFlights({ flights, currentYear }: { flights: TakeoffFlight[]; currentYear: number }) {
+function TakeoffFlights({
+  flights,
+  currentYear,
+  isSignedIn,
+  followedPilotIds,
+}: {
+  flights: TakeoffFlight[]
+  currentYear: number
+  isSignedIn: boolean
+  followedPilotIds: ReadonlySet<PilotId>
+}) {
   return (
     <div className="flex flex-col gap-2">
       <h2 className="text-lg font-medium">Flights in {currentYear}</h2>
@@ -145,7 +166,11 @@ function TakeoffFlights({ flights, currentYear }: { flights: TakeoffFlight[]; cu
           cursor this app does not chase (see takeoff-flights.ts). Stated here so an empty or
           short list this year does not read as "nobody flies here". */}
       <p className="text-xs opacity-50">Showing {currentYear} only — earlier years are not shown.</p>
-      {flights.length === 0 ? <EmptyFlights /> : <FlightsTable flights={flights} />}
+      {flights.length === 0 ? (
+        <EmptyFlights />
+      ) : (
+        <FlightsTable flights={flights} isSignedIn={isSignedIn} followedPilotIds={followedPilotIds} />
+      )}
     </div>
   )
 }
@@ -158,7 +183,15 @@ function EmptyFlights() {
   )
 }
 
-function FlightsTable({ flights }: { flights: TakeoffFlight[] }) {
+function FlightsTable({
+  flights,
+  isSignedIn,
+  followedPilotIds,
+}: {
+  flights: TakeoffFlight[]
+  isSignedIn: boolean
+  followedPilotIds: ReadonlySet<PilotId>
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -177,7 +210,12 @@ function FlightsTable({ flights }: { flights: TakeoffFlight[] }) {
         </thead>
         <tbody>
           {flights.map((flight) => (
-            <TakeoffFlightRow key={flight.tripId} flight={flight} />
+            <TakeoffFlightRow
+              key={flight.tripId}
+              flight={flight}
+              isFollowed={followedPilotIds.has(flight.userId)}
+              isSignedIn={isSignedIn}
+            />
           ))}
         </tbody>
       </table>

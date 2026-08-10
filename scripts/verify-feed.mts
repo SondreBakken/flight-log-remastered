@@ -2,6 +2,16 @@ import { chromium, type Page } from 'playwright'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 
+// STALE as of #115: the follow list moved server-side (supabase/migrations/
+// 20260810020000_create_follows.sql) — src/lib/follow-store/storage.ts, the localStorage module
+// seedFollowedPilots below writes to, no longer exists, and the feed (src/features/browse-
+// flight-feed/index.tsx) now resolves the viewer's followed pilots from Supabase, not
+// localStorage. Every scenario below that seeds via localStorage will now read back as
+// "following 0 pilots", regardless of what's seeded. Left as-is rather than rewritten: fixing
+// this for real needs an authenticated Playwright session (a signed-in Supabase user with real
+// `follows` rows), which is out of this issue's scope and needs its own design — see #115's own
+// follow-up notes. Not part of `pnpm run check` (see docs/testing.md), so this doesn't block CI.
+
 // Real pilot ids from the flightlog.org fixture set (see docs/testing.md): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
 // with a track — together they exercise both the "has a track" and "no track" link

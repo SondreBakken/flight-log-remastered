@@ -66,6 +66,8 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
       />,
     )
 
@@ -84,6 +86,8 @@ describe('TakeoffDetailView', () => {
         flights={[FLIGHT]}
         mapEntry={null}
         currentYear={2026}
+        isSignedIn
+        followedPilotIds={[]}
       />,
     )
 
@@ -96,6 +100,41 @@ describe('TakeoffDetailView', () => {
     expect(trackLinks).toContain('/flights/1000946')
   })
 
+  it('marks a flight row\'s follow button as already-followed when its pilot id is in followedPilotIds', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn
+        followedPilotIds={[3365]}
+      />,
+    )
+
+    screen.getByRole('button', { name: 'Following' })
+  })
+
+  it('renders a sign-in prompt instead of a follow button when signed out', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
+    screen.getByRole('link', { name: /sign in to follow/i })
+  })
+
   it('renders the deliberate empty state, not an empty table, when there are no flights this year', () => {
     render(
       <TakeoffDetailView
@@ -105,6 +144,8 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
       />,
     )
 
@@ -122,6 +163,8 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={MAP_ENTRY}
         currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
       />,
     )
 
@@ -141,6 +184,8 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
       />,
     )
 
@@ -156,6 +201,8 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
       />,
     )
 

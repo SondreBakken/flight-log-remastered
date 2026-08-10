@@ -1,53 +1,35 @@
 export type FollowButtonVariant = 'prominent' | 'compact'
 
-type FollowButtonState = {
-  isFollowed: boolean
-  hasHydrated: boolean
-  variant: FollowButtonVariant
-}
-
 export type FollowButtonPresentation = {
   label: string
-  ariaPressed: boolean | undefined
-  disabled: boolean
+  ariaPressed: boolean
   className: string
 }
 
-const SIZE_CLASSES: Record<FollowButtonVariant, string> = {
+export const FOLLOW_BUTTON_SIZE_CLASSES: Record<FollowButtonVariant, string> = {
   prominent: 'rounded border px-3 py-1.5 text-sm',
   compact: 'rounded border px-2 py-0.5 text-xs',
 }
 
-// Neutral has no isFollowed reading yet (see hasHydrated on the store), so its classes must not
-// borrow either tone below.
-const TONE_CLASSES: Record<'neutral' | 'unfollowed' | 'followed', string> = {
-  neutral: 'border-black/20 opacity-60 dark:border-white/25',
+const TONE_CLASSES: Record<'unfollowed' | 'followed', string> = {
   unfollowed: 'border-black/20 dark:border-white/25',
   followed: 'border-black/40 bg-black/5 dark:border-white/40 dark:bg-white/10',
 }
 
-// hasHydrated false means the store hasn't read localStorage yet, so isFollowed is a default,
-// not knowledge (see use-follow-store.ts). Rendering "Follow" or "Following" here would assert
-// a pressed state the caller doesn't actually have, and then flip once hydration lands. The
-// neutral branch below is disabled and omits aria-pressed so no state is claimed either way.
+// isFollowed now arrives as a server-resolved prop (see resolve-viewer-follow-state.ts),
+// known before the very first render — there is no longer a hydration gap between what the
+// server renders and what the browser knows, so unlike the old localStorage-backed version
+// this has no separate neutral/not-yet-known state to render.
 export function getFollowButtonPresentation({
   isFollowed,
-  hasHydrated,
   variant,
-}: FollowButtonState): FollowButtonPresentation {
-  if (!hasHydrated) {
-    return {
-      label: 'Follow',
-      ariaPressed: undefined,
-      disabled: true,
-      className: `${SIZE_CLASSES[variant]} ${TONE_CLASSES.neutral}`,
-    }
-  }
-
+}: {
+  isFollowed: boolean
+  variant: FollowButtonVariant
+}): FollowButtonPresentation {
   return {
     label: isFollowed ? 'Following' : 'Follow',
     ariaPressed: isFollowed,
-    disabled: false,
-    className: `${SIZE_CLASSES[variant]} ${isFollowed ? TONE_CLASSES.followed : TONE_CLASSES.unfollowed}`,
+    className: `${FOLLOW_BUTTON_SIZE_CLASSES[variant]} ${isFollowed ? TONE_CLASSES.followed : TONE_CLASSES.unfollowed}`,
   }
 }
