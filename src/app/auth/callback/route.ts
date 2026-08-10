@@ -11,8 +11,15 @@ export async function GET(request: Request): Promise<Response> {
   const code = searchParams.get('code')
 
   if (code) {
+    let supabase: Awaited<ReturnType<typeof createClient>>
     try {
-      const supabase = await createClient()
+      supabase = await createClient()
+    } catch (error) {
+      console.error('[auth/callback] Supabase is not configured:', error)
+      return NextResponse.redirect(`${origin}/sign-in?error=auth-code-exchange-failed`)
+    }
+
+    try {
       const { error } = await supabase.auth.exchangeCodeForSession(code)
       if (!error) {
         return NextResponse.redirect(`${origin}/`)
@@ -22,7 +29,7 @@ export async function GET(request: Request): Promise<Response> {
       // server-side since the sign-in page can only show a generic message, not this detail.
       console.error('[auth/callback] exchangeCodeForSession failed:', error)
     } catch (error) {
-      console.error('[auth/callback] Supabase is not configured:', error)
+      console.error('[auth/callback] failed to exchange code for session:', error)
     }
   }
 

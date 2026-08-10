@@ -1,7 +1,3 @@
-// Read lazily, inside a function call, never at module top level: importing this module must
-// not throw before a caller actually asks for the config, otherwise `next build` (which
-// evaluates modules with no Supabase env vars present until the Vercel integration is wired
-// up) breaks before a single request is ever served.
 export type SupabaseEnv = { url: string; anonKey: string }
 
 // Absence of these vars is a normal, expected state (no Supabase project provisioned yet, or
@@ -18,6 +14,11 @@ export function getSupabaseEnv(): SupabaseEnv | null {
   return { url, anonKey }
 }
 
+// Read lazily, inside a function call, never at module top level: importing this module must
+// not throw before a caller actually asks for the config, otherwise `next build` (which
+// evaluates modules with no Supabase env vars present until the Vercel integration is wired
+// up) breaks before a single request is ever served.
+//
 // For the handful of call sites where Supabase is genuinely required to do the thing being
 // asked (sending/exchanging a magic link, signing out) — an unconfigured project there is a
 // real error, not a no-op, so this throws instead of returning null.

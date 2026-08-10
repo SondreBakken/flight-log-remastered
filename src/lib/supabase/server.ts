@@ -8,11 +8,10 @@ import { requireSupabaseEnv } from './env'
 // both current callers: reaching either one already implies a magic link was requested, which
 // itself required a configured project.
 export async function createClient() {
-  // cookies() has to be the first await: it's what tells Next.js's Cache Components this
-  // component is dynamic and belongs behind its Suspense boundary, deferred to request time.
-  // If the env-var check threw first, the build would treat the (possibly-thrown) error as a
-  // synchronous build-time failure instead of runtime content to defer — see the "Uncached
-  // data was accessed outside of <Suspense>" vs. a hard build crash difference.
+  // cookies() has to be the first await: calling it is what marks this Route Handler as
+  // dynamic under Cache Components' route-handler prerendering pass, deferring it to request
+  // time. If the env-var check threw first, the build would see a synchronous crash instead of
+  // a route it can defer to runtime.
   const cookieStore = await cookies()
   const { url, anonKey } = requireSupabaseEnv()
 

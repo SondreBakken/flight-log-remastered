@@ -54,4 +54,17 @@ describe('GET /auth/callback', () => {
     expect(response.headers.get('location')).toBe('http://localhost/sign-in?error=auth-code-exchange-failed')
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('not configured'), expect.any(Error))
   })
+
+  it('redirects to /sign-in with a neutral error message, not "not configured", when the exchange call itself throws', async () => {
+    mockExchangeCodeForSession.mockRejectedValue(new Error('network error'))
+
+    const response = await GET(new Request('http://localhost/auth/callback?code=abc123'))
+
+    expect(response.headers.get('location')).toBe('http://localhost/sign-in?error=auth-code-exchange-failed')
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('failed to exchange code for session'),
+      expect.any(Error),
+    )
+    expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining('not configured'), expect.anything())
+  })
 })
