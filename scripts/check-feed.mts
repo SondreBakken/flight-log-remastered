@@ -930,25 +930,34 @@ await withStubbedFetch(
 }
 
 // =====================================================================================
-// FlightFeedView / FeedView: pure presentational components (no hooks), rendered with
-// react-dom/server against literal props. This is what actually exercises the hydration
-// guard and the failure-surfacing wiring end to end without a browser — pure logic tests
-// on feed.ts alone cannot see a JSX prop wired to the wrong value.
+// FlightFeedView / FeedView: pure presentational components, rendered with react-dom/server
+// against literal props. This is what actually exercises the empty-vs-followed wiring end to
+// end without a browser — pure logic tests on feed.ts alone cannot see a JSX prop wired to the
+// wrong value.
+//
+// followedPilotIds now arrives as a server-resolved prop (#115 moved the follow list
+// server-side — see index.tsx's own doc comment), known before the very first render — there is
+// no more separate hydration-skeleton branch to exercise (the old localStorage-backed version's
+// whole reason for one).
 // =====================================================================================
 
 {
-  const beforeHydration = renderToStaticMarkup(
-    createElement(FlightFeedView, { hasHydrated: false, followedIds: new Set<number>(), defaultPilotId: 1 }),
+  const empty = renderToStaticMarkup(
+    createElement(FlightFeedView, { followedPilotIds: [], defaultPilotId: 1 }),
   )
+  assert(empty.includes('Recent flights'), 'FlightFeedView: renders real content immediately, no hydration gap')
   assert(
-    !beforeHydration.includes('Recent flights'),
-    'FlightFeedView: renders the hydration skeleton, not real content, before hasHydrated is true',
+    empty.includes('You are not following any pilots yet'),
+    'FlightFeedView: an empty followedPilotIds list renders the empty state',
   )
 
-  const afterHydration = renderToStaticMarkup(
-    createElement(FlightFeedView, { hasHydrated: true, followedIds: new Set<number>(), defaultPilotId: 1 }),
+  const withFollows = renderToStaticMarkup(
+    createElement(FlightFeedView, { followedPilotIds: [4549], defaultPilotId: 1 }),
   )
-  assert(afterHydration.includes('Recent flights'), 'FlightFeedView: renders real content once hasHydrated is true')
+  assert(
+    !withFollows.includes('You are not following any pilots yet'),
+    'FlightFeedView: a non-empty followedPilotIds list does not render the empty state',
+  )
 }
 
 {

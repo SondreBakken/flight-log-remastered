@@ -1,250 +1,26 @@
-'use client'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { FlightFeedView } from './flight-feed-view'
 
-import Link from 'next/link'
-import { useEffect } from 'react'
-import { useFollowedPilotIds } from '@/lib/follow-store/use-follow-store'
-import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
-import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
-import { FeedEntryRow } from './components/feed-entry-row'
-import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
+// Re-exported so scripts/check-feed.mts and index.test.tsx can keep importing them from this
+// module's own path — same barrel shape as before the flight-feed-view.tsx split.
+export { FeedView, FlightFeedView } from './flight-feed-view'
 
 type FlightFeedProps = {
-  // Server-only (see lib/flightlog/config.ts), so it arrives as a plain prop from the
-  // Server Component page rather than this 'use client' module importing config.ts
-  // directly — that import used to compile fine but silently read the browser's env shim,
-  // which never carries FLIGHTLOG_PILOT_ID (no NEXT_PUBLIC_ prefix), always falling back to
-  // the hardcoded default regardless of what the server actually resolved.
+  // Server-only (see lib/flightlog/config.ts), so it arrives as a plain prop rather than a
+  // direct import of config.ts from this async Server Component's own module graph — same
+  // reasoning as the historical 'use client' version of this file, kept for the same reason:
+  // DEFAULT_PILOT_ID has no NEXT_PUBLIC_ prefix, so it must be read server-side and threaded down.
   defaultPilotId: number
 }
 
-// The follow list only exists in this browser's localStorage (see follow-store), so the
-// feed cannot be rendered on the server: it has nothing to fetch until it hydrates.
-export default function FlightFeed({ defaultPilotId }: FlightFeedProps) {
-  const { followedIds, hasHydrated } = useFollowedPilotIds()
-
-  // The true, untruncated follow set lives here — usePilotFeedResults only ever sees
-  // selectFeedPilotIds's MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to
-  // safely prune seen-trip-store's stored map (see pruneSeenTripIdsToFollowedPilots's own doc
-  // comment for the accumulation bug this closes). Runs on every followedIds change, not just
-  // mount, so unfollowing (already handled explicitly by useFollowPilot's clearSeenTripIds)
-  // and simply falling out of the top MAX_PILOTS_PER_FEED both stay pruned over time.
-  useEffect(() => {
-    if (!hasHydrated) return
-    pruneSeenTripIdsToFollowedPilots(followedIds)
-  }, [hasHydrated, followedIds])
-
-  return <FlightFeedView hasHydrated={hasHydrated} followedIds={followedIds} defaultPilotId={defaultPilotId} />
-}
-
-// Pure aside from the components it composes — no hooks of its own — so it can be rendered
-// with react-dom/server against literal props (see check-feed.mts) without a browser. That
-// is what actually exercises the hydration guard below: a hook-driven component can't be
-// proven to skip rendering real content before hydration without either a browser or
-// separating the "what to render" decision (here) from the "read the store" hook (above).
-export function FlightFeedView({
-  hasHydrated,
-  followedIds,
-  defaultPilotId,
-}: {
-  hasHydrated: boolean
-  followedIds: ReadonlySet<number>
-  defaultPilotId: number
-}) {
-  if (!hasHydrated) return <FeedSkeleton />
-
-  const { pilotIds, followedCount } = selectFeedPilotIds(followedIds)
-
-  return (
-    <section className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-      {pilotIds.length === 0 ? (
-        <>
-          <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
-          <EmptyState defaultPilotId={defaultPilotId} />
-        </>
-      ) : (
-        // Keying by the id set itself gives every genuinely new set of followed pilots a
-        // fresh FeedForPilots instance (fresh loading state, fresh results), instead of
-        // an effect resetting old state to match the new props — see usePilotFeedResults.
-        <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
-      )}
-    </section>
-  )
-}
-
-function FeedForPilots({
-  pilotIds,
-  followedCount,
-}: {
-  pilotIds: number[]
-  followedCount: number | null
-}) {
-  const results = usePilotFeedResults(pilotIds)
-  return <FeedView shownCount={pilotIds.length} followedCount={followedCount} {...results} />
-}
-
-// Pure presentation of a resolved (or still-resolving) feed: no hooks, so — like
-// FlightFeedView above — it's exercised directly with react-dom/server in check-feed.mts
-// against literal FlightFeedResults. That's what gives the failed-pilots notice real
-// coverage for "wired to the actual failures, not an empty array": a mistake in feed.ts's
-// pure merge/sort/slice logic cannot produce, only a mistake in this wiring can.
-export function FeedView({
-  shownCount,
-  followedCount,
-  isLoading,
-  entries,
-  failedPilots,
-  hasSeenBefore,
-}: {
-  shownCount: number
-  // The real followed total when the list was truncated to fit MAX_PILOTS_PER_FEED, null
-  // otherwise — see selectFeedPilotIds. Drives which summary line renders below.
-  followedCount: number | null
-} & FlightFeedResults) {
-  return (
-    <>
-      <p className="text-sm opacity-70">
-        {followedCount === null
-          ? `${shownCount} pilot${shownCount === 1 ? '' : 's'} followed`
-          : `following ${followedCount} pilots — showing recent flights from the first ${shownCount} to keep this page fast`}
-        {isLoading ? ' · loading…' : ''}
-      </p>
-      <NewSinceLastVisitNotice isLoading={isLoading} entries={entries} hasSeenBefore={hasSeenBefore} />
-      <FailedPilotsNotice failures={failedPilots} />
-      {entries.length === 0 ? (
-        <NoRecentFlights isLoading={isLoading} />
-      ) : (
-        <FeedTable entries={entries} />
-      )}
-    </>
-  )
-}
-
-// Untracked flights are checked for newness too now (#62, via seen-trip-store), so "N new"
-// covers every followed pilot's flights, tracked or not — the caption used to carve out an
-// explicit "counted only among flights with a saved GPS track" caveat; that caveat is gone
-// because it would now be false. Shown only once loading settles: a count that includes
-// still-arriving pilots would undercount and then jump, which reads as more confusing than
-// informative mid-load.
-//
-// Two states this used to get wrong, both now handled explicitly rather than left as permanent
-// furniture: a genuine first-time visitor has no "last visit" to report a count against, however
-// many flights classifyTrackedNewness/classifyUntrackedNewness read as 'new' by construction of
-// their null-signal case — see hasSeenBefore/anyPilotHasPriorVisit. And a count of zero isn't
-// worth a permanent line of UI once there IS a real last visit to compare against — it renders
-// nothing rather than "0 new" every time nothing changed. (`newCount` here is scoped to the top
-// FEED_SIZE shown entries, per countNewEntries's own doc comment, so pilots truncated out of the
-// merge — see MAX_PILOTS_PER_FEED — or their flights truncated out by FEED_SIZE, are not
-// represented in it; the adjacent failed-pilots notice partly mitigates the failed-to-load case,
-// but truncation itself has no notice.)
-function NewSinceLastVisitNotice({
-  isLoading,
-  entries,
-  hasSeenBefore,
-}: {
-  isLoading: boolean
-  entries: FeedEntry[]
-  hasSeenBefore: boolean
-}) {
-  if (isLoading) return null
-  if (!hasSeenBefore) {
-    // Every flight below genuinely reads 'new' right now (classifyTrackedNewness/
-    // classifyUntrackedNewness's null-signal default, since no watermark or seen-trip entry
-    // exists for any followed pilot yet) — the "New" badges ARE showing. This caption used to
-    // claim the opposite ("nothing is marked new yet"), which was false the moment #62 gave
-    // untracked flights the same default (worst for an all-untracked pilot, previously the one
-    // case where that claim was actually true). Describe what's really on screen instead.
-    return (
-      <p className="text-sm opacity-70">
-        This is the first time your followed pilots&apos; flights have been checked, so everything
-        below is shown as new; a real &quot;since your last visit&quot; comparison starts from here.
-      </p>
-    )
-  }
-  const newCount = countNewEntries(entries)
-  if (newCount === 0) return null
-  return <p className="text-sm opacity-70">{newCount} new since your last visit</p>
-}
-
-function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
-  if (failures.length === 0) return null
-
-  return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-      <p className="font-medium">Some followed pilots could not be loaded:</p>
-      <ul className="mt-1 list-inside list-disc opacity-80">
-        {failures.map((failure) => (
-          <li key={failure.pilotId}>
-            <Link className="underline" href={`/pilots/${failure.pilotId}`}>
-              Pilot {failure.pilotId}
-            </Link>{' '}
-            — {failure.message}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed border-black/15 p-6 text-sm opacity-80 dark:border-white/20">
-      <p>You are not following any pilots yet.</p>
-      <p>
-        Open a pilot&apos;s logbook and use the Follow button there to add their flights to this
-        feed.
-      </p>
-      <Link className="underline" href="/pilots/search">
-        Search for a pilot by name
-      </Link>
-      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
-        Browse a pilot&apos;s logbook
-      </Link>
-      <Link className="underline" href="/countries">
-        Browse clubs by country
-      </Link>
-    </div>
-  )
-}
-
-function NoRecentFlights({ isLoading }: { isLoading: boolean }) {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      {isLoading ? 'Loading recent flights…' : 'No recent flights from the pilots you follow.'}
-    </p>
-  )
-}
-
-function FeedTable({ entries }: { entries: FeedEntry[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Pilot</th>
-            <th className="py-2 pr-4 font-medium">Site</th>
-            <th className="py-2 pr-4 text-right font-medium">Time</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 font-medium">Track</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => (
-            <FeedEntryRow key={`${entry.pilot.userId}-${entry.flight.tripId}`} entry={entry} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function FeedSkeleton() {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="h-8 w-56 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-      <div className="h-4 w-72 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-      <div className="h-48 animate-pulse rounded bg-black/5 dark:bg-white/5" />
-    </div>
-  )
+// The follow list moved server-side in #115 (supabase/migrations/20260810020000_create_follows.sql)
+// — this is now an async Server Component, the same "resolve identity server-side once, pass a
+// prop down" shape as CommentsOnFlight (src/features/comment-on-flight/index.tsx), rather than
+// the client-driven, localStorage-reading component this used to be. Signed-out visitors and
+// visitors with an empty follow list are indistinguishable here on purpose (both resolve to an
+// empty array — see resolve-viewer-follow-state.ts) and render the same empty state, which is
+// also what a signed-out visitor already saw before #115 (an empty localStorage follow list).
+export default async function FlightFeed({ defaultPilotId }: FlightFeedProps) {
+  const { followedPilotIds } = await resolveViewerFollowState()
+  return <FlightFeedView followedPilotIds={followedPilotIds} defaultPilotId={defaultPilotId} />
 }

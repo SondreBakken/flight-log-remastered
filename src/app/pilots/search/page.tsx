@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import SearchPilots from '@/features/search-pilots'
 import { isValidSearchQuery, MIN_SIGNIFICANT_QUERY_LENGTH, searchPilots } from '@/lib/flightlog/pilot-search'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 
 type SearchPageParams = Promise<{ q?: string | string[] }>
 
@@ -28,7 +29,16 @@ export async function Search({ searchParams }: { searchParams: SearchPageParams 
   // `results` stay `null` here for "too short to search", distinct from `[]` for "searched,
   // zero matches", which SearchPilots renders as two different messages.
   if (!isValidSearchQuery(query)) {
-    return <SearchPilots query={query} minLength={MIN_SIGNIFICANT_QUERY_LENGTH} results={null} />
+    const { isSignedIn, followedPilotIds } = await resolveViewerFollowState([])
+    return (
+      <SearchPilots
+        query={query}
+        minLength={MIN_SIGNIFICANT_QUERY_LENGTH}
+        results={null}
+        isSignedIn={isSignedIn}
+        followedPilotIds={followedPilotIds}
+      />
+    )
   }
 
   const outcome = await searchPilots(query)
@@ -41,7 +51,18 @@ export async function Search({ searchParams }: { searchParams: SearchPageParams 
     redirect(`/pilots/${outcome.userId}`)
   }
 
-  return <SearchPilots query={query} minLength={MIN_SIGNIFICANT_QUERY_LENGTH} results={outcome.results} />
+  const candidatePilotIds = outcome.results.map((result) => result.userId)
+  const { isSignedIn, followedPilotIds } = await resolveViewerFollowState(candidatePilotIds)
+
+  return (
+    <SearchPilots
+      query={query}
+      minLength={MIN_SIGNIFICANT_QUERY_LENGTH}
+      results={outcome.results}
+      isSignedIn={isSignedIn}
+      followedPilotIds={followedPilotIds}
+    />
+  )
 }
 
 function SearchSkeleton() {

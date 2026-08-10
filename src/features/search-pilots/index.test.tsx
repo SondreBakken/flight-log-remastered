@@ -4,7 +4,7 @@ import SearchPilots from './index'
 
 describe('SearchPilots', () => {
   it('shows no status message when no query has been submitted yet', () => {
-    render(<SearchPilots query="" minLength={3} results={null} />)
+    render(<SearchPilots query="" minLength={3} results={null} isSignedIn={false} followedPilotIds={[]} />)
 
     expect(screen.queryByText(/type at least/i)).toBeNull()
     expect(screen.queryByText(/no pilots match/i)).toBeNull()
@@ -12,13 +12,13 @@ describe('SearchPilots', () => {
   })
 
   it('prompts for more characters when the query is below minLength (results still null)', () => {
-    render(<SearchPilots query="ab" minLength={3} results={null} />)
+    render(<SearchPilots query="ab" minLength={3} results={null} isSignedIn={false} followedPilotIds={[]} />)
 
     screen.getByText(/type at least 3 letters in a row/i)
   })
 
   it('renders a distinct "no matches" state for a real zero-match search, not the too-short prompt', () => {
-    render(<SearchPilots query="zzznomatchxyz123" minLength={3} results={[]} />)
+    render(<SearchPilots query="zzznomatchxyz123" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
 
     screen.getByText(/no pilots match/i)
     expect(screen.queryByText(/type at least/i)).toBeNull()
@@ -33,6 +33,8 @@ describe('SearchPilots', () => {
           { userId: 754, name: 'Nils Aage Henden', country: 'Norway' },
           { userId: 2831, name: 'Børge Henden', country: 'Norway' },
         ]}
+        isSignedIn
+        followedPilotIds={[]}
       />,
     )
 
@@ -41,8 +43,37 @@ describe('SearchPilots', () => {
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
   })
 
+  it('marks a result row as already-followed when its pilot id is in followedPilotIds', () => {
+    render(
+      <SearchPilots
+        query="Henden"
+        minLength={3}
+        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        isSignedIn
+        followedPilotIds={[754]}
+      />,
+    )
+
+    screen.getByRole('button', { name: 'Following' })
+  })
+
+  it('renders a sign-in prompt instead of follow buttons when signed out', () => {
+    render(
+      <SearchPilots
+        query="Henden"
+        minLength={3}
+        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
+    screen.getByRole('link', { name: /sign in to follow/i })
+  })
+
   it('submits the search as a plain GET to /pilots/search with the query pre-filled', () => {
-    render(<SearchPilots query="Henden" minLength={3} results={[]} />)
+    render(<SearchPilots query="Henden" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
 
     const input = screen.getByRole('textbox', { name: /pilot name/i }) as HTMLInputElement
     expect(input.value).toBe('Henden')

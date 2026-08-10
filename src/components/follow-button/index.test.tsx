@@ -1,143 +1,154 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, within } from '@testing-library/react'
-import type { FollowButton as FollowButtonComponent } from './index'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { FollowButton } from './index'
+import { getWatermark, recordSeen } from '@/lib/watermark-store/storage'
+import { getSeenTripIds, recordSeenTripIds } from '@/lib/seen-trip-store/storage'
 
-const STORAGE_KEY = 'flight-log:followed-pilots'
-const WATERMARK_STORAGE_KEY = 'flight-log:track-watermarks'
-const SEEN_TRIP_STORAGE_KEY = 'flight-log:seen-untracked-trips'
+const mockFollowPilotAction = vi.fn()
+const mockUnfollowPilotAction = vi.fn()
+
+vi.mock('./actions', () => ({
+  followPilotAction: (...args: unknown[]) => mockFollowPilotAction(...args),
+  unfollowPilotAction: (...args: unknown[]) => mockUnfollowPilotAction(...args),
+}))
+
 const PILOT_ID = 42
 
-function seedFollowedIds(ids: number[]): void {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
-}
-
-// use-follow-store.ts's storage module caches hydration state at module scope (the flag flips
-// true on first read and never flips back), and Vitest isolates modules per file, not per test.
-// A fresh instance per scenario is the only way each test's seeded localStorage is the one the
-// hook actually reads — react and react-dom stay the same singleton across resets because they
-// are CJS packages resolved through Node's own require cache, not Vitest's ESM module registry.
-//
-// Each reset leaves the previous instance's `window.addEventListener('storage', ...)` listener
-// registered (storage.ts's module-scope side effect has no matching removeEventListener), bound
-// to that instance's own snapshot and subscribers. It's inert here because nothing in this file
-// dispatches a `storage` event. A test that does belongs in its own file: dispatching one would
-// fan out across every stale listener accumulated by earlier tests in this file, and the outcome
-// would depend on test order rather than on the test itself.
-async function loadFreshFollowButton(): Promise<typeof FollowButtonComponent> {
-  vi.resetModules()
-  const followButtonModule = await import('./index')
-  return followButtonModule.FollowButton
-}
-
+// watermark-store/storage.ts and seen-trip-store/storage.ts are module-scope singletons that
+// hydrate their in-memory cache from localStorage lazily, on first read, and never re-read after
+// that (see storage.ts's own doc comments) — writing to window.localStorage directly, bypassing
+// their own recordSeen/recordSeenTripIds, would leave that cache stale and silently invisible to
+// clearWatermark/clearSeenTripIds in a later test in this same file. Seeding and reading through
+// the real store functions below keeps this test proving the actual integration, not a race
+// against Vitest's per-file (not per-test) module caching.
 beforeEach(() => {
   window.localStorage.clear()
+  mockFollowPilotAction.mockReset()
+  mockUnfollowPilotAction.mockReset()
 })
 
-describe('FollowButton', () => {
-  it('renders as followed when the pilot is already in localStorage before mount', async () => {
-    seedFollowedIds([PILOT_ID])
-    const FollowButton = await loadFreshFollowButton()
+describe('FollowButton, signed out', () => {
+  it('renders a sign-in prompt instead of a toggle, regardless of isFollowed', () => {
+    render(<FollowButton isFollowed={false} isSignedIn={false} pilotId={PILOT_ID} variant="prominent" />)
 
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
-
-    expect(button.getAttribute('aria-pressed')).toBe('true')
-    expect(button.disabled).toBe(false)
-    expect(button.textContent).toBe('Following')
+    expect(screen.getByRole('link', { name: /sign in to follow/i }).getAttribute('href')).toBe('/sign-in')
+    expect(screen.queryByRole('button')).toBeNull()
   })
+})
 
-  it('renders as not followed when localStorage lists other pilots but not this one', async () => {
-    seedFollowedIds([999])
-    const FollowButton = await loadFreshFollowButton()
+describe('FollowButton, signed in', () => {
+  it('renders as followed when isFollowed is true', () => {
+    render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="prominent" />)
 
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
-
-    expect(button.getAttribute('aria-pressed')).toBe('false')
-    expect(button.disabled).toBe(false)
-    expect(button.textContent).toBe('Follow')
-    expect(button.getAttribute('type')).toBe('button')
-    expect(button.className).toBe('rounded border px-3 py-1.5 text-sm border-black/20 dark:border-white/25')
-  })
-
-  it('renders the compact variant with its own class set', async () => {
-    seedFollowedIds([PILOT_ID])
-    const FollowButton = await loadFreshFollowButton()
-
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="compact" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
-
-    expect(button.className).toBe(
-      'rounded border px-2 py-0.5 text-xs border-black/40 bg-black/5 dark:border-white/40 dark:bg-white/10',
-    )
-  })
-
-  it('toggles between followed and unfollowed in the DOM on click', async () => {
-    seedFollowedIds([])
-    const FollowButton = await loadFreshFollowButton()
-
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
-    expect(button.getAttribute('aria-pressed')).toBe('false')
-
-    fireEvent.click(button)
+    const button = screen.getByRole<HTMLButtonElement>('button')
     expect(button.getAttribute('aria-pressed')).toBe('true')
     expect(button.textContent).toBe('Following')
+  })
 
-    fireEvent.click(button)
+  it('renders as not followed when isFollowed is false', () => {
+    render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+
+    const button = screen.getByRole<HTMLButtonElement>('button')
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(button.textContent).toBe('Follow')
   })
 
-  it('drops the pilot\'s watermark AND seen-trip entry on unfollow — the explicit call issue #5 (extended by #62 to the seen-trip store) requires, so a later refollow shows their whole history as new again instead of comparing against a stale mark', async () => {
-    seedFollowedIds([PILOT_ID])
-    window.localStorage.setItem(WATERMARK_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: '20260101000000' }))
-    window.localStorage.setItem(SEEN_TRIP_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: [1, 2] }))
-    const FollowButton = await loadFreshFollowButton()
+  it('renders the compact variant with its own class set', () => {
+    render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="compact" />)
 
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
-    expect(button.getAttribute('aria-pressed')).toBe('true') // sanity: starts followed
-
-    fireEvent.click(button) // the only click direction that unfollows
-    expect(button.getAttribute('aria-pressed')).toBe('false') // sanity: click actually unfollowed
-
-    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({})
-    // check-seen-trip-store.mts's cross-store integration test replicates useFollowPilot's
-    // toggle sequence by hand against the storage modules directly, which its own comment
-    // notes cannot detect a regression in the PRODUCTION sequence itself (deleting
-    // clearSeenTripIds from use-follow-store.ts, say) — only a test that actually drives
-    // useFollowPilot/FollowButton, like this one, can (blocking finding, FIX section).
-    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_STORAGE_KEY) ?? '{}')).toEqual({})
+    expect(screen.getByRole('button').className).toContain('text-xs')
   })
 
-  it('does NOT touch the watermark or the seen-trip entry on follow — only unfollowing clears either', async () => {
-    seedFollowedIds([])
-    // Seeds a watermark AND a seen-trip entry for the PILOT BEING CLICKED, not just an
-    // unrelated one: an unconditional clearWatermark(pilotId)/clearSeenTripIds(pilotId) call
-    // (clearing on follow too, not just unfollow) would leave an unrelated pilot's stores
-    // untouched either way, so asserting only that survives cannot tell "clears only on
-    // unfollow" apart from "always clears the pilot just clicked". Seeding 999 too proves the
-    // unrelated pilot really is unaffected by ANY call this click makes.
-    window.localStorage.setItem(
-      WATERMARK_STORAGE_KEY,
-      JSON.stringify({ [PILOT_ID]: '20260101000000', 999: '20260101000000' }),
-    )
-    window.localStorage.setItem(SEEN_TRIP_STORAGE_KEY, JSON.stringify({ [PILOT_ID]: [1], 999: [2] }))
-    const FollowButton = await loadFreshFollowButton()
+  it('calls followPilotAction and flips to followed on click, when starting unfollowed', async () => {
+    mockFollowPilotAction.mockResolvedValue({ status: 'success' })
 
-    const { container } = render(<FollowButton pilotId={PILOT_ID} variant="prominent" />)
-    const button = within(container).getByRole<HTMLButtonElement>('button')
+    render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
 
-    fireEvent.click(button) // follows PILOT_ID — following must not clear ITS OWN stores either
+    await screen.findByText('Following')
+    expect(mockFollowPilotAction).toHaveBeenCalledWith(PILOT_ID)
+    expect(mockUnfollowPilotAction).not.toHaveBeenCalled()
+  })
 
-    expect(JSON.parse(window.localStorage.getItem(WATERMARK_STORAGE_KEY) ?? '{}')).toEqual({
-      [PILOT_ID]: '20260101000000',
-      '999': '20260101000000',
-    })
-    expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_STORAGE_KEY) ?? '{}')).toEqual({
-      [PILOT_ID]: [1],
-      '999': [2],
-    })
+  it('calls unfollowPilotAction and flips to unfollowed on click, when starting followed', async () => {
+    mockUnfollowPilotAction.mockResolvedValue({ status: 'success' })
+
+    render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await screen.findByText('Follow')
+    expect(mockUnfollowPilotAction).toHaveBeenCalledWith(PILOT_ID)
+    expect(mockFollowPilotAction).not.toHaveBeenCalled()
+  })
+
+  it('shows the inline error and leaves the button unchanged when the action fails', async () => {
+    mockFollowPilotAction.mockResolvedValue({ status: 'error', message: 'Something went wrong following this pilot. Try again.' })
+
+    render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await screen.findByText('Something went wrong following this pilot. Try again.')
+    expect(screen.getByText('Follow')).toBeTruthy()
+  })
+
+  it('disables the button while the action is pending', async () => {
+    let resolveAction!: (result: { status: 'success' }) => void
+    mockFollowPilotAction.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
+
+    render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(screen.getByRole('button')).toHaveProperty('disabled', true)
+
+    resolveAction({ status: 'success' })
+    await screen.findByText('Following')
+  })
+
+  // Issue #5 (extended by #62 to the seen-trip store), preserved from the localStorage-store
+  // era: unfollowing must drop the pilot's watermark AND seen-trip entry so a later refollow
+  // shows their whole history as new again, not silently seen. Previously composed inside
+  // useFollowPilot's toggle (src/lib/follow-store/use-follow-store.ts, removed by #115); this
+  // component is now the only follow-toggling consumer, so it owns that composition directly.
+  it('drops the watermark and seen-trip entry only AFTER a confirmed unfollow, not optimistically before it', async () => {
+    recordSeen(PILOT_ID, '20260101000000')
+    recordSeenTripIds(PILOT_ID, { fetchedTripIds: new Set([1, 2]), renderedTripIds: new Set([1, 2]) })
+    let resolveAction!: (result: { status: 'success' }) => void
+    mockUnfollowPilotAction.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
+
+    render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(getWatermark(PILOT_ID)).toBe('20260101000000')
+    expect(getSeenTripIds(PILOT_ID)).toEqual(new Set([1, 2]))
+
+    resolveAction({ status: 'success' })
+    await screen.findByText('Follow')
+
+    expect(getWatermark(PILOT_ID)).toBeNull()
+    expect(getSeenTripIds(PILOT_ID)).toBeNull()
+  })
+
+  it('does NOT clear the watermark when an unfollow action fails', async () => {
+    recordSeen(PILOT_ID, '20260101000000')
+    mockUnfollowPilotAction.mockResolvedValue({ status: 'error', message: 'Something went wrong unfollowing this pilot. Try again.' })
+
+    render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await screen.findByText('Something went wrong unfollowing this pilot. Try again.')
+    expect(getWatermark(PILOT_ID)).toBe('20260101000000')
+  })
+
+  it('does NOT touch the watermark or seen-trip entry on follow — only a confirmed unfollow clears either', async () => {
+    recordSeen(PILOT_ID, '20260101000000')
+    recordSeenTripIds(PILOT_ID, { fetchedTripIds: new Set([1]), renderedTripIds: new Set([1]) })
+    mockFollowPilotAction.mockResolvedValue({ status: 'success' })
+
+    render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await screen.findByText('Following')
+    expect(getWatermark(PILOT_ID)).toBe('20260101000000')
+    expect(getSeenTripIds(PILOT_ID)).toEqual(new Set([1]))
   })
 })

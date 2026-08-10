@@ -381,28 +381,26 @@ await withFreshStore(
 )
 
 // =====================================================================================
-// Cross-store integration: unfollowing must drop the pilot's watermark. FollowButton's own
-// click handler is composed in useFollowPilot (src/lib/follow-store/use-follow-store.ts) — it
-// calls clearWatermark(pilotId) explicitly, THEN toggles follow-store. This proves the
-// underlying two-store sequence a click performs actually leaves the system in the right
-// state, without needing a DOM (src/components/follow-button/index.test.tsx separately proves
-// the component itself triggers that exact sequence).
+// Cross-store integration: unfollowing must drop the pilot's watermark. The follow list itself
+// moved server-side in #115 (supabase/migrations/20260810020000_create_follows.sql); this
+// watermark clear is the one piece of the old unfollow sequence that stayed client-side (the
+// watermark is still localStorage-backed, unrelated to #115's own scope), now composed directly
+// in the FollowButton component's own click handler (src/components/follow-button/index.tsx,
+// AFTER a confirmed unfollow — see its own doc comment) rather than inside a shared
+// useFollowPilot toggle. This proves the watermark half of that sequence leaves the system in
+// the right state, without needing a DOM (src/components/follow-button/index.test.tsx separately
+// proves the component itself triggers this call, and only after a confirmed unfollow).
 // =====================================================================================
 
 {
-  const followStorage = await import('../src/lib/follow-store/storage')
   const PILOT = 55_555
 
-  followStorage.follow(PILOT)
   watermarkStorage.recordSeen(PILOT, '20260101000000')
-  assert(followStorage.getSnapshot().followedIds.has(PILOT), 'sanity: pilot is followed before unfollowing')
   assert(watermarkStorage.getWatermark(PILOT) !== null, 'sanity: pilot has a recorded watermark before unfollowing')
 
-  // The exact sequence useFollowPilot's toggle performs when isFollowed is true.
+  // The call FollowButton's click handler makes once the unfollow Server Action confirms success.
   watermarkStorage.clearWatermark(PILOT)
-  followStorage.unfollow(PILOT)
 
-  assert(!followStorage.getSnapshot().followedIds.has(PILOT), 'unfollow sequence: the pilot is no longer followed')
   assert(
     watermarkStorage.getWatermark(PILOT) === null,
     'unfollow sequence: the watermark is dropped — refollowing this pilot later will show their whole history as new again, not silently skip it',

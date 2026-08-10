@@ -1,13 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { FollowButton } from '@/components/follow-button'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
+import type { PilotId } from '@/lib/flightlog/types'
 
 type StatsLeaderboardProps = {
   stats: ResolvedClubStats[]
+  // Resolved once server-side by the page (see resolve-viewer-follow-state.ts) and passed down
+  // as a plain array, since a 'use client' component can only receive serializable props from
+  // its Server Component parent — converted to a Set once here (useMemo) for O(1) row lookups
+  // rather than re-scanning the array per row.
+  isSignedIn: boolean
+  followedPilotIds: PilotId[]
 }
 
 const COLUMNS: { key: ClubStatsSortKey; label: string }[] = [
@@ -36,9 +43,10 @@ function nextSort(current: { key: ClubStatsSortKey; direction: SortDirection }, 
 // extra to keep in sync.
 const DEFAULT_SORT: { key: ClubStatsSortKey; direction: SortDirection } = { key: 'flights', direction: 'desc' }
 
-export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
+export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsLeaderboardProps) {
   const [sort, setSort] = useState(DEFAULT_SORT)
   const rows = sortResolvedStats(stats, sort.key, sort.direction)
+  const followedPilotIdSet = useMemo(() => new Set(followedPilotIds), [followedPilotIds])
 
   if (stats.length === 0) {
     return (
@@ -75,7 +83,12 @@ export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <StatsRow key={row.userId ?? `${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`} row={row} />
+            <StatsRow
+              key={row.userId ?? `${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`}
+              row={row}
+              isFollowed={row.userId !== null && followedPilotIdSet.has(row.userId)}
+              isSignedIn={isSignedIn}
+            />
           ))}
         </tbody>
       </table>
@@ -93,7 +106,7 @@ export function StatsLeaderboard({ stats }: StatsLeaderboardProps) {
 // null` alone can't tell a genuine zero-match from an ambiguous multi-match apart. A `title`
 // alone is also not enough signal — invisible on touch, never focusable, not announced by a
 // screen reader — so the same explanation is repeated as visible text via `sr-only`.
-function StatsRow({ row }: { row: ResolvedClubStats }) {
+function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isFollowed: boolean; isSignedIn: boolean }) {
   return (
     <tr className="border-b border-black/5 dark:border-white/10">
       <td className="py-2 pr-4">
@@ -111,7 +124,11 @@ function StatsRow({ row }: { row: ResolvedClubStats }) {
       <td className="py-2 pr-4 text-right">{row.flights}</td>
       <td className="py-2 pr-4 text-right">{row.distanceKm.toFixed(1)}</td>
       <td className="py-2 pr-4 text-right">{row.hours.toFixed(1)}</td>
-      <td className="py-2">{row.userId !== null && <FollowButton pilotId={row.userId} variant="compact" />}</td>
+      <td className="py-2">
+        {row.userId !== null && (
+          <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={row.userId} variant="compact" />
+        )}
+      </td>
     </tr>
   )
 }

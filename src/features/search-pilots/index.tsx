@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { FollowButton } from '@/components/follow-button'
-import type { PilotSearchResult } from '@/lib/flightlog/types'
+import type { PilotId, PilotSearchResult } from '@/lib/flightlog/types'
 
 type SearchPilotsProps = {
   query: string
@@ -9,9 +9,13 @@ type SearchPilotsProps = {
   // from a real zero-match search, which is `[]`. The page decides which this is (see
   // pilots/search/page.tsx) by checking isValidSearchQuery before ever calling searchPilots.
   results: PilotSearchResult[] | null
+  // Resolved once server-side by the page (see resolve-viewer-follow-state.ts), scoped to this
+  // result set's own userIds.
+  isSignedIn: boolean
+  followedPilotIds: PilotId[]
 }
 
-export default function SearchPilots({ query, minLength, results }: SearchPilotsProps) {
+export default function SearchPilots({ query, minLength, results, isSignedIn, followedPilotIds }: SearchPilotsProps) {
   return (
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -19,7 +23,13 @@ export default function SearchPilots({ query, minLength, results }: SearchPilots
         <p className="text-sm opacity-70">Search flightlog.org pilots by name.</p>
       </header>
       <SearchForm query={query} />
-      <SearchStatus query={query} minLength={minLength} results={results} />
+      <SearchStatus
+        query={query}
+        minLength={minLength}
+        results={results}
+        isSignedIn={isSignedIn}
+        followedPilotIds={new Set(followedPilotIds)}
+      />
     </section>
   )
 }
@@ -54,10 +64,14 @@ function SearchStatus({
   query,
   minLength,
   results,
+  isSignedIn,
+  followedPilotIds,
 }: {
   query: string
   minLength: number
   results: PilotSearchResult[] | null
+  isSignedIn: boolean
+  followedPilotIds: ReadonlySet<PilotId>
 }) {
   if (query.trim() === '') return null
 
@@ -77,10 +91,18 @@ function SearchStatus({
     )
   }
 
-  return <ResultsTable results={results} />
+  return <ResultsTable results={results} isSignedIn={isSignedIn} followedPilotIds={followedPilotIds} />
 }
 
-function ResultsTable({ results }: { results: PilotSearchResult[] }) {
+function ResultsTable({
+  results,
+  isSignedIn,
+  followedPilotIds,
+}: {
+  results: PilotSearchResult[]
+  isSignedIn: boolean
+  followedPilotIds: ReadonlySet<PilotId>
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -101,7 +123,12 @@ function ResultsTable({ results }: { results: PilotSearchResult[] }) {
               </td>
               <td className="py-2 pr-4">{result.country}</td>
               <td className="py-2">
-                <FollowButton pilotId={result.userId} variant="compact" />
+                <FollowButton
+                  isFollowed={followedPilotIds.has(result.userId)}
+                  isSignedIn={isSignedIn}
+                  pilotId={result.userId}
+                  variant="compact"
+                />
               </td>
             </tr>
           ))}
