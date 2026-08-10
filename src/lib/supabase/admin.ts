@@ -1,3 +1,9 @@
+// Reads process.env.SUPABASE_SERVICE_ROLE_KEY, which has no NEXT_PUBLIC_ prefix and is
+// therefore never in the client bundle's env shim — importing this from a 'use client' module
+// would silently degrade at runtime instead of failing loud. 'server-only' turns that mistake
+// into a build/dev-time error instead.
+import 'server-only'
+
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 export type SupabaseAdminEnv = { url: string; serviceRoleKey: string }

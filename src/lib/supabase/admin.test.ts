@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// admin.ts imports 'server-only' directly, which throws on plain import outside a
+// react-server bundling context — mock it so this test can exercise admin.ts's own contract.
+vi.mock('server-only', () => ({}))
+
 import { createAdminClient, getSupabaseAdminEnv, requireSupabaseAdminEnv } from './admin'
 
 afterEach(() => {
