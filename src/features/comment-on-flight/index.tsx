@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getComments } from '@/lib/comments/get-comments'
 import type { Comment } from '@/lib/comments/types'
 import { CommentComposer } from './comment-composer'
+import { CommentItem } from './comment-item'
 
 type CommentsOnFlightProps = { tripId: number }
 
@@ -14,18 +15,31 @@ export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps
   if (!getSupabaseEnv()) return null
 
   const supabase = await createClient()
-  const comments = await getComments(supabase, tripId)
+  const [comments, viewerUserId] = await Promise.all([getComments(supabase, tripId), getViewerUserId(supabase)])
 
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold tracking-tight">Comments</h2>
-      <CommentList comments={comments} />
+      <CommentList comments={comments} tripId={tripId} viewerUserId={viewerUserId} />
       <CommentComposer tripId={tripId} />
     </section>
   )
 }
 
-function CommentList({ comments }: { comments: Comment[] }) {
+// Server-side, once per page render, not client-side via a per-item auth subscription (see
+// comment-item.tsx's doc comment) — this component already fetches comments live for this
+// request (getComments, above) and sits in its own Suspense boundary on the flight page, so
+// resolving the viewer here doesn't add a new dynamic hole; it's already one.
+async function getViewerUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  return user?.id ?? null
+}
+
+type CommentListProps = { comments: Comment[]; tripId: number; viewerUserId: string | null }
+
+function CommentList({ comments, tripId, viewerUserId }: CommentListProps) {
   if (comments.length === 0) {
     return <p className="text-sm opacity-70">No comments yet.</p>
   }
@@ -33,15 +47,8 @@ function CommentList({ comments }: { comments: Comment[] }) {
   return (
     <ul className="flex flex-col gap-3">
       {comments.map((comment) => (
-        <li key={comment.id} className="rounded-md border border-black/10 p-3 text-sm dark:border-white/15">
-          <p>{comment.body}</p>
-          <p className="mt-1 text-xs opacity-60">{formatCommentDate(comment.createdAt)}</p>
-        </li>
+        <CommentItem key={comment.id} comment={comment} isOwnComment={comment.userId === viewerUserId} tripId={tripId} />
       ))}
     </ul>
   )
-}
-
-function formatCommentDate(createdAt: string): string {
-  return new Date(createdAt).toLocaleString()
 }
