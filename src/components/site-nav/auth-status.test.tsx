@@ -66,6 +66,16 @@ describe('AuthStatus', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
   })
 
+  it('links the signed-in email to the account page', () => {
+    stubAuthStateChange()
+    render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+
+    const link = screen.getByRole('link', { name: 'pilot@example.com' })
+    expect(link.getAttribute('href')).toBe('/account')
+  })
+
   it('updates back to signed-out when a later event reports no session, even after being signed in', () => {
     stubAuthStateChange()
     render(<AuthStatus />)

@@ -25,6 +25,7 @@ export function CommentItem({ comment, isOwnComment, tripId }: CommentItemProps)
 
   return (
     <li className="rounded-md border border-black/10 p-3 text-sm dark:border-white/15">
+      <p className="text-xs font-medium opacity-70">{comment.displayName ?? 'Anonymous'}</p>
       <p>{comment.body}</p>
       <div className="mt-1 flex items-center justify-between gap-2">
         <p className="text-xs opacity-60">{formatCommentDate(comment.createdAt)}</p>

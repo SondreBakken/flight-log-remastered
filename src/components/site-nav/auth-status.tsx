@@ -57,7 +57,9 @@ export default function AuthStatus() {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="opacity-70">{state.email}</span>
+      <Link className="opacity-70 underline-offset-2 hover:underline" href="/account">
+        {state.email}
+      </Link>
       <form action="/api/auth/sign-out" method="post">
         <button className="underline-offset-2 hover:underline" type="submit">
           Sign out
