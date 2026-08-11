@@ -24,10 +24,11 @@ type PilotIdFormProps = {
 export function PilotIdForm({ initialPilotId }: PilotIdFormProps) {
   const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
-  // Shown once a pilot id is on record — either already loaded on mount, or just saved by this
-  // submission — not on every idle render, so a first-time visitor with nothing linked yet
-  // doesn't see a note about a link that doesn't exist.
-  const showUnverifiedNote = state.status === 'success' || (state.status === 'idle' && initialPilotId != null)
+  // Shown whenever a pilot id is on record — either already loaded on mount, just saved by this
+  // submission, or still on record despite an unrelated failed resubmission — not on every idle
+  // render, so a first-time visitor with nothing linked yet doesn't see a note about a link that
+  // doesn't exist.
+  const showUnverifiedNote = state.status === 'success' || initialPilotId != null
 
   return (
     <form action={formAction} className="flex max-w-sm flex-col gap-2">

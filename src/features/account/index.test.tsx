@@ -67,6 +67,17 @@ describe('AccountSettings', () => {
     expect(mockGetDisplayNames).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
   })
 
+  it("prefills the flightlog pilot id input with the signed-in user's existing pilot id, once it loads", async () => {
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    expect(await screen.findByDisplayValue('12677')).toBeTruthy()
+    expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
+  })
+
   it('leaves the input blank when the signed-in user has no display name yet', async () => {
     stubAuthStateChange()
 

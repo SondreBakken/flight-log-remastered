@@ -226,6 +226,12 @@ assertEqual(
   "the fallback name must match THIS pilot id specifically — a mutant that ignores pilotId (e.g. hardcodes a template or compares the wrong id) would wrongly match another pilot's fallback name",
 )
 
+assertEqual(
+  isFallbackPilot(999, { userId: 12345, name: 'Pilot 12345', country: null, club: null }),
+  false,
+  'a pilot whose own userId does not match the pilotId argument is not the fallback for that pilotId — a mutant that reads pilot.userId instead of the pilotId parameter would wrongly match here, since every other fixture happens to have pilot.userId === pilotId',
+)
+
 // --- getFlightlogPilotIds ---
 
 {

@@ -11,6 +11,7 @@ import { pilotIdFormStateFor, type PilotIdFormState } from './pilot-id-form-stat
 const SIGN_IN_MESSAGE = 'Sign in to set a display name.'
 const GENERIC_ERROR_MESSAGE = 'Something went wrong saving your display name. Try again.'
 const PILOT_ID_SIGN_IN_MESSAGE = 'Sign in to link your flightlog.org pilot id.'
+const PILOT_ID_GENERIC_ERROR_MESSAGE = 'Something went wrong saving your flightlog.org pilot id. Try again.'
 
 // Mirrors comment-on-flight/actions.ts's submitComment: try/catch around createClient() so a
 // missing Supabase config becomes a generic error rather than a crash, and getUser() re-derives
@@ -58,7 +59,7 @@ export async function saveFlightlogPilotId(_prevState: PilotIdFormState, formDat
     supabase = await createClient()
   } catch (error) {
     console.error('[account] Supabase is not configured:', error)
-    return pilotIdFormStateFor({ kind: 'db-error', message: GENERIC_ERROR_MESSAGE })
+    return pilotIdFormStateFor({ kind: 'db-error', message: PILOT_ID_GENERIC_ERROR_MESSAGE })
   }
 
   const {
