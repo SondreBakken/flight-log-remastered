@@ -5,6 +5,7 @@ import AccountSettings from './index'
 const mockOnAuthStateChange = vi.fn()
 const mockGetSupabaseEnv = vi.fn()
 const mockGetDisplayNames = vi.fn()
+const mockGetFlightlogPilotIds = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -20,8 +21,16 @@ vi.mock('@/lib/profiles/get-display-names', () => ({
   getDisplayNames: (...args: unknown[]) => mockGetDisplayNames(...args),
 }))
 
+// PilotIdForm's own prefill hook, mirroring get-display-names.ts's mock above — without this,
+// useOwnFlightlogPilotId's createClient().from(...) call would hit the client mock above, which
+// only stubs .auth, not a query builder.
+vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
+  getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
+}))
+
 vi.mock('./actions', () => ({
   saveDisplayName: vi.fn(),
+  saveFlightlogPilotId: vi.fn(),
 }))
 
 // Same seam as comment-on-flight/comment-composer.test.tsx (use-signed-in-user.ts mirrors
@@ -43,6 +52,7 @@ function emitAuthStateChange(session: { user: { id: string } } | null) {
 beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
   mockGetDisplayNames.mockResolvedValue(new Map())
+  mockGetFlightlogPilotIds.mockResolvedValue(new Map())
 })
 
 describe('AccountSettings', () => {
