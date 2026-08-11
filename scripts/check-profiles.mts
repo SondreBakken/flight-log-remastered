@@ -54,7 +54,7 @@ function project<T extends Record<string, unknown>>(row: T, columns: string): T 
 
 function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   const rows: FakeProfileRow[] = [...seedRows]
-  let forcedSelectError: { message: string } | null = null
+  let forcedSelectError: { message: string; code?: string } | null = null
   let forcedUpsertError: { message: string } | null = null
   let upsertCalls = 0
 
@@ -65,7 +65,7 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
         if (column === 'user_id') userIdFilter = values as string[]
         return query
       },
-      then(resolve: (result: { data: FakeProfileRow[] | null; error: { message: string } | null }) => void) {
+      then(resolve: (result: { data: FakeProfileRow[] | null; error: { message: string; code?: string } | null }) => void) {
         if (forcedSelectError) {
           resolve({ data: null, error: forcedSelectError })
           return
@@ -113,8 +113,8 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   return {
     client: client as unknown as SupabaseClient,
     rows,
-    forceSelectError(message: string): void {
-      forcedSelectError = { message }
+    forceSelectError(message: string, code?: string): void {
+      forcedSelectError = { message, code }
     },
     forceUpsertError(message: string): void {
       forcedUpsertError = { message }
@@ -300,6 +300,53 @@ assertEqual(
   fake.forceSelectError('connection refused')
   const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
   assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds returns an empty Map, not a thrown exception, when the query fails')
+}
+
+// #146: a 42703 (undefined_column) error means the flightlog_pilot_id migration hasn't been
+// applied — this must log a distinct message naming the migration, not the generic failure log,
+// so the two situations aren't indistinguishable in production logs.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
+  fake.forceSelectError('column "flightlog_pilot_id" does not exist', '42703')
+  const loggedErrors: unknown[][] = []
+  const originalConsoleError = console.error
+  console.error = (...args: unknown[]) => loggedErrors.push(args)
+  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
+  console.error = originalConsoleError
+
+  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds still returns an empty Map on a 42703 error, unchanged return contract')
+  const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
+  assert(
+    loggedText.includes('20260811010000_add_flightlog_pilot_id_to_profiles.sql'),
+    'a 42703 error logs the specific unapplied migration by name, not a generic error message',
+  )
+  assert(
+    !loggedText.includes('failed to load flightlog pilot ids'),
+    'a 42703 error does NOT also fall through to the generic log message',
+  )
+}
+
+// Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
+// still hit the existing generic log-and-empty-Map path unchanged.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
+  fake.forceSelectError('connection refused', '08006')
+  const loggedErrors: unknown[][] = []
+  const originalConsoleError = console.error
+  console.error = (...args: unknown[]) => loggedErrors.push(args)
+  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
+  console.error = originalConsoleError
+
+  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds returns an empty Map on a non-42703 error too')
+  const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
+  assert(
+    loggedText.includes('failed to load flightlog pilot ids'),
+    'an error code other than 42703 falls through to the generic log message, unchanged',
+  )
+  assert(
+    !loggedText.includes('20260811010000_add_flightlog_pilot_id_to_profiles.sql'),
+    'an error code other than 42703 does not wrongly claim the migration is missing',
+  )
 }
 
 // --- updateFlightlogPilotId ---
