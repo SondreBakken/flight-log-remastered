@@ -110,11 +110,25 @@ difference property.
 headless browser against a running app, so they are deliberately **not** part of `pnpm run check`
 or any other automated gate — there is nothing in this repo that starts a server, waits for it,
 and tears it down again. Run them by hand after touching the relevant feature. `verify-map.mts`
-and `verify-feed.mts` are the only two that run against `pnpm dev` (e.g. `pnpm exec tsx
-scripts/verify-feed.mts`). Three of `verify-feed.mts`'s four scenarios (pilot-with-track,
-pilot-without-track, failure-surfacing) currently fail: the follow list moved server-side and the
-script still seeds it via localStorage — see the comment at `scripts/verify-feed.mts:5-13` and
-#128, which tracks the full rewrite. `verify-takeoffs.mts`, `verify-sites-map.mts` and
+and `verify-feed.mts` are the only two that run against `pnpm dev`. `verify-feed.mts` seeds its
+signed-in scenarios (pilot-with-track, pilot-without-track, failure-surfacing) through a real
+authenticated Supabase session rather than the deleted localStorage follow-store — a service-role
+admin client (`src/lib/supabase/admin.ts`, #131) mints a single-use OTP for a stable test user via
+`generateLink`, and a browser-side module (bundled with esbuild, run in-page via
+`page.addScriptTag`) constructs the app's own `createBrowserClient` and calls `verifyOtp` with it,
+which is what makes `@supabase/ssr` write the real session cookie. No visit to `/auth/callback` is
+involved: a magic-link redirect through that route needs the PKCE code-verifier cookie a real
+email click sets before the browser ever navigates there, which Playwright driving the link
+directly never has. The script then writes/clears rows directly in the `follows` table between
+scenarios. See the module doc comment
+at the top of `scripts/verify-feed.mts` for the full mechanism. Because it needs Supabase
+credentials in its own Node process and imports a `server-only`-gated module, run it with:
+
+```bash
+pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
+```
+
+`verify-takeoffs.mts`, `verify-sites-map.mts` and
 `verify-flown-sites.mts` must run against `pnpm run build && pnpm run start`, never `pnpm dev`.
 Dev can still serve the page, just differently: it would re-run `getTakeoffs`/`getRegions` against
 flightlog.org live instead of exercising the prerendered static takeoffs artifact

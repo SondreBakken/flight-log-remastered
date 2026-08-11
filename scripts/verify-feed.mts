@@ -1,16 +1,41 @@
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { chromium, type Page } from 'playwright'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
+import { createAdminClient } from '../src/lib/supabase/admin'
+import { requireSupabaseEnv } from '../src/lib/supabase/env'
 
-// STALE as of #115: the follow list moved server-side (supabase/migrations/
-// 20260810020000_create_follows.sql) — src/lib/follow-store/storage.ts, the localStorage module
-// seedFollowedPilots below writes to, no longer exists, and the feed (src/features/browse-
-// flight-feed/index.tsx) now resolves the viewer's followed pilots from Supabase, not
-// localStorage. Every scenario below that seeds via localStorage will now read back as
-// "following 0 pilots", regardless of what's seeded. Left as-is rather than rewritten: fixing
-// this for real needs an authenticated Playwright session (a signed-in Supabase user with real
-// `follows` rows), which is out of this issue's scope and needs its own design — see #115's own
-// follow-up notes. Not part of `pnpm run check` (see docs/testing.md), so this doesn't block CI.
+// Follow state is seeded through a REAL authenticated Supabase session, not the deleted
+// localStorage follow-store (#115 left this stale; #131/#132 replace it): src/lib/follow-
+// store/storage.ts no longer exists, and the feed (src/features/browse-flight-feed/index.tsx)
+// resolves the viewer's followed pilots from the `follows` table (supabase/migrations/
+// 20260810020000_create_follows.sql), keyed on their Supabase auth session, not localStorage.
+// This script signs in a stable test user for real, then writes/clears rows directly in
+// `follows` between scenarios via the service-role admin client (RLS is owner-only; the
+// service-role key bypasses it by design). Scenario 1 (empty state) runs BEFORE the sign-in
+// step below it, specifically so it stays a genuine signed-out visitor rather than a signed-in
+// user who happens to follow nobody.
+//
+// Signing in does NOT go through the app's /auth/callback route (a magic-link redirect through
+// that route needs the PKCE code-verifier cookie a real email click sets before the browser
+// ever navigates there — Playwright driving `generateLink`'s action_link directly has no such
+// cookie, so the code exchange fails). Instead: `generateLink` (src/lib/supabase/admin.ts, #131)
+// mints a single-use numeric OTP for the test user, and a bundled browser-side module — the
+// app's own createBrowserClient(url, anonKey) (see src/lib/supabase/client.ts) — calls
+// `verifyOtp` with it from INSIDE the page via `page.addScriptTag`. That's what makes
+// @supabase/ssr's storage adapter write the real sb-*-auth-token cookie; there is no
+// server-side equivalent that gets a Playwright BrowserContext into the same state. See
+// signInAsTestUser below for the full mechanism.
+//
+// Run with:
+//   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
+// --env-file loads Supabase's service-role credentials into THIS script's own Node process —
+// Next's dev server loads .env.local for itself, not for a separate `tsx` invocation.
+// --conditions=react-server is required because src/lib/supabase/admin.ts imports 'server-only',
+// which throws under plain Node ESM resolution outside Next's own bundler-set condition; the
+// flag makes Node's resolver pick server-only's no-op react-server export instead.
 
 // Real pilot ids from the flightlog.org fixture set (see docs/testing.md): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
@@ -22,10 +47,6 @@ import { waitForCondition } from './lib/verify-settle'
 const url = process.argv[2] ?? 'http://localhost:3000'
 const out = process.argv[3] ?? 'verify-feed.png'
 
-// The exact key follow-store/storage.ts reads and writes — seeding through this key,
-// not inventing a second storage format, is what makes this a genuine test of the real
-// store rather than of a fixture that only looks like it.
-const FOLLOW_STORE_KEY = 'flight-log:followed-pilots'
 const PILOT_WITH_TRACK = 4549
 const PILOT_WITHOUT_KNOWN_TRACK = 12677
 // Arbitrary id not otherwise used in this script; its /api response is intercepted (see
@@ -33,7 +54,112 @@ const PILOT_WITHOUT_KNOWN_TRACK = 12677
 const FAILING_PILOT_ID = 555555
 const FAILING_PILOT_MESSAGE = 'could not load recent flights for pilot 555555 (simulated for this check)'
 
+// Obviously-fake, stable across runs: generateLink reuses the same auth.users row for this
+// email every time instead of accumulating a fresh throwaway user per run.
+const TEST_USER_EMAIL = 'verify-feed-script@example.test'
+
 const { report, finish } = createReporter()
+const adminClient = createAdminClient()
+
+// Guards against confusing mid-run failures if migrations haven't actually been applied to
+// whatever Supabase project this script's env points at — see get-followed-pilot-ids.ts for
+// the same table this reads from at runtime.
+async function checkFollowsTableExists(): Promise<void> {
+  const { error } = await adminClient.from('follows').select('user_id').limit(1)
+  if (error?.code === '42P01') {
+    console.error(
+      'the `follows` table does not exist in this Supabase project — apply supabase/migrations before running this script.',
+    )
+    process.exit(1)
+  }
+}
+
+// generateLink neither sends an email nor requires one to already exist — it provisions the
+// auth.users row on first call and returns the same one on every later call for this email, so
+// this doubles as "resolve the test user's id" and "mint this run's sign-in OTP" in one call.
+// email_otp is single-use: this must be called once per script run, not once per scenario.
+async function resolveTestUser(): Promise<{ userId: string; emailOtp: string }> {
+  const { data, error } = await adminClient.auth.admin.generateLink({
+    type: 'magiclink',
+    email: TEST_USER_EMAIL,
+  })
+  if (error || !data.user?.id || !data.properties?.email_otp) {
+    console.error(`could not provision the verify-feed test user via generateLink: ${error?.message ?? 'no user/email_otp returned'}`)
+    process.exit(1)
+  }
+  return { userId: data.user.id, emailOtp: data.properties.email_otp }
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+// Bundles a browser-side module that constructs the app's own @supabase/ssr browser client
+// (mirrors src/lib/supabase/client.ts's createBrowserClient(url, anonKey) call) and calls
+// verifyOtp with the one-time code from resolveTestUser. Piped through stdin rather than a temp
+// file: esbuild resolves stdin's bare imports (here, '@supabase/ssr') against `cwd`, so running
+// it with cwd: repoRoot reaches this project's node_modules with nothing written to disk to
+// clean up afterwards.
+function bundleSignInScript(email: string, otp: string): string {
+  const { url: supabaseUrl, anonKey } = requireSupabaseEnv()
+  const entry = `
+import { createBrowserClient } from '@supabase/ssr'
+
+async function signIn() {
+  try {
+    const client = createBrowserClient(${JSON.stringify(supabaseUrl)}, ${JSON.stringify(anonKey)})
+    const { error } = await client.auth.verifyOtp({
+      email: ${JSON.stringify(email)},
+      token: ${JSON.stringify(otp)},
+      type: 'email',
+    })
+    window.__verifyOtpResult = { done: true, error: error ? error.message : null }
+  } catch (err) {
+    window.__verifyOtpResult = { done: true, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+signIn()
+`
+  return execFileSync('pnpm', ['exec', 'esbuild', '--bundle', '--format=iife', '--platform=browser'], {
+    cwd: repoRoot,
+    input: entry,
+    encoding: 'utf8',
+  })
+}
+
+type VerifyOtpResult = { done: boolean; error: string | null }
+
+// Signs in for real, in the page, not through any redirect: navigates to the app's own origin
+// first (so the cookie @supabase/ssr sets attaches to the right domain), injects the bundled
+// verifyOtp call, and waits for it to finish before trusting a session exists. Confirmed twice:
+// verifyOtp's own resolved error (the thing that actually gates the cookie write) and, directly,
+// the sb-*-auth-token cookie itself landing in this browser context.
+async function signInAsTestUser(page: Page, email: string, otp: string): Promise<void> {
+  const bundledScript = bundleSignInScript(email, otp)
+
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await page.addScriptTag({ content: bundledScript })
+  const settled = await waitForCondition(
+    page,
+    () => (window as unknown as { __verifyOtpResult?: VerifyOtpResult }).__verifyOtpResult?.done === true,
+    20000,
+  )
+  if (!settled) {
+    console.error('verify-feed test user sign-in failed: verifyOtp never completed within the timeout')
+    process.exit(1)
+  }
+  const result = await page.evaluate(
+    () => (window as unknown as { __verifyOtpResult: VerifyOtpResult }).__verifyOtpResult,
+  )
+
+  if (result.error) {
+    console.error(`verify-feed test user sign-in failed: verifyOtp returned an error: ${result.error}`)
+    process.exit(1)
+  }
+
+  const cookies = await page.context().cookies()
+  const sessionCookie = cookies.find((c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
+  report(sessionCookie !== undefined, `sign-in: a Supabase session cookie (${sessionCookie?.name ?? 'none found'}) was set after verifyOtp`)
+}
 
 // Replaces the previous `.catch(() => {})` swallowing: a timed-out wait is now itself a
 // reported failure instead of silently letting the assertions after it run against
@@ -54,11 +180,20 @@ function isFeedSettled(): boolean {
   return hasRows || hasEmptyText
 }
 
-async function seedFollowedPilots(page: Page, ids: number[]): Promise<void> {
-  await page.evaluate(
-    ({ key, ids }) => window.localStorage.setItem(key, JSON.stringify(ids)),
-    { key: FOLLOW_STORE_KEY, ids },
-  )
+// Replaces whatever this test user follows with exactly `pilotIds`, then reloads so the
+// server component (which resolves follows on the request, not client-side) picks up the new
+// state — the same round-trip a real visitor clicking follow/unfollow would cause.
+async function seedFollowedPilots(page: Page, userId: string, pilotIds: number[]): Promise<void> {
+  const { error: deleteError } = await adminClient.from('follows').delete().eq('user_id', userId)
+  if (deleteError) throw new Error(`failed to clear follows for test user ${userId}: ${deleteError.message}`)
+
+  if (pilotIds.length > 0) {
+    const { error: insertError } = await adminClient
+      .from('follows')
+      .insert(pilotIds.map((pilotId) => ({ user_id: userId, pilot_id: pilotId })))
+    if (insertError) throw new Error(`failed to seed follows for test user ${userId}: ${insertError.message}`)
+  }
+
   await page.reload({ waitUntil: 'domcontentloaded' })
 }
 
@@ -98,6 +233,12 @@ function reportRowInvariants(rows: RowInfo[], scenarioLabel: string): void {
     `${scenarioLabel}: every row belongs to the one followed pilot (distinct names seen: ${[...distinctPilotNames].join(', ')})`,
   )
 }
+
+await checkFollowsTableExists()
+const { userId: testUserId, emailOtp } = await resolveTestUser()
+// Idempotent re-run safety: clear out anything a previous (possibly aborted) run left behind
+// before scenario 1, not just between scenarios below.
+await adminClient.from('follows').delete().eq('user_id', testUserId)
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 1400 } })
@@ -145,10 +286,18 @@ report(emptyStateText, 'empty state renders explaining text when nothing is foll
 report(emptyStateHasRealLink, 'empty state links to a real /pilots/[userId] route, not a dead link')
 reportNoUnexpectedFailures('empty state')
 
+// --- Sign in for real, on the SAME page/context, only now that scenario 1 (which needs a
+// genuinely signed-out visitor) is done. See signInAsTestUser's own doc comment for the
+// verifyOtp mechanism this relies on. ---
+
+resetCapture()
+await signInAsTestUser(page, TEST_USER_EMAIL, emailOtp)
+reportNoUnexpectedFailures('sign-in')
+
 // --- 2. Following ONLY the pilot with a known GPS track ---
 
 resetCapture()
-await seedFollowedPilots(page, [PILOT_WITH_TRACK])
+await seedFollowedPilots(page, testUserId, [PILOT_WITH_TRACK])
 const trackScenarioReady = await waitForOrReport(
   page,
   isFeedSettled,
@@ -164,13 +313,21 @@ if (trackScenarioReady) {
     trackedRows.every((r) => r.href?.startsWith('/flights/') ?? false),
     `pilot-with-track: EVERY row with a track link points at /flights/[tripId] (hrefs: ${trackedRows.map((r) => r.href).join(', ')})`,
   )
+  // A second, independent confirmation of sign-in (the cookie check in signInAsTestUser is the
+  // first) taken from the SAME reload seedFollowedPilots already did: src/components/site-nav/
+  // auth-status.tsx renders the signed-in user's email once its own client picks up the
+  // session, which this scenario's page.reload() is exactly the kind of navigation that lets it
+  // do — proof the follows this scenario just seeded were actually attributed to a real signed-
+  // in viewer, not a signed-out one that happens to see rows some other way.
+  const navText = await page.evaluate(() => document.body.textContent ?? '')
+  report(navText.includes(TEST_USER_EMAIL), 'pilot-with-track: the site nav shows the signed-in test user\'s email')
   reportNoUnexpectedFailures('pilot-with-track')
 }
 
 // --- 3. Following ONLY the pilot with no known GPS track ---
 
 resetCapture()
-await seedFollowedPilots(page, [PILOT_WITHOUT_KNOWN_TRACK])
+await seedFollowedPilots(page, testUserId, [PILOT_WITHOUT_KNOWN_TRACK])
 const noTrackScenarioReady = await waitForOrReport(
   page,
   isFeedSettled,
@@ -197,7 +354,7 @@ resetCapture()
 await page.route(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`, (route) =>
   route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: FAILING_PILOT_MESSAGE }) }),
 )
-await seedFollowedPilots(page, [PILOT_WITH_TRACK, FAILING_PILOT_ID])
+await seedFollowedPilots(page, testUserId, [PILOT_WITH_TRACK, FAILING_PILOT_ID])
 const failureScenarioReady = await waitForOrReport(
   page,
   isFeedSettled,
@@ -223,6 +380,10 @@ if (failureScenarioReady) {
   )
 }
 await page.unroute(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`)
+
+// Leaves the test user's auth.users row in place (harmless, reused next run) but not garbage
+// follows rows.
+await adminClient.from('follows').delete().eq('user_id', testUserId)
 
 console.log('final logs:', logs.length ? logs : 'none')
 // Plain `fullPage: true`, not scripts/lib/screenshot.ts's capture: this page has no WebGL
