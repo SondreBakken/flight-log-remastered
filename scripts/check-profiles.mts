@@ -40,13 +40,25 @@ function assert(condition: boolean, label: string): void {
 // exercising.
 type FakeProfileRow = { user_id: string; display_name?: string | null; flightlog_pilot_id?: number | null }
 
+// Projects a row down to exactly the columns a `.select('a, b, c')` call asked for, mirroring
+// PostgREST's own column-list behavior. Without this, narrowing or dropping a select's column
+// list in the real implementation would still return full rows here and pass green — a select
+// mistake is otherwise invisible to this fake. Same fix as scripts/check-account-activity.mts's
+// and scripts/check-comments.mts's own project().
+function project<T extends Record<string, unknown>>(row: T, columns: string): T {
+  const keys = columns.split(',').map((column) => column.trim())
+  const picked = {} as Record<string, unknown>
+  for (const key of keys) picked[key] = row[key]
+  return picked as T
+}
+
 function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   const rows: FakeProfileRow[] = [...seedRows]
   let forcedSelectError: { message: string } | null = null
   let forcedUpsertError: { message: string } | null = null
   let upsertCalls = 0
 
-  function makeSelectQuery() {
+  function makeSelectQuery(columns: string) {
     let userIdFilter: string[] | null = null
     const query = {
       in(column: string, values: unknown) {
@@ -59,7 +71,7 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
           return
         }
         const matching = rows.filter((row) => userIdFilter === null || userIdFilter.includes(row.user_id))
-        resolve({ data: matching, error: null })
+        resolve({ data: matching.map((row) => project(row, columns)), error: null })
       },
     }
     return query
@@ -69,8 +81,8 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
     from(table: string) {
       if (table !== 'profiles') throw new Error(`unexpected table: ${table}`)
       return {
-        select() {
-          return makeSelectQuery()
+        select(columns: string) {
+          return makeSelectQuery(columns)
         },
         // Mirrors update-display-name.ts's/update-flightlog-pilot-id.ts's real calls: a single
         // upsert, keyed on user_id, that has to cover both "no row yet" (insert) and "row
@@ -142,6 +154,18 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   fake.forceSelectError('connection refused')
   const names = await getDisplayNames(fake.client, ['user-a'])
   assertEqual([...names.entries()], [], 'getDisplayNames returns an empty Map, not a thrown exception, when the query fails')
+}
+
+// Mutation guard: dropping `display_name` from getDisplayNames's own select() list would leave
+// it undefined here, since the fake now actually projects rows down to the requested columns
+// instead of returning full rows regardless of what was selected.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
+  const names = await getDisplayNames(fake.client, ['user-a'])
+  assert(
+    names.get('user-a') === 'Alex',
+    "getDisplayNames mutation guard: display_name is populated from the select's own columns, not left undefined by a narrowed select",
+  )
 }
 
 // --- updateDisplayName ---
@@ -254,6 +278,21 @@ assertEqual(
   const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
   const pilotIds = await getFlightlogPilotIds(fake.client, [])
   assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds short-circuits to an empty Map without querying, given no user ids')
+}
+
+// Mutation guard: dropping `flightlog_pilot_id` from getFlightlogPilotIds's own select() list
+// would leave it undefined here, since the fake now actually projects rows down to the requested
+// columns instead of returning full rows regardless of what was selected. This is the scenario
+// that used to pass check:profiles green while silently breaking every user's pilot-id lookup in
+// production (falls through to "not linked" for everyone) — see check-profiles.mts's own
+// project() doc comment.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
+  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
+  assert(
+    pilotIds.get('user-a') === 12677,
+    "getFlightlogPilotIds mutation guard: flightlog_pilot_id is populated from the select's own columns, not left undefined by a narrowed select",
+  )
 }
 
 {

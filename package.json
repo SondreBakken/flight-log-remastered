@@ -23,8 +23,9 @@
     "check:clubs-prerender": "tsx scripts/check-clubs-prerender.mts",
     "check:comments": "tsx scripts/check-comments.mts",
     "check:profiles": "tsx scripts/check-profiles.mts",
+    "check:account-activity": "tsx scripts/check-account-activity.mts",
     "test": "vitest run",
-    "check": "tsc --noEmit && pnpm check:verify-waits && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:scoring && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:watermark-store && pnpm check:seen-trip-store && pnpm check:request-gate && pnpm check:takeoffs-prerender && pnpm check:clubs-prerender && pnpm check:comments && pnpm check:profiles && pnpm test"
+    "check": "tsc --noEmit && pnpm check:verify-waits && pnpm check:parsers && pnpm check:barogram && pnpm check:track-gradient && pnpm check:track-hover && pnpm check:scoring && pnpm check:follow-store && pnpm check:follow-button && pnpm check:feed && pnpm check:watermark-store && pnpm check:seen-trip-store && pnpm check:request-gate && pnpm check:takeoffs-prerender && pnpm check:clubs-prerender && pnpm check:comments && pnpm check:profiles && pnpm check:account-activity && pnpm test"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
