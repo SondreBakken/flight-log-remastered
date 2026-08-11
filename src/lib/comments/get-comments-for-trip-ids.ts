@@ -61,5 +61,7 @@ export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: n
     return []
   }
 
+  // Display-name lookup, and why it's two queries rather than a PostgREST embed, lives in
+  // attachDisplayNames.
   return attachDisplayNames(supabase, data as CommentRow[], toCommentWithTripId)
 }

@@ -24,9 +24,8 @@ function toFollower(row: FollowRow, displayNames: Map<string, string | null>): F
 // would return zero rows here for anyone but the caller's own outgoing follows, no matter what
 // pilotId is passed in.
 //
-// Two queries, not one PostgREST embed — same reasoning as get-comments.ts's toComment:
-// follows.user_id and profiles.user_id both FK to auth.users independently, with no direct FK
-// between follows and profiles for PostgREST to join across in a single select.
+// Display-name lookup, and why it's two queries rather than a PostgREST embed, now lives in
+// attachDisplayNames.
 //
 // Newest follower first: nothing about "who follows me" has a natural read order the way a
 // comment thread does, so this defaults to the one people actually want to scan first.
