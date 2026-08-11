@@ -1,20 +1,33 @@
+import { execFileSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { chromium, type Page } from 'playwright'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 import { createAdminClient } from '../src/lib/supabase/admin'
+import { requireSupabaseEnv } from '../src/lib/supabase/env'
 
 // Follow state is seeded through a REAL authenticated Supabase session, not the deleted
 // localStorage follow-store (#115 left this stale; #131/#132 replace it): src/lib/follow-
 // store/storage.ts no longer exists, and the feed (src/features/browse-flight-feed/index.tsx)
 // resolves the viewer's followed pilots from the `follows` table (supabase/migrations/
 // 20260810020000_create_follows.sql), keyed on their Supabase auth session, not localStorage.
-// This script now mints a magic link for a stable test user via the service-role admin client
-// (src/lib/supabase/admin.ts, #131), drives the browser through the app's own
-// src/app/auth/callback/route.ts exactly like a real visitor would, and writes/clears rows
-// directly in `follows` between scenarios via that same admin client (RLS is owner-only;
-// the service-role key bypasses it by design). Scenario 1 (empty state) runs BEFORE the
-// sign-in step below it, specifically so it stays a genuine signed-out visitor rather than a
-// signed-in user who happens to follow nobody.
+// This script signs in a stable test user for real, then writes/clears rows directly in
+// `follows` between scenarios via the service-role admin client (RLS is owner-only; the
+// service-role key bypasses it by design). Scenario 1 (empty state) runs BEFORE the sign-in
+// step below it, specifically so it stays a genuine signed-out visitor rather than a signed-in
+// user who happens to follow nobody.
+//
+// Signing in does NOT go through the app's /auth/callback route (a magic-link redirect through
+// that route needs the PKCE code-verifier cookie a real email click sets before the browser
+// ever navigates there — Playwright driving `generateLink`'s action_link directly has no such
+// cookie, so the code exchange fails). Instead: `generateLink` (src/lib/supabase/admin.ts, #131)
+// mints a single-use numeric OTP for the test user, and a bundled browser-side module — the
+// app's own createBrowserClient(url, anonKey) (see src/lib/supabase/client.ts) — calls
+// `verifyOtp` with it from INSIDE the page via `page.addScriptTag`. That's what makes
+// @supabase/ssr's storage adapter write the real sb-*-auth-token cookie; there is no
+// server-side equivalent that gets a Playwright BrowserContext into the same state. See
+// signInAsTestUser below for the full mechanism.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
@@ -63,18 +76,89 @@ async function checkFollowsTableExists(): Promise<void> {
 
 // generateLink neither sends an email nor requires one to already exist — it provisions the
 // auth.users row on first call and returns the same one on every later call for this email, so
-// this doubles as "resolve the test user's id" and "mint this run's sign-in link" in one call.
-async function resolveTestUser(): Promise<{ userId: string; actionLink: string }> {
+// this doubles as "resolve the test user's id" and "mint this run's sign-in OTP" in one call.
+// email_otp is single-use: this must be called once per script run, not once per scenario.
+async function resolveTestUser(): Promise<{ userId: string; emailOtp: string }> {
   const { data, error } = await adminClient.auth.admin.generateLink({
     type: 'magiclink',
     email: TEST_USER_EMAIL,
-    options: { redirectTo: `${url}/auth/callback` },
   })
-  if (error || !data.user?.id || !data.properties?.action_link) {
-    console.error(`could not provision the verify-feed test user via generateLink: ${error?.message ?? 'no user/action_link returned'}`)
+  if (error || !data.user?.id || !data.properties?.email_otp) {
+    console.error(`could not provision the verify-feed test user via generateLink: ${error?.message ?? 'no user/email_otp returned'}`)
     process.exit(1)
   }
-  return { userId: data.user.id, actionLink: data.properties.action_link }
+  return { userId: data.user.id, emailOtp: data.properties.email_otp }
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+// Bundles a browser-side module that constructs the app's own @supabase/ssr browser client
+// (mirrors src/lib/supabase/client.ts's createBrowserClient(url, anonKey) call) and calls
+// verifyOtp with the one-time code from resolveTestUser. Piped through stdin rather than a temp
+// file: esbuild resolves stdin's bare imports (here, '@supabase/ssr') against `cwd`, so running
+// it with cwd: repoRoot reaches this project's node_modules with nothing written to disk to
+// clean up afterwards.
+function bundleSignInScript(email: string, otp: string): string {
+  const { url: supabaseUrl, anonKey } = requireSupabaseEnv()
+  const entry = `
+import { createBrowserClient } from '@supabase/ssr'
+
+async function signIn() {
+  try {
+    const client = createBrowserClient(${JSON.stringify(supabaseUrl)}, ${JSON.stringify(anonKey)})
+    const { error } = await client.auth.verifyOtp({
+      email: ${JSON.stringify(email)},
+      token: ${JSON.stringify(otp)},
+      type: 'email',
+    })
+    window.__verifyOtpResult = { done: true, error: error ? error.message : null }
+  } catch (err) {
+    window.__verifyOtpResult = { done: true, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+signIn()
+`
+  return execFileSync('pnpm', ['exec', 'esbuild', '--bundle', '--format=iife', '--platform=browser'], {
+    cwd: repoRoot,
+    input: entry,
+    encoding: 'utf8',
+  })
+}
+
+type VerifyOtpResult = { done: boolean; error: string | null }
+
+// Signs in for real, in the page, not through any redirect: navigates to the app's own origin
+// first (so the cookie @supabase/ssr sets attaches to the right domain), injects the bundled
+// verifyOtp call, and waits for it to finish before trusting a session exists. Confirmed twice:
+// verifyOtp's own resolved error (the thing that actually gates the cookie write) and, directly,
+// the sb-*-auth-token cookie itself landing in this browser context.
+async function signInAsTestUser(page: Page, email: string, otp: string): Promise<void> {
+  const bundledScript = bundleSignInScript(email, otp)
+
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await page.addScriptTag({ content: bundledScript })
+  const settled = await waitForCondition(
+    page,
+    () => (window as unknown as { __verifyOtpResult?: VerifyOtpResult }).__verifyOtpResult?.done === true,
+    20000,
+  )
+  if (!settled) {
+    console.error('verify-feed test user sign-in failed: verifyOtp never completed within the timeout')
+    process.exit(1)
+  }
+  const result = await page.evaluate(
+    () => (window as unknown as { __verifyOtpResult: VerifyOtpResult }).__verifyOtpResult,
+  )
+
+  if (result.error) {
+    console.error(`verify-feed test user sign-in failed: verifyOtp returned an error: ${result.error}`)
+    process.exit(1)
+  }
+
+  const cookies = await page.context().cookies()
+  const sessionCookie = cookies.find((c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
+  report(sessionCookie !== undefined, `sign-in: a Supabase session cookie (${sessionCookie?.name ?? 'none found'}) was set after verifyOtp`)
 }
 
 // Replaces the previous `.catch(() => {})` swallowing: a timed-out wait is now itself a
@@ -151,7 +235,7 @@ function reportRowInvariants(rows: RowInfo[], scenarioLabel: string): void {
 }
 
 await checkFollowsTableExists()
-const { userId: testUserId, actionLink: signInLink } = await resolveTestUser()
+const { userId: testUserId, emailOtp } = await resolveTestUser()
 // Idempotent re-run safety: clear out anything a previous (possibly aborted) run left behind
 // before scenario 1, not just between scenarios below.
 await adminClient.from('follows').delete().eq('user_id', testUserId)
@@ -203,16 +287,12 @@ report(emptyStateHasRealLink, 'empty state links to a real /pilots/[userId] rout
 reportNoUnexpectedFailures('empty state')
 
 // --- Sign in for real, on the SAME page/context, only now that scenario 1 (which needs a
-// genuinely signed-out visitor) is done. A real HTTP navigation through the app's own
-// /auth/callback route is what gets Set-Cookie session cookies into this browser context —
-// see that route's own doc comment for the code-exchange contract this relies on. ---
+// genuinely signed-out visitor) is done. See signInAsTestUser's own doc comment for the
+// verifyOtp mechanism this relies on. ---
 
 resetCapture()
-await page.goto(signInLink, { waitUntil: 'domcontentloaded' })
-report(
-  !page.url().includes('/sign-in?error='),
-  `sign-in: the magic-link sign-in landed on ${page.url()} rather than an error redirect`,
-)
+await signInAsTestUser(page, TEST_USER_EMAIL, emailOtp)
+reportNoUnexpectedFailures('sign-in')
 
 // --- 2. Following ONLY the pilot with a known GPS track ---
 
@@ -233,6 +313,14 @@ if (trackScenarioReady) {
     trackedRows.every((r) => r.href?.startsWith('/flights/') ?? false),
     `pilot-with-track: EVERY row with a track link points at /flights/[tripId] (hrefs: ${trackedRows.map((r) => r.href).join(', ')})`,
   )
+  // A second, independent confirmation of sign-in (the cookie check in signInAsTestUser is the
+  // first) taken from the SAME reload seedFollowedPilots already did: src/components/site-nav/
+  // auth-status.tsx renders the signed-in user's email once its own client picks up the
+  // session, which this scenario's page.reload() is exactly the kind of navigation that lets it
+  // do — proof the follows this scenario just seeded were actually attributed to a real signed-
+  // in viewer, not a signed-out one that happens to see rows some other way.
+  const navText = await page.evaluate(() => document.body.textContent ?? '')
+  report(navText.includes(TEST_USER_EMAIL), 'pilot-with-track: the site nav shows the signed-in test user\'s email')
   reportNoUnexpectedFailures('pilot-with-track')
 }
 
