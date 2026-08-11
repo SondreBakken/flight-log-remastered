@@ -41,6 +41,8 @@ type FakeCommentRow = {
   deleted_at?: string | null
 }
 
+type FakeProfileRow = { user_id: string; display_name: string | null }
+
 type SelectOptions = { count?: 'exact'; head?: boolean }
 
 // asUser models which session this fake client belongs to — the real soft_delete_own_comment
@@ -48,17 +50,23 @@ type SelectOptions = { count?: 'exact'; head?: boolean }
 // own session, not from any argument the RPC call passes in, so the fake needs its own notion
 // of "who is this client authenticated as" independent of whatever userId a test passes into
 // deleteComment's input.
-function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: string }) {
+//
+// profiles seeds a second fake table alongside comments — getComments (get-comments.ts) queries
+// both, so this fake has to model both, same as the real database does.
+function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: string; profiles?: FakeProfileRow[] }) {
   const rows: FakeCommentRow[] = [...seedRows]
+  const profileRows: FakeProfileRow[] = [...(options?.profiles ?? [])]
   const sessionUserId = options?.asUser ?? null
   let nextId = rows.length + 1
   let insertCalls = 0
   let rpcCalls = 0
   let countQueryCalls = 0
   let listQueryCalls = 0
+  let profilesQueryCalls = 0
   let forcedError: { message: string } | null = null
   let forcedInsertError: { message: string } | null = null
   let forcedRpcError: { message: string } | null = null
+  let forcedProfilesError: { message: string } | null = null
 
   function makeQuery(opts?: SelectOptions) {
     let tripIdFilter: number | null = null
@@ -121,6 +129,31 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
 
   const client = {
     from(table: string) {
+      if (table === 'profiles') {
+        return {
+          select() {
+            let userIdFilter: string[] | null = null
+            const query = {
+              in(column: string, values: unknown) {
+                if (column === 'user_id') userIdFilter = values as string[]
+                return query
+              },
+              then(
+                resolve: (result: { data: FakeProfileRow[] | null; error: { message: string } | null }) => void,
+              ) {
+                profilesQueryCalls++
+                if (forcedProfilesError) {
+                  resolve({ data: null, error: forcedProfilesError })
+                  return
+                }
+                const matching = profileRows.filter((row) => userIdFilter === null || userIdFilter.includes(row.user_id))
+                resolve({ data: matching, error: null })
+              },
+            }
+            return query
+          },
+        }
+      }
       if (table !== 'comments') throw new Error(`unexpected table: ${table}`)
       return {
         select(_columns: string, opts?: SelectOptions) {
@@ -187,6 +220,9 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
     forceRpcError(message: string): void {
       forcedRpcError = { message }
     },
+    forceProfilesError(message: string): void {
+      forcedProfilesError = { message }
+    },
     get insertCalls() {
       return insertCalls
     },
@@ -198,6 +234,9 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
     },
     get listQueryCalls() {
       return listQueryCalls
+    },
+    get profilesQueryCalls() {
+      return profilesQueryCalls
     },
   }
 }
@@ -296,8 +335,8 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   assertEqual(
     comments,
     [
-      { id: '1', userId: 'user-a', body: 'first', createdAt: '2026-01-01T00:00:00.000Z' },
-      { id: '2', userId: 'user-b', body: 'second', createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: '1', userId: 'user-a', body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: null },
+      { id: '2', userId: 'user-b', body: 'second', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
     ],
     'getComments returns only the given trip\'s comments, oldest first, mapped to camelCase',
   )
@@ -308,6 +347,50 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   fake.forceError('connection refused')
   const comments = await getComments(fake.client, 1)
   assertEqual(comments, [], 'getComments returns an empty list, not a thrown exception, when the query fails')
+}
+
+// --- getComments: merging in each author's display name ---
+// (get-comments.ts can't ask PostgREST to embed profiles into a single select — comments.user_id
+// and profiles.user_id both FK to auth.users independently, with no direct FK between comments
+// and profiles — so this proves the two-query-plus-merge that stands in for it instead.)
+
+{
+  const fake = makeFakeSupabase(
+    [
+      { id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' },
+      { id: '2', user_id: 'user-b', trip_id: 1, body: 'second', created_at: '2026-01-02T00:00:00.000Z' },
+    ],
+    { profiles: [{ user_id: 'user-a', display_name: 'Alex' }] },
+  )
+  const comments = await getComments(fake.client, 1)
+  assertEqual(
+    comments,
+    [
+      { id: '1', userId: 'user-a', body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
+      { id: '2', userId: 'user-b', body: 'second', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
+    ],
+    "getComments attaches each comment's author's display name, falling back to null for an author with no profile row",
+  )
+}
+
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' },
+    { id: '2', user_id: 'user-a', trip_id: 1, body: 'second', created_at: '2026-01-02T00:00:00.000Z' },
+  ])
+  await getComments(fake.client, 1)
+  assertEqual(fake.profilesQueryCalls, 1, 'getComments issues exactly one profiles query for the whole page, not one per comment')
+}
+
+{
+  const fake = makeFakeSupabase([{ id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' }])
+  fake.forceProfilesError('connection refused')
+  const comments = await getComments(fake.client, 1)
+  assertEqual(
+    comments,
+    [{ id: '1', userId: 'user-a', body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: null }],
+    'a failed profiles query degrades every comment to displayName: null rather than failing the whole page',
+  )
 }
 
 // --- deleteComment: an author deleting their own comment ---
@@ -339,7 +422,7 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   const comments = await getComments(fake.client, 1)
   assertEqual(
     comments,
-    [{ id: '2', userId: 'user-b', body: "someone else's", createdAt: '2026-01-02T00:00:00.000Z' }],
+    [{ id: '2', userId: 'user-b', body: "someone else's", createdAt: '2026-01-02T00:00:00.000Z', displayName: null }],
     'a deleted comment no longer appears in getComments, for any viewer',
   )
 }

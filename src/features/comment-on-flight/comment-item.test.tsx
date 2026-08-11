@@ -9,9 +9,27 @@ vi.mock('./actions', () => ({
   deleteCommentAction: (...args: unknown[]) => mockDeleteCommentAction(...args),
 }))
 
-const comment: Comment = { id: 'comment-1', userId: 'user-a', body: 'nice flight', createdAt: '2026-01-01T00:00:00.000Z' }
+const comment: Comment = {
+  id: 'comment-1',
+  userId: 'user-a',
+  body: 'nice flight',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  displayName: 'Alex',
+}
 
 describe('CommentItem', () => {
+  it('renders the comment author\'s display name', () => {
+    render(<CommentItem comment={comment} isOwnComment={false} tripId={1} />)
+
+    expect(screen.getByText('Alex')).toBeTruthy()
+  })
+
+  it('falls back to "Anonymous" when the author has no display name set', () => {
+    render(<CommentItem comment={{ ...comment, displayName: null }} isOwnComment={false} tripId={1} />)
+
+    expect(screen.getByText('Anonymous')).toBeTruthy()
+  })
+
   it('shows a delete control on the viewer\'s own comment', () => {
     render(<CommentItem comment={comment} isOwnComment tripId={1} />)
 

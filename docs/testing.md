@@ -25,6 +25,7 @@ pnpm run check:watermark-store            # per-pilot "new since last visit" wat
 pnpm run check:seen-trip-store            # per-pilot remembered UNTRACKED trip ids, pure core + storage adapter
 pnpm run check:request-gate               # outbound request gate: concurrency cap, in-flight tracking
 pnpm run check:comments                   # comment rate-limit/insert/soft-delete logic and result-to-form-state mapping, stubbed Supabase client
+pnpm run check:profiles                   # display-name lookup/upsert logic, stubbed Supabase client
 pnpm test                                 # Vitest: components, jsdom + React Testing Library
 pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>

@@ -3,4 +3,5 @@ export type Comment = {
   userId: string
   body: string
   createdAt: string
+  displayName: string | null
 }
