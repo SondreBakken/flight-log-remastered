@@ -14,6 +14,16 @@ export async function getFlightlogPilotIds(supabase: SupabaseClient, userIds: st
   const { data, error } = await supabase.from('profiles').select('user_id, flightlog_pilot_id').in('user_id', userIds)
 
   if (error) {
+    // 42703 (undefined_column) means the migration adding flightlog_pilot_id hasn't been
+    // applied yet, not a transient or unexpected failure — call that out by name so it isn't
+    // mistaken for "every signed-in user genuinely has no linked pilot id".
+    if (error.code === '42703') {
+      console.error(
+        '[profiles] the flightlog_pilot_id column does not exist — apply migration 20260811010000_add_flightlog_pilot_id_to_profiles.sql',
+        error,
+      )
+      return new Map()
+    }
     console.error('[profiles] failed to load flightlog pilot ids:', error)
     return new Map()
   }
