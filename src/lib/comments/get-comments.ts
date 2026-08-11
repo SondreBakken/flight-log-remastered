@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getDisplayNames } from '@/lib/profiles/get-display-names'
+import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
 import type { Comment } from './types'
 
 type CommentRow = {
@@ -41,8 +41,5 @@ export async function getComments(supabase: SupabaseClient, tripId: number): Pro
     return []
   }
 
-  const rows = data as CommentRow[]
-  const displayNames = await getDisplayNames(supabase, [...new Set(rows.map((row) => row.user_id))])
-
-  return rows.map((row) => toComment(row, displayNames))
+  return attachDisplayNames(supabase, data as CommentRow[], toComment)
 }

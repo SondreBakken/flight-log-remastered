@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getDisplayNames } from '@/lib/profiles/get-display-names'
+import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
 import type { PilotId } from '@/lib/flightlog/types'
 
 type FollowRow = { user_id: string; created_at: string }
@@ -42,8 +42,5 @@ export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: Pi
     return []
   }
 
-  const rows = data as FollowRow[]
-  const displayNames = await getDisplayNames(supabase, [...new Set(rows.map((row) => row.user_id))])
-
-  return rows.map((row) => toFollower(row, displayNames))
+  return attachDisplayNames(supabase, data as FollowRow[], toFollower)
 }
