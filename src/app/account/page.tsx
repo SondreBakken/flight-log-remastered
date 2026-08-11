@@ -8,7 +8,7 @@ export default function AccountPage() {
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
-        <p className="text-sm opacity-70">Set the display name shown on your comments.</p>
+        <p className="text-sm opacity-70">Set the display name shown on your comments, and link your flightlog.org pilot id.</p>
       </header>
       <AccountSettings />
     </section>

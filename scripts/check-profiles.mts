@@ -1,7 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDisplayNames } from '../src/lib/profiles/get-display-names'
 import { updateDisplayName } from '../src/lib/profiles/update-display-name'
+import { getFlightlogPilotIds } from '../src/lib/profiles/get-flightlog-pilot-ids'
+import { updateFlightlogPilotId } from '../src/lib/profiles/update-flightlog-pilot-id'
+import { isFallbackPilot } from '../src/lib/flightlog/is-fallback-pilot'
 import { accountFormStateFor } from '../src/features/account/account-form-state'
+import { pilotIdFormStateFor } from '../src/features/account/pilot-id-form-state'
 
 let failures = 0
 
@@ -29,7 +33,12 @@ function assert(condition: boolean, label: string): void {
 // function actually calls (from/select/in/upsert), matching how the real postgrest-js builder
 // resolves.
 
-type FakeProfileRow = { user_id: string; display_name: string | null }
+// display_name and flightlog_pilot_id are both optional here (rather than two separate fake
+// row types) so this one fake backs both get-display-names.ts/update-display-name.ts's tests
+// below and get-flightlog-pilot-ids.ts/update-flightlog-pilot-id.ts's — a real profiles row
+// always carries both columns, and no test needs the fake to reject a row missing one it isn't
+// exercising.
+type FakeProfileRow = { user_id: string; display_name?: string | null; flightlog_pilot_id?: number | null }
 
 function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   const rows: FakeProfileRow[] = [...seedRows]
@@ -63,9 +72,13 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
         select() {
           return makeSelectQuery()
         },
-        // Mirrors update-display-name.ts's real call: a single upsert, keyed on user_id, that
-        // has to cover both "no row yet" (insert) and "row already exists" (update) — see the
-        // migration's insert-and-update RLS policy pair for why the real table needs both paths.
+        // Mirrors update-display-name.ts's/update-flightlog-pilot-id.ts's real calls: a single
+        // upsert, keyed on user_id, that has to cover both "no row yet" (insert) and "row
+        // already exists" (update) — see the migration's insert-and-update RLS policy pair for
+        // why the real table needs both paths. Merges via Object.assign rather than overwriting
+        // the whole row so an upsert touching only one column (e.g. flightlog_pilot_id) never
+        // clobbers a display_name already on the same row, matching real Postgres upsert
+        // semantics for the columns actually named in the row payload.
         upsert(row: FakeProfileRow) {
           return {
             then(resolve: (result: { error: { message: string } | null }) => void) {
@@ -75,7 +88,7 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
                 return
               }
               const existing = rows.find((existingRow) => existingRow.user_id === row.user_id)
-              if (existing) existing.display_name = row.display_name
+              if (existing) Object.assign(existing, row)
               else rows.push({ ...row })
               resolve({ error: null })
             },
@@ -171,6 +184,153 @@ assertEqual(accountFormStateFor({ kind: 'saved' }), { status: 'success' }, 'a sa
 assertEqual(
   accountFormStateFor({ kind: 'db-error', message: 'irrelevant, not shown to the user' }),
   { status: 'error', message: 'Something went wrong saving your display name. Try again.' },
+  'a db-error result maps to a generic inline error, not the raw db error message',
+)
+
+// --- isFallbackPilot: the pure fallback-detection predicate behind pilotExists (issue #137) ---
+//
+// This is the only new decision logic #137 adds — pilotExists itself is a thin async wrapper
+// around getPilotLogbook that this repo's check-*.mts convention can't drive directly (it
+// transitively carries flights.ts's 'server-only' guard, see pilot-exists.ts's own doc comment)
+// — so the predicate is where a mutation (e.g. && flipped to ||, or the wrong field compared)
+// would actually surface. Each case below is chosen to kill a specific mutation rather than just
+// exercise the happy path.
+
+assertEqual(
+  isFallbackPilot(12345, { userId: 12345, name: 'Pilot 12345', country: null, club: null }),
+  true,
+  'the exact synthetic fallback shape (name/country/club all matching the pattern) is detected',
+)
+
+assertEqual(
+  isFallbackPilot(12345, { userId: 12345, name: 'Kari Nordmann', country: 'Norway', club: 'Voss HPK' }),
+  false,
+  'a real pilot with a name, country, and club is not the fallback',
+)
+
+assertEqual(
+  isFallbackPilot(12345, { userId: 12345, name: 'Pilot 12345', country: 'Norway', club: null }),
+  false,
+  'a name matching the fallback pattern alone is not enough — a mutant that drops the country/club check (e.g. && -> ||) would wrongly report this as a fallback',
+)
+
+assertEqual(
+  isFallbackPilot(12345, { userId: 12345, name: 'Kari Nordmann', country: null, club: null }),
+  false,
+  'null country and club alone are not enough — a real pilot who simply has neither on file must not read as nonexistent',
+)
+
+assertEqual(
+  isFallbackPilot(12345, { userId: 12345, name: 'Pilot 999', country: null, club: null }),
+  false,
+  "the fallback name must match THIS pilot id specifically — a mutant that ignores pilotId (e.g. hardcodes a template or compares the wrong id) would wrongly match another pilot's fallback name",
+)
+
+assertEqual(
+  isFallbackPilot(999, { userId: 12345, name: 'Pilot 12345', country: null, club: null }),
+  false,
+  'a pilot whose own userId does not match the pilotId argument is not the fallback for that pilotId — a mutant that reads pilot.userId instead of the pilotId parameter would wrongly match here, since every other fixture happens to have pilot.userId === pilotId',
+)
+
+// --- getFlightlogPilotIds ---
+
+{
+  const fake = makeFakeSupabase([
+    { user_id: 'user-a', flightlog_pilot_id: 12677 },
+    { user_id: 'user-b', flightlog_pilot_id: null },
+  ])
+  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a', 'user-b', 'user-c'])
+  assertEqual(
+    [...pilotIds.entries()].sort(),
+    [
+      ['user-a', 12677],
+      ['user-b', null],
+    ],
+    'getFlightlogPilotIds returns a pilot id per known user, and no entry at all for a user with no profiles row',
+  )
+}
+
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
+  const pilotIds = await getFlightlogPilotIds(fake.client, [])
+  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds short-circuits to an empty Map without querying, given no user ids')
+}
+
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
+  fake.forceSelectError('connection refused')
+  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
+  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds returns an empty Map, not a thrown exception, when the query fails')
+}
+
+// --- updateFlightlogPilotId ---
+//
+// checkPilotExists is a hand-built fake here, not the real pilotExists (see that function's own
+// doc comment on why it's an injected argument rather than a default) — these tests exercise
+// updateFlightlogPilotId's own orchestration (gate on existence, then upsert) without a live
+// flightlog.org request.
+
+function makeCapturingPilotExists(result: boolean) {
+  const calls: number[] = []
+  return {
+    check: async (pilotId: number): Promise<boolean> => {
+      calls.push(pilotId)
+      return result
+    },
+    calls,
+  }
+}
+
+{
+  const fake = makeFakeSupabase()
+  const pilotExists = makeCapturingPilotExists(true)
+  const result = await updateFlightlogPilotId(fake.client, { userId: 'user-a', pilotId: 12677 }, pilotExists.check)
+  assertEqual(result, { kind: 'saved' }, 'updateFlightlogPilotId reports saved when the pilot id exists and the upsert succeeds')
+  assertEqual(fake.rows, [{ user_id: 'user-a', flightlog_pilot_id: 12677 }], 'a first-time save upserts the pilot id')
+  assertEqual(pilotExists.calls, [12677], 'the exact pilot id submitted is the one checked for existence')
+}
+
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
+  const pilotExists = makeCapturingPilotExists(true)
+  await updateFlightlogPilotId(fake.client, { userId: 'user-a', pilotId: 12677 }, pilotExists.check)
+  assertEqual(
+    fake.rows,
+    [{ user_id: 'user-a', display_name: 'Alex', flightlog_pilot_id: 12677 }],
+    'linking a pilot id merges onto an existing row rather than clobbering its display name',
+  )
+}
+
+{
+  const fake = makeFakeSupabase()
+  const pilotExists = makeCapturingPilotExists(false)
+  const result = await updateFlightlogPilotId(fake.client, { userId: 'user-a', pilotId: 999999 }, pilotExists.check)
+  assertEqual(result, { kind: 'invalid-pilot-id' }, "a pilot id flightlog.org doesn't recognise is reported as invalid-pilot-id")
+  assert(fake.upsertCalls === 0, 'a nonexistent pilot id is rejected before any upsert is attempted, not saved then flagged')
+}
+
+{
+  const fake = makeFakeSupabase()
+  fake.forceUpsertError('constraint violation')
+  const pilotExists = makeCapturingPilotExists(true)
+  const result = await updateFlightlogPilotId(fake.client, { userId: 'user-a', pilotId: 12677 }, pilotExists.check)
+  assertEqual(result, { kind: 'db-error', message: 'failed to save the flightlog pilot id' }, 'a failed upsert surfaces as db-error, not a thrown exception')
+}
+
+// --- pilotIdFormStateFor: the pure result -> form-state mapping ---
+
+assertEqual(pilotIdFormStateFor({ kind: 'saved' }), { status: 'success' }, 'a saved result maps to success')
+assertEqual(
+  pilotIdFormStateFor({ kind: 'invalid-pilot-id' }),
+  {
+    status: 'error',
+    message: "That doesn't look like a flightlog.org pilot id. Check the number on your flightlog.org profile and try again.",
+  },
+  'an invalid-pilot-id result maps to a message naming the actual problem',
+)
+assertEqual(
+  pilotIdFormStateFor({ kind: 'db-error', message: 'irrelevant, not shown to the user' }),
+  { status: 'error', message: 'Something went wrong saving your flightlog.org pilot id. Try again.' },
   'a db-error result maps to a generic inline error, not the raw db error message',
 )
 
