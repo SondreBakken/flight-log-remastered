@@ -8,6 +8,7 @@ import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import { CommentsErrorBoundary } from './comments-error-boundary'
+import { WHO_FOLLOWS_AND_COMMENTED } from './copy'
 import type { Follower } from '@/lib/follows/get-followers-for-pilot'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
 import type { PilotId } from '@/lib/flightlog/types'
@@ -80,7 +81,7 @@ function SignInPrompt() {
       <Link className="underline underline-offset-2" href="/sign-in">
         Sign in
       </Link>{' '}
-      to see who follows you and who has commented on your flights.
+      to see {WHO_FOLLOWS_AND_COMMENTED}.
     </p>
   )
 }
@@ -92,7 +93,7 @@ function LinkPilotPrompt() {
       <Link className="underline underline-offset-2" href="/account">
         account page
       </Link>{' '}
-      to see who follows you and who has commented on your flights.
+      to see {WHO_FOLLOWS_AND_COMMENTED}.
     </p>
   )
 }

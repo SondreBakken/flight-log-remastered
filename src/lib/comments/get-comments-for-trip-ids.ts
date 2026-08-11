@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getDisplayNames } from '@/lib/profiles/get-display-names'
+import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
 
 type CommentRow = {
   id: string
@@ -61,8 +61,7 @@ export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: n
     return []
   }
 
-  const rows = data as CommentRow[]
-  const displayNames = await getDisplayNames(supabase, [...new Set(rows.map((row) => row.user_id))])
-
-  return rows.map((row) => toCommentWithTripId(row, displayNames))
+  // Display-name lookup, and why it's two queries rather than a PostgREST embed, lives in
+  // attachDisplayNames.
+  return attachDisplayNames(supabase, data as CommentRow[], toCommentWithTripId)
 }

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getDisplayNames } from '@/lib/profiles/get-display-names'
+import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
 import type { Comment } from './types'
 
 type CommentRow = {
@@ -25,10 +25,8 @@ function toComment(row: CommentRow, displayNames: Map<string, string | null>): C
 // author's own deleted comment, matching that policy's own "everyone" scope. Oldest first, so
 // a newly posted comment appends to the bottom of the thread rather than jumping to the top.
 //
-// Two queries, not one PostgREST embed: comments.user_id and profiles.user_id both FK to
-// auth.users independently, with no direct FK between comments and profiles for PostgREST to
-// join across in a single select. The display-name lookup is merged into each row here, in
-// application code, instead.
+// Display-name lookup, and why it's two queries rather than a PostgREST embed, now lives in
+// attachDisplayNames.
 export async function getComments(supabase: SupabaseClient, tripId: number): Promise<Comment[]> {
   const { data, error } = await supabase
     .from('comments')
@@ -41,8 +39,5 @@ export async function getComments(supabase: SupabaseClient, tripId: number): Pro
     return []
   }
 
-  const rows = data as CommentRow[]
-  const displayNames = await getDisplayNames(supabase, [...new Set(rows.map((row) => row.user_id))])
-
-  return rows.map((row) => toComment(row, displayNames))
+  return attachDisplayNames(supabase, data as CommentRow[], toComment)
 }

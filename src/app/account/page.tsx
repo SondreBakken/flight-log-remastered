@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import AccountSettings from '@/features/account'
+import { WHO_FOLLOWS_AND_COMMENTED } from '@/features/account-activity/copy'
 
 // No server-side session read here, no Suspense boundary needed — AccountSettings itself is a
 // client component that reads auth state after mount and handles the signed-out case (see its
@@ -16,7 +17,7 @@ export default function AccountPage() {
       </header>
       <AccountSettings />
       <Link className="text-sm underline underline-offset-2" href="/account/activity">
-        See who follows you and who has commented on your flights
+        See {WHO_FOLLOWS_AND_COMMENTED}
       </Link>
     </section>
   )
