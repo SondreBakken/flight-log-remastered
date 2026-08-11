@@ -190,6 +190,10 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
     !loggedText.includes('failed to load display names'),
     'a 42703 error does NOT also fall through to the generic log message',
   )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '42703'),
+    'the 42703 log passes the PostgrestError through as a second argument, not just a message string',
+  )
 }
 
 // Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
@@ -212,6 +216,10 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   assert(
     !loggedText.includes('20260811000000_create_profiles.sql'),
     'an error code other than 42703 does not wrongly claim the migration is missing',
+  )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '08006'),
+    'the generic-error log passes the PostgrestError through as a second argument, not just a message string',
   )
 }
 
@@ -371,6 +379,10 @@ assertEqual(
     !loggedText.includes('failed to load flightlog pilot ids'),
     'a 42703 error does NOT also fall through to the generic log message',
   )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '42703'),
+    'the 42703 log passes the PostgrestError through as a second argument, not just a message string',
+  )
 }
 
 // Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
@@ -393,6 +405,10 @@ assertEqual(
   assert(
     !loggedText.includes('20260811010000_add_flightlog_pilot_id_to_profiles.sql'),
     'an error code other than 42703 does not wrongly claim the migration is missing',
+  )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '08006'),
+    'the generic-error log passes the PostgrestError through as a second argument, not just a message string',
   )
 }
 
