@@ -39,6 +39,10 @@ function toCommentWithTripId(row: CommentRow, displayNames: Map<string, string |
 // get-comments.ts). Built for account-activity: "who commented on any of my flights" needs one
 // query across every tripId a pilot has flown, not one getComments call per flight.
 //
+// Newest first, unlike get-comments.ts's oldest-first: that ordering exists so a comment thread
+// reads top-to-bottom as a conversation. This is an activity feed ("who's said something about my
+// flights recently"), where the most recent comment is what a pilot actually wants to see first.
+//
 // Empty tripIds short-circuits before querying — same convention as getDisplayNames/
 // getFlightlogPilotIds: "no flights to check comments for" (a pilot with zero logged flights)
 // is a normal case, not an error, and `.in('trip_id', [])` would be a wasted round trip to learn
@@ -50,7 +54,7 @@ export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: n
     .from('comments')
     .select('id, user_id, trip_id, body, created_at')
     .in('trip_id', tripIds)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
 
   if (error) {
     console.error('[comments] failed to load comments for trip ids:', error)

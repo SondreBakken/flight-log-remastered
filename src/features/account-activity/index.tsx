@@ -1,4 +1,6 @@
+import { Suspense } from 'react'
 import Link from 'next/link'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
@@ -7,6 +9,7 @@ import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import type { Follower } from '@/lib/follows/get-followers-for-pilot'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
+import type { PilotId } from '@/lib/flightlog/types'
 
 // Server Component, not a client-side auth read like account/index.tsx's — this page's own
 // content (followers, comments) is itself a server-side read gated on the signed-in user's id,
@@ -33,13 +36,34 @@ export default async function AccountActivity() {
 
   if (pilotId == null) return <LinkPilotPrompt />
 
-  const { flights } = await getPilotLogbook(pilotId)
-  const [followers, comments] = await Promise.all([
-    getFollowersForPilot(supabase, pilotId),
-    getCommentsForTripIds(supabase, flights.map((flight) => flight.tripId)),
-  ])
+  return (
+    <div className="flex flex-col gap-8">
+      <UnverifiedLinkNote />
+      <Suspense fallback={<FollowersSkeleton />}>
+        <Followers supabase={supabase} pilotId={pilotId} />
+      </Suspense>
+      <Suspense fallback={<CommentsSkeleton />}>
+        <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
+      </Suspense>
+    </div>
+  )
+}
 
-  return <Activity followers={followers} comments={comments} />
+type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
+
+// Sibling of CommentsOnMyFlights below, not a shared Promise.all under one boundary — this
+// query has nothing to do with flightlog.org, so it must not go dark just because
+// getPilotLogbook (flightlog.org) throws inside the other branch. Same reasoning as
+// src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split.
+async function Followers({ supabase, pilotId }: PilotSectionProps) {
+  const followers = await getFollowersForPilot(supabase, pilotId)
+  return <FollowersSection followers={followers} />
+}
+
+async function CommentsOnMyFlights({ supabase, pilotId }: PilotSectionProps) {
+  const { flights } = await getPilotLogbook(pilotId)
+  const comments = await getCommentsForTripIds(supabase, flights.map((flight) => flight.tripId))
+  return <CommentsSection comments={comments} />
 }
 
 function SignInPrompt() {
@@ -65,28 +89,39 @@ function LinkPilotPrompt() {
   )
 }
 
-type ActivityProps = { followers: Follower[]; comments: CommentWithTripId[] }
-
-function Activity({ followers, comments }: ActivityProps) {
+// This whole page reads off a self-declared, unverified flightlog.org pilot link (see
+// PilotIdForm's own doc comment on that same fact for the write side) — nothing here proves the
+// signed-in visitor actually is that pilot. The risk that matters isn't "my own data might be
+// wrong" but the other direction (#138): anyone could self-declare this same pilot id and land
+// on this same page, seeing these same followers and comments. Verifying the link (#139) is the
+// only thing that closes that gap, so this note points there rather than promising privacy the
+// current link can't back up.
+function UnverifiedLinkNote() {
   return (
-    <div className="flex flex-col gap-8">
-      <UnverifiedLinkNote />
-      <FollowersSection followers={followers} />
-      <CommentsSection comments={comments} />
+    <p className="text-xs opacity-60">
+      This shows the followers and comments for whichever flightlog.org pilot id is linked to
+      this account. That link is currently unverified and self-declared (see #139 for
+      verification work), so anyone who links the same pilot id sees this same data. It is not a
+      private view guaranteed to belong only to the real pilot.
+    </p>
+  )
+}
+
+function FollowersSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="h-6 w-24 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+      <div className="h-4 w-40 animate-pulse rounded bg-black/5 dark:bg-white/5" />
     </div>
   )
 }
 
-// This whole page reads off a self-declared, unverified flightlog.org pilot link (see
-// PilotIdForm's own doc comment on that same fact for the write side) — nothing here proves the
-// signed-in visitor actually is that pilot, so a visible reminder belongs beside the data it
-// qualifies, not buried in a doc comment only this codebase's authors will ever read.
-function UnverifiedLinkNote() {
+function CommentsSkeleton() {
   return (
-    <p className="text-xs opacity-60">
-      This shows activity for the flightlog.org pilot id linked on your account. That link is
-      self-declared and unverified, so it is only as trustworthy as the id you entered.
-    </p>
+    <div className="flex flex-col gap-4">
+      <div className="h-6 w-48 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+      <div className="h-4 w-64 animate-pulse rounded bg-black/5 dark:bg-white/5" />
+    </div>
   )
 }
 

@@ -27,8 +27,15 @@ function toFollower(row: FollowRow, displayNames: Map<string, string | null>): F
 // Two queries, not one PostgREST embed — same reasoning as get-comments.ts's toComment:
 // follows.user_id and profiles.user_id both FK to auth.users independently, with no direct FK
 // between follows and profiles for PostgREST to join across in a single select.
+//
+// Newest follower first: nothing about "who follows me" has a natural read order the way a
+// comment thread does, so this defaults to the one people actually want to scan first.
 export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: PilotId): Promise<Follower[]> {
-  const { data, error } = await supabase.from('follows').select('user_id, created_at').eq('pilot_id', pilotId)
+  const { data, error } = await supabase
+    .from('follows')
+    .select('user_id, created_at')
+    .eq('pilot_id', pilotId)
+    .order('created_at', { ascending: false })
 
   if (error) {
     console.error('[follows] failed to load followers for pilot:', error)

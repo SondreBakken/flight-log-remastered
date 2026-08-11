@@ -38,6 +38,30 @@ type FakeFollowRow = { user_id: string; pilot_id: number; created_at: string }
 type FakeCommentRow = { id: string; user_id: string; trip_id: number; body: string; created_at: string }
 type FakeProfileRow = { user_id: string; display_name: string | null }
 
+// Projects a row down to exactly the columns a `.select('a, b, c')` call asked for, mirroring
+// PostgREST's own column-list behavior. Without this, dropping (or narrowing) a select's column
+// list in the real implementation would still return full rows here and pass green — a select
+// mistake is otherwise invisible to this fake.
+function project<T extends Record<string, unknown>>(row: T, columns: string): T {
+  const keys = columns.split(',').map((column) => column.trim())
+  const picked = {} as Record<string, unknown>
+  for (const key of keys) picked[key] = row[key]
+  return picked as T
+}
+
+// Sorts by created_at only when `.order()` was actually called on the chain, same as PostgREST
+// only sorts when a query explicitly asks for it. Without the `orderCalled` guard, this fake used
+// to sort unconditionally (defaulting to ascending), which meant deleting a real `.order(...)`
+// call from application code still passed the check green.
+function sortByCreatedAt<T extends { created_at: string }>(rows: T[], orderCalled: boolean, ascending: boolean): T[] {
+  if (!orderCalled) return rows
+  return [...rows].sort((a, b) => {
+    if (a.created_at === b.created_at) return 0
+    const cmp = a.created_at < b.created_at ? -1 : 1
+    return ascending ? cmp : -cmp
+  })
+}
+
 function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeCommentRow[]; profiles?: FakeProfileRow[] } = {}) {
   const followRows = [...(seed.follows ?? [])]
   const commentRows = [...(seed.comments ?? [])]
@@ -54,11 +78,18 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
     from(table: string) {
       if (table === 'follows') {
         return {
-          select() {
+          select(columns: string) {
             let pilotIdFilter: number | null = null
+            let ascending = true
+            let orderCalled = false
             const query = {
               eq(column: string, value: unknown) {
                 if (column === 'pilot_id') pilotIdFilter = value as number
+                return query
+              },
+              order(_column: string, options: { ascending: boolean }) {
+                ascending = options.ascending
+                orderCalled = true
                 return query
               },
               then(resolve: (result: { data: FakeFollowRow[] | null; error: { message: string } | null }) => void) {
@@ -68,7 +99,8 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
                   return
                 }
                 const matching = followRows.filter((row) => pilotIdFilter === null || row.pilot_id === pilotIdFilter)
-                resolve({ data: matching, error: null })
+                const ordered = sortByCreatedAt(matching, orderCalled, ascending)
+                resolve({ data: ordered.map((row) => project(row, columns)), error: null })
               },
             }
             return query
@@ -77,9 +109,10 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
       }
       if (table === 'comments') {
         return {
-          select() {
+          select(columns: string) {
             let tripIdFilter: number[] | null = null
             let ascending = true
+            let orderCalled = false
             const query = {
               in(column: string, values: unknown) {
                 if (column === 'trip_id') tripIdFilter = values as number[]
@@ -87,6 +120,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
               },
               order(_column: string, options: { ascending: boolean }) {
                 ascending = options.ascending
+                orderCalled = true
                 return query
               },
               then(resolve: (result: { data: FakeCommentRow[] | null; error: { message: string } | null }) => void) {
@@ -96,12 +130,8 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
                   return
                 }
                 const matching = commentRows.filter((row) => tripIdFilter === null || tripIdFilter.includes(row.trip_id))
-                const sorted = [...matching].sort((a, b) => {
-                  if (a.created_at === b.created_at) return 0
-                  const cmp = a.created_at < b.created_at ? -1 : 1
-                  return ascending ? cmp : -cmp
-                })
-                resolve({ data: sorted, error: null })
+                const ordered = sortByCreatedAt(matching, orderCalled, ascending)
+                resolve({ data: ordered.map((row) => project(row, columns)), error: null })
               },
             }
             return query
@@ -110,7 +140,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
       }
       if (table === 'profiles') {
         return {
-          select() {
+          select(columns: string) {
             let userIdFilter: string[] | null = null
             const query = {
               in(column: string, values: unknown) {
@@ -124,7 +154,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
                   return
                 }
                 const matching = profileRows.filter((row) => userIdFilter === null || userIdFilter.includes(row.user_id))
-                resolve({ data: matching, error: null })
+                resolve({ data: matching.map((row) => project(row, columns)), error: null })
               },
             }
             return query
@@ -173,10 +203,10 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assertEqual(
     followers,
     [
-      { userId: 'user-a', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
       { userId: 'user-b', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
+      { userId: 'user-a', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
     ],
-    'getFollowersForPilot returns only followers of the given pilot id, each with a joined display name, falling back to null for an author with no profile row',
+    'getFollowersForPilot returns only followers of the given pilot id, newest first, each with a joined display name, falling back to null for an author with no profile row',
   )
   assertEqual(fake.profilesQueryCalls, 1, 'getFollowersForPilot issues exactly one profiles query for the whole page, not one per follower')
 }
@@ -194,6 +224,41 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assertEqual(followers, [], 'getFollowersForPilot returns an empty list, not a thrown exception, when the query fails')
 }
 
+// Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only
+// passes if getFollowersForPilot's own `.order('created_at', { ascending: false })` call is what
+// produces the newest-first result — dropping that call would leave the fake's rows in their
+// unsorted (ascending) insertion order and fail this assertion, since the fake now only sorts
+// when `.order()` is actually invoked on the chain (see sortByCreatedAt/orderCalled above).
+{
+  const fake = makeFakeSupabase({
+    follows: [
+      { user_id: 'user-oldest', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' },
+      { user_id: 'user-middle', pilot_id: 12677, created_at: '2026-01-02T00:00:00.000Z' },
+      { user_id: 'user-newest', pilot_id: 12677, created_at: '2026-01-03T00:00:00.000Z' },
+    ],
+  })
+  const followers = await getFollowersForPilot(fake.client, 12677)
+  assertEqual(
+    followers.map((follower) => follower.userId),
+    ['user-newest', 'user-middle', 'user-oldest'],
+    'getFollowersForPilot mutation guard: newest-first ordering actually comes from the query, not from seed order',
+  )
+}
+
+// Mutation guard: dropping a column from getFollowersForPilot's own select() list (e.g.
+// `created_at`) would leave it undefined here, since the fake now actually projects rows down to
+// the requested columns instead of returning full rows regardless of what was selected.
+{
+  const fake = makeFakeSupabase({
+    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
+  })
+  const followers = await getFollowersForPilot(fake.client, 12677)
+  assert(
+    followers[0]?.createdAt === '2026-01-01T00:00:00.000Z',
+    "getFollowersForPilot mutation guard: createdAt is populated from the select's own columns, not left undefined by a narrowed select",
+  )
+}
+
 // --- getCommentsForTripIds ---
 
 {
@@ -209,12 +274,46 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assertEqual(
     comments,
     [
-      { id: '1', tripId: 10, userId: 'user-a', body: 'nice flight', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
       { id: '2', tripId: 20, userId: 'user-b', body: 'great distance', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
+      { id: '1', tripId: 10, userId: 'user-a', body: 'nice flight', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
     ],
-    'getCommentsForTripIds returns only comments on the given trip ids, oldest first, each with a joined display name',
+    'getCommentsForTripIds returns only comments on the given trip ids, newest first, each with a joined display name',
   )
   assertEqual(fake.profilesQueryCalls, 1, 'getCommentsForTripIds issues exactly one profiles query for the whole page, not one per comment')
+}
+
+// Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only
+// passes if getCommentsForTripIds's own `.order('created_at', { ascending: false })` call is what
+// produces the newest-first result — same reasoning as getFollowersForPilot's own mutation guard
+// above.
+{
+  const fake = makeFakeSupabase({
+    comments: [
+      { id: 'oldest', user_id: 'user-a', trip_id: 10, body: 'first', created_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'middle', user_id: 'user-a', trip_id: 10, body: 'second', created_at: '2026-01-02T00:00:00.000Z' },
+      { id: 'newest', user_id: 'user-a', trip_id: 10, body: 'third', created_at: '2026-01-03T00:00:00.000Z' },
+    ],
+  })
+  const comments = await getCommentsForTripIds(fake.client, [10])
+  assertEqual(
+    comments.map((comment) => comment.id),
+    ['newest', 'middle', 'oldest'],
+    'getCommentsForTripIds mutation guard: newest-first ordering actually comes from the query, not from seed order',
+  )
+}
+
+// Mutation guard: dropping a column from getCommentsForTripIds's own select() list (e.g.
+// `trip_id`) would leave tripId undefined here, since the fake now actually projects rows down to
+// the requested columns instead of returning full rows regardless of what was selected.
+{
+  const fake = makeFakeSupabase({
+    comments: [{ id: '1', user_id: 'user-a', trip_id: 10, body: 'hi', created_at: '2026-01-01T00:00:00.000Z' }],
+  })
+  const comments = await getCommentsForTripIds(fake.client, [10])
+  assert(
+    comments[0]?.tripId === 10,
+    "getCommentsForTripIds mutation guard: tripId is populated from the select's own columns, not left undefined by a narrowed select",
+  )
 }
 
 {

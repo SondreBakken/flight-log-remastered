@@ -45,6 +45,19 @@ type FakeProfileRow = { user_id: string; display_name: string | null }
 
 type SelectOptions = { count?: 'exact'; head?: boolean }
 
+// Projects a row down to exactly the columns a `.select('a, b, c')` call asked for, mirroring
+// PostgREST's own column-list behavior. Without this, narrowing or dropping a select's column
+// list in the real implementation would still return full rows here and pass green — a select
+// mistake is otherwise invisible to this fake. Same fix as scripts/check-account-activity.mts's
+// own project() (that fake inherited this exact pattern, including this exact blind spot, from
+// this one).
+function project<T extends Record<string, unknown>>(row: T, columns: string): T {
+  const keys = columns.split(',').map((column) => column.trim())
+  const picked = {} as Record<string, unknown>
+  for (const key of keys) picked[key] = row[key]
+  return picked as T
+}
+
 // asUser models which session this fake client belongs to — the real soft_delete_own_comment
 // RPC (supabase/migrations/20260810010000_..._policy.sql) derives auth.uid() from the caller's
 // own session, not from any argument the RPC call passes in, so the fake needs its own notion
@@ -68,11 +81,12 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
   let forcedRpcError: { message: string } | null = null
   let forcedProfilesError: { message: string } | null = null
 
-  function makeQuery(opts?: SelectOptions) {
+  function makeQuery(columns: string, opts?: SelectOptions) {
     let tripIdFilter: number | null = null
     let userIdFilter: string | null = null
     let sinceFilter: string | null = null
     let ascending = true
+    let orderCalled = false
 
     const query = {
       eq(column: string, value: unknown) {
@@ -86,6 +100,7 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
       },
       order(_column: string, options: { ascending: boolean }) {
         ascending = options.ascending
+        orderCalled = true
         return query
       },
       then(
@@ -116,12 +131,18 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
           return
         }
 
-        const sorted = [...matching].sort((a, b) => {
-          if (a.created_at === b.created_at) return 0
-          const cmp = a.created_at < b.created_at ? -1 : 1
-          return ascending ? cmp : -cmp
-        })
-        resolve({ data: sorted, count: null, error: null })
+        // Only sorts when `.order()` was actually called on the chain — mirrors PostgREST, which
+        // only sorts when a query explicitly asks for it. Sorting unconditionally here (as this
+        // fake used to) would let a real getComments `.order(...)` call get deleted and still
+        // pass green, since seed fixtures already happen to be in ascending created_at order.
+        const ordered = orderCalled
+          ? [...matching].sort((a, b) => {
+              if (a.created_at === b.created_at) return 0
+              const cmp = a.created_at < b.created_at ? -1 : 1
+              return ascending ? cmp : -cmp
+            })
+          : matching
+        resolve({ data: ordered.map((row) => project(row, columns)), count: null, error: null })
       },
     }
     return query
@@ -131,7 +152,7 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
     from(table: string) {
       if (table === 'profiles') {
         return {
-          select() {
+          select(columns: string) {
             let userIdFilter: string[] | null = null
             const query = {
               in(column: string, values: unknown) {
@@ -147,7 +168,7 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
                   return
                 }
                 const matching = profileRows.filter((row) => userIdFilter === null || userIdFilter.includes(row.user_id))
-                resolve({ data: matching, error: null })
+                resolve({ data: matching.map((row) => project(row, columns)), error: null })
               },
             }
             return query
@@ -156,8 +177,8 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
       }
       if (table !== 'comments') throw new Error(`unexpected table: ${table}`)
       return {
-        select(_columns: string, opts?: SelectOptions) {
-          return makeQuery(opts)
+        select(columns: string, opts?: SelectOptions) {
+          return makeQuery(columns, opts)
         },
         insert(row: { trip_id: number; user_id: string; body: string }) {
           return {
@@ -339,6 +360,40 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
       { id: '2', userId: 'user-b', body: 'second', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
     ],
     'getComments returns only the given trip\'s comments, oldest first, mapped to camelCase',
+  )
+}
+
+// Mutation guard: seeded newest-to-oldest (insertion order is the opposite of the expected
+// result), so this only passes if getComments's own `.order('created_at', { ascending: true })`
+// call is what produces the oldest-first result — the test just above seeds oldest-to-newest,
+// which coincidentally matches getComments's own default output even with `.order()` deleted
+// from the real implementation entirely, since the fake now only sorts when `.order()` is
+// actually invoked (see the orderCalled guard in makeQuery above). This one closes that gap.
+{
+  const fake = makeFakeSupabase([
+    { id: 'newest', user_id: 'user-a', trip_id: 1, body: 'third', created_at: '2026-01-03T00:00:00.000Z' },
+    { id: 'middle', user_id: 'user-a', trip_id: 1, body: 'second', created_at: '2026-01-02T00:00:00.000Z' },
+    { id: 'oldest', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' },
+  ])
+  const comments = await getComments(fake.client, 1)
+  assertEqual(
+    comments.map((comment) => comment.id),
+    ['oldest', 'middle', 'newest'],
+    'getComments mutation guard: oldest-first ordering actually comes from the query, not from seed order',
+  )
+}
+
+// Mutation guard: dropping a column from getComments's own select() list (e.g. `body`) would
+// leave it undefined here, since the fake now actually projects rows down to the requested
+// columns instead of returning full rows regardless of what was selected.
+{
+  const fake = makeFakeSupabase([
+    { id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' },
+  ])
+  const comments = await getComments(fake.client, 1)
+  assert(
+    comments[0]?.body === 'first',
+    "getComments mutation guard: body is populated from the select's own columns, not left undefined by a narrowed select",
   )
 }
 
