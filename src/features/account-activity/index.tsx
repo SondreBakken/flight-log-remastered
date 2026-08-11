@@ -7,6 +7,7 @@ import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
+import { CommentsErrorBoundary } from './comments-error-boundary'
 import type { Follower } from '@/lib/follows/get-followers-for-pilot'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
 import type { PilotId } from '@/lib/flightlog/types'
@@ -42,19 +43,26 @@ export default async function AccountActivity() {
       <Suspense fallback={<FollowersSkeleton />}>
         <Followers supabase={supabase} pilotId={pilotId} />
       </Suspense>
-      <Suspense fallback={<CommentsSkeleton />}>
-        <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
-      </Suspense>
+      <CommentsErrorBoundary>
+        <Suspense fallback={<CommentsSkeleton />}>
+          <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
+        </Suspense>
+      </CommentsErrorBoundary>
     </div>
   )
 }
 
 type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 
-// Sibling of CommentsOnMyFlights below, not a shared Promise.all under one boundary — this
-// query has nothing to do with flightlog.org, so it must not go dark just because
-// getPilotLogbook (flightlog.org) throws inside the other branch. Same reasoning as
-// src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split.
+// Sibling of CommentsOnMyFlights below, not a shared Promise.all under one boundary — this gives
+// each branch its own independent streaming/loading state, so Followers can resolve and paint
+// without waiting on CommentsOnMyFlights's own flightlog.org round trip (or vice versa). Same
+// reasoning as src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split. Note this split
+// alone does NOT isolate a thrown error between the two branches — Suspense is not an error
+// boundary. CommentsOnMyFlights below calls getPilotLogbook (flightlog.org) and can throw, so
+// it's wrapped in its own CommentsErrorBoundary (comments-error-boundary.tsx) rather than relying
+// on this sibling split for fault isolation. Followers doesn't need one: getFollowersForPilot
+// already swallows its own query errors and returns [] instead of throwing.
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />
@@ -100,9 +108,9 @@ function UnverifiedLinkNote() {
   return (
     <p className="text-xs opacity-60">
       This shows the followers and comments for whichever flightlog.org pilot id is linked to
-      this account. That link is currently unverified and self-declared (see #139 for
-      verification work), so anyone who links the same pilot id sees this same data. It is not a
-      private view guaranteed to belong only to the real pilot.
+      this account. That link is currently unverified and self-declared, so anyone who links the
+      same pilot id sees this same data. It is not a private view guaranteed to belong only to
+      the real pilot.
     </p>
   )
 }
