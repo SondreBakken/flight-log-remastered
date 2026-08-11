@@ -168,6 +168,61 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   )
 }
 
+// #150: a 42703 (undefined_column) error means the display_name column is missing — this must
+// log a distinct message naming the migration, not the generic failure log, so the two
+// situations aren't indistinguishable in production logs.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
+  fake.forceSelectError('column "display_name" does not exist', '42703')
+  const loggedErrors: unknown[][] = []
+  const originalConsoleError = console.error
+  console.error = (...args: unknown[]) => loggedErrors.push(args)
+  const names = await getDisplayNames(fake.client, ['user-a'])
+  console.error = originalConsoleError
+
+  assertEqual([...names.entries()], [], 'getDisplayNames still returns an empty Map on a 42703 error, unchanged return contract')
+  const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
+  assert(
+    loggedText.includes('20260811000000_create_profiles.sql'),
+    'a 42703 error logs the specific migration by name, not a generic error message',
+  )
+  assert(
+    !loggedText.includes('failed to load display names'),
+    'a 42703 error does NOT also fall through to the generic log message',
+  )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '42703'),
+    'the 42703 log passes the PostgrestError through as a second argument, not just a message string',
+  )
+}
+
+// Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
+// still hit the existing generic log-and-empty-Map path unchanged.
+{
+  const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
+  fake.forceSelectError('connection refused', '08006')
+  const loggedErrors: unknown[][] = []
+  const originalConsoleError = console.error
+  console.error = (...args: unknown[]) => loggedErrors.push(args)
+  const names = await getDisplayNames(fake.client, ['user-a'])
+  console.error = originalConsoleError
+
+  assertEqual([...names.entries()], [], 'getDisplayNames returns an empty Map on a non-42703 error too')
+  const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
+  assert(
+    loggedText.includes('failed to load display names'),
+    'an error code other than 42703 falls through to the generic log message, unchanged',
+  )
+  assert(
+    !loggedText.includes('20260811000000_create_profiles.sql'),
+    'an error code other than 42703 does not wrongly claim the migration is missing',
+  )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '08006'),
+    'the generic-error log passes the PostgrestError through as a second argument, not just a message string',
+  )
+}
+
 // --- updateDisplayName ---
 
 {
@@ -324,6 +379,10 @@ assertEqual(
     !loggedText.includes('failed to load flightlog pilot ids'),
     'a 42703 error does NOT also fall through to the generic log message',
   )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '42703'),
+    'the 42703 log passes the PostgrestError through as a second argument, not just a message string',
+  )
 }
 
 // Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
@@ -346,6 +405,10 @@ assertEqual(
   assert(
     !loggedText.includes('20260811010000_add_flightlog_pilot_id_to_profiles.sql'),
     'an error code other than 42703 does not wrongly claim the migration is missing',
+  )
+  assert(
+    loggedErrors.some((args) => args.length === 2 && (args[1] as { code?: string })?.code === '08006'),
+    'the generic-error log passes the PostgrestError through as a second argument, not just a message string',
   )
 }
 
