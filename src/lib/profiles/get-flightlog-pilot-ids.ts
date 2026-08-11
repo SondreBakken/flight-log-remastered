@@ -20,6 +20,7 @@ export async function getFlightlogPilotIds(supabase: SupabaseClient, userIds: st
     if (error.code === '42703') {
       console.error(
         '[profiles] the flightlog_pilot_id column does not exist — apply migration 20260811010000_add_flightlog_pilot_id_to_profiles.sql',
+        error,
       )
       return new Map()
     }
