@@ -1,8 +1,8 @@
 -- Display names for comments (issue #136, docs/superpowers/specs/2026-08-10-social-features-design.md).
 --
--- NOT applied to the live database by this change: it is checked in for version control and
--- review only, same as every prior migration in this repo — apply it by hand later, e.g.
--- `supabase db push` or pasting it into the Supabase Studio SQL editor.
+-- Already applied to the live database, ahead of this PR merging (an operational exception to
+-- this repo's usual pattern of migrations landing unapplied for review, then applied by hand
+-- later) — the table, all 3 policies, and 0 rows are confirmed live. Do not reapply it.
 --
 -- No row is created here and no signup trigger inserts one: a profile row only comes into
 -- existence via a lazy upsert the first time its owner actually sets a name (see

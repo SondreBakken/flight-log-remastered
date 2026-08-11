@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useSignedInUser } from './use-signed-in-user'
+import { useOwnDisplayName } from './use-own-display-name'
 import { AccountForm } from './account-form'
 
 // Signed-out visitor sees a sign-in prompt instead of the form — same three-state pattern as
@@ -26,5 +27,13 @@ export default function AccountSettings() {
     )
   }
 
-  return <AccountForm />
+  return <SignedInAccountForm userId={authState.userId} />
+}
+
+// Split out from the branch above so useOwnDisplayName (which needs a userId) is only ever
+// called once authState has actually narrowed to 'signed-in' — hooks can't be called
+// conditionally in the branch itself.
+function SignedInAccountForm({ userId }: { userId: string }) {
+  const ownDisplayName = useOwnDisplayName(userId)
+  return <AccountForm initialDisplayName={ownDisplayName.kind === 'loaded' ? ownDisplayName.displayName : undefined} />
 }

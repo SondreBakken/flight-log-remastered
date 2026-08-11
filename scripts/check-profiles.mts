@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDisplayNames } from '../src/lib/profiles/get-display-names'
 import { updateDisplayName } from '../src/lib/profiles/update-display-name'
+import { accountFormStateFor } from '../src/features/account/account-form-state'
 
 let failures = 0
 
@@ -163,6 +164,15 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   const result = await updateDisplayName(fake.client, { userId: 'user-a', displayName: 'Alex' })
   assertEqual(result, { kind: 'db-error', message: 'failed to save the display name' }, 'a failed upsert surfaces as db-error, not a thrown exception')
 }
+
+// --- accountFormStateFor: the pure result -> form-state mapping ---
+
+assertEqual(accountFormStateFor({ kind: 'saved' }), { status: 'success' }, 'a saved result maps to success')
+assertEqual(
+  accountFormStateFor({ kind: 'db-error', message: 'irrelevant, not shown to the user' }),
+  { status: 'error', message: 'Something went wrong saving your display name. Try again.' },
+  'a db-error result maps to a generic inline error, not the raw db error message',
+)
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)
 if (failures > 0) process.exit(1)
