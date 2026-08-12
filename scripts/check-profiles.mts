@@ -367,11 +367,22 @@ assertEqual(
   )
 }
 
+// #163: a query error other than 42703 now throws a ProfilesQueryError, distinguishably from an
+// empty Map, rather than degrading silently — see get-flightlog-pilot-ids.ts's own doc comment
+// for why (same bug class as #160's fix to getDisplayNames above).
 {
   const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
   fake.forceSelectError('connection refused')
-  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
-  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds returns an empty Map, not a thrown exception, when the query fails')
+  let caught: unknown
+  try {
+    await getFlightlogPilotIds(fake.client, ['user-a'])
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof ProfilesQueryError,
+    'getFlightlogPilotIds throws a ProfilesQueryError, not a silently returned empty Map, when the query fails',
+  )
 }
 
 // #146: a 42703 (undefined_column) error means the flightlog_pilot_id migration hasn't been
@@ -403,17 +414,23 @@ assertEqual(
 }
 
 // Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
-// still hit the existing generic log-and-empty-Map path unchanged.
+// still hit the generic log-and-throw path (#163 — a ProfilesQueryError now, not the old
+// log-and-empty-Map path this block used to prove).
 {
   const fake = makeFakeSupabase([{ user_id: 'user-a', flightlog_pilot_id: 12677 }])
   fake.forceSelectError('connection refused', '08006')
   const loggedErrors: unknown[][] = []
   const originalConsoleError = console.error
   console.error = (...args: unknown[]) => loggedErrors.push(args)
-  const pilotIds = await getFlightlogPilotIds(fake.client, ['user-a'])
+  let caught: unknown
+  try {
+    await getFlightlogPilotIds(fake.client, ['user-a'])
+  } catch (error) {
+    caught = error
+  }
   console.error = originalConsoleError
 
-  assertEqual([...pilotIds.entries()], [], 'getFlightlogPilotIds returns an empty Map on a non-42703 error too')
+  assert(caught instanceof ProfilesQueryError, 'getFlightlogPilotIds throws a ProfilesQueryError on a non-42703 error too')
   const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
   assert(
     loggedText.includes('failed to load flightlog pilot ids'),

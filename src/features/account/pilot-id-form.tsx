@@ -7,10 +7,18 @@ import type { PilotIdFormState } from './pilot-id-form-state'
 const initialState: PilotIdFormState = { status: 'idle' }
 
 type PilotIdFormProps = {
-  // undefined while index.tsx's useOwnFlightlogPilotId is still loading, null once loaded with
-  // no pilot linked yet — same distinct-but-both-render-blank convention as account-form.tsx's
-  // own initialDisplayName prop.
+  // undefined while index.tsx's useOwnFlightlogPilotId is still loading, or once it has settled
+  // into an 'error' state (see pilotIdLoadFailed below) — both render the same blank input. null
+  // once loaded with no pilot id set. Same distinct-but-both-render-blank convention as
+  // account-form.tsx's own initialDisplayName prop.
   initialPilotId?: number | null
+  // True once useOwnFlightlogPilotId's lookup has settled into its 'error' state, rather than
+  // merely still loading (#163, same shape as account-form.tsx's own displayNameLoadFailed,
+  // #160) — index.tsx passes `undefined` for initialPilotId in both cases, so without this the
+  // two states render byte-identical: a blank input with no indication anything failed. Disables
+  // both the field and the Save button so a blank state during an error can't be silently
+  // submitted as if it were an intentional unlink.
+  pilotIdLoadFailed?: boolean
 }
 
 // A separate form/action from AccountForm, not a second field on it, because the two fields have
@@ -21,7 +29,7 @@ type PilotIdFormProps = {
 //
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
-export function PilotIdForm({ initialPilotId }: PilotIdFormProps) {
+export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false }: PilotIdFormProps) {
   const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
   // Shown whenever a pilot id is on record — either already loaded on mount, just saved by this
@@ -39,8 +47,9 @@ export function PilotIdForm({ initialPilotId }: PilotIdFormProps) {
           // account-form.tsx's own display-name input, for the same reason: the prefill arrives
           // asynchronously after mount.
           key={defaultPilotId}
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
           defaultValue={defaultPilotId}
+          disabled={pilotIdLoadFailed}
           id="flightlog-pilot-id"
           min={1}
           name="flightlogPilotId"
@@ -49,9 +58,15 @@ export function PilotIdForm({ initialPilotId }: PilotIdFormProps) {
           type="number"
         />
       </label>
+      {pilotIdLoadFailed && (
+        <p className="text-sm opacity-70">
+          Couldn&apos;t load your current flightlog.org pilot id, so it can&apos;t be changed right now. Reload the
+          page to try again.
+        </p>
+      )}
       <button
         className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-        disabled={pending}
+        disabled={pending || pilotIdLoadFailed}
         type="submit"
       >
         {pending ? 'Saving…' : 'Save'}
