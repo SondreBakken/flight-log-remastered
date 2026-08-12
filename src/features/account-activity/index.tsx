@@ -46,7 +46,7 @@ export default async function AccountActivity() {
           <Followers supabase={supabase} pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
-      <SectionErrorBoundary fallback="Couldn't load flights right now.">
+      <SectionErrorBoundary fallback="Couldn't load your flights or comments right now.">
         <Suspense fallback={<CommentsSkeleton />}>
           <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
         </Suspense>
@@ -62,11 +62,13 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // without waiting on CommentsOnMyFlights's own flightlog.org round trip (or vice versa). Same
 // reasoning as src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split. Note this split
 // alone does NOT isolate a thrown error between the two branches — Suspense is not an error
-// boundary. Each branch can throw for its own reason (CommentsOnMyFlights from getPilotLogbook's
-// flightlog.org round trip; Followers from getFollowersForPilot's Supabase query — see that
-// function's own doc comment for why a query error throws rather than degrading to []), so each
-// gets its own SectionErrorBoundary instance rather than relying on this sibling split alone for
-// fault isolation.
+// boundary. Each branch can throw for its own reason: Followers from getFollowersForPilot's
+// Supabase query, CommentsOnMyFlights from either getPilotLogbook's flightlog.org round trip or
+// getCommentsForTripIds's Supabase query (#159) — see each function's own doc comment for why a
+// query error throws rather than degrading to []. CommentsOnMyFlights's fallback text names both
+// possible causes rather than picking one, since its SectionErrorBoundary can't tell which of
+// the two threw. Each branch gets its own SectionErrorBoundary instance rather than relying on
+// this sibling split alone for fault isolation.
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />
