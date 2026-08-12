@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fakeFollowsSupabase } from '@/lib/testing/follows-query-builder-fake'
+import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
 
 const mockAttachDisplayNames = vi.fn()
 
@@ -12,7 +12,7 @@ import { getFollowersForPilot } from './get-followers-for-pilot'
 describe('getFollowersForPilot', () => {
   it('resolves display names for the queried rows via attachDisplayNames', async () => {
     const rows = [{ user_id: 'user-1', created_at: '2026-08-01T00:00:00Z' }]
-    const { client } = fakeFollowsSupabase({ data: rows, error: null })
+    const { client } = fakeSupabaseQuery({ data: rows, error: null })
     mockAttachDisplayNames.mockResolvedValue([
       { userId: 'user-1', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
     ])
@@ -25,7 +25,7 @@ describe('getFollowersForPilot', () => {
 
   it('throws, distinguishably from an empty list, when the query errors', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeFollowsSupabase({ data: null, error: { message: 'permission denied for table follows' } })
+    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table follows' } })
 
     await expect(getFollowersForPilot(client, 4549)).rejects.toThrow(/4549/)
 

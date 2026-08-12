@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fakeCommentsSupabase } from '@/lib/testing/comments-query-builder-fake'
+import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
+import { CommentsQueryError } from './comments-query-error'
 
 const mockAttachDisplayNames = vi.fn()
 
@@ -11,7 +12,7 @@ import { getCommentsForTripIds } from './get-comments-for-trip-ids'
 
 describe('getCommentsForTripIds', () => {
   it('short-circuits to an empty list without querying when tripIds is empty', async () => {
-    const { client } = fakeCommentsSupabase({ data: null, error: null })
+    const { client } = fakeSupabaseQuery({ data: null, error: null })
 
     const result = await getCommentsForTripIds(client, [])
 
@@ -21,7 +22,7 @@ describe('getCommentsForTripIds', () => {
 
   it('scopes the query with .in() across the given trip ids and resolves display names via attachDisplayNames', async () => {
     const rows = [{ id: 'comment-1', user_id: 'user-1', trip_id: 100, body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client, builder } = fakeCommentsSupabase({ data: rows, error: null })
+    const { client, builder } = fakeSupabaseQuery({ data: rows, error: null })
     mockAttachDisplayNames.mockResolvedValue([
       { id: 'comment-1', tripId: 100, userId: 'user-1', body: 'nice flight', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
     ])
@@ -37,9 +38,9 @@ describe('getCommentsForTripIds', () => {
 
   it('throws, distinguishably from an empty list, when the query errors', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeCommentsSupabase({ data: null, error: { message: 'permission denied for table comments' } })
+    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table comments' } })
 
-    await expect(getCommentsForTripIds(client, [100])).rejects.toThrow(/1 trip ids/)
+    await expect(getCommentsForTripIds(client, [100])).rejects.toThrow(CommentsQueryError)
 
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
