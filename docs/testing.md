@@ -140,8 +140,9 @@ pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-fee
 SELECT policy against a real authenticated Supabase session, but unlike every other script in this
 section it needs no browser and no running app: the thing under test is a PostgREST-level RLS
 policy, not rendered UI, so it's a pure Node script that signs a synthetic user in directly via
-`@supabase/supabase-js`'s own `auth.verifyOtp` (no cookies, no page context — in Node the client
-falls back to an in-memory session) and reads `follows` back through that client's own session.
+`@supabase/supabase-js`'s own `auth.verifyOtp` (no cookies, no page context — the client is
+created with `persistSession: false`, so its session lives only in memory for this one process)
+and reads `follows` back through that client's own session.
 It provisions its own two dedicated fixture identities via `generateLink`, distinct from
 `verify-feed.mts`'s, and deletes them (rows and auth.users) again at the end of every run rather
 than reusing a stable test user. Same credential/`server-only` requirement as `verify-feed.mts`,

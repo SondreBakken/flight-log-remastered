@@ -10,11 +10,13 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 // client. Unlike verify-feed.mts this needs no browser at all — the thing under test is a
 // PostgREST-level RLS policy, not rendered UI, so this is a pure Node script that signs a
 // synthetic user in via @supabase/supabase-js directly (createClient + auth.verifyOtp) and reads
-// `follows` back through that client's own session. In Node, supabase-js has no window/
-// localStorage to persist a session into and falls back to an in-memory storage adapter
-// (@supabase/auth-js's GoTrueClient constructor); the session set by verifyOtp lives for the
-// lifetime of this one client instance, which is exactly long enough for this script's three
-// read-back queries below.
+// `follows` back through that client's own session. This client is created with
+// `persistSession: false` (see signInAsViewer) — that setting is what makes @supabase/auth-js's
+// GoTrueClient hold the session in a plain in-memory adapter instead of ever touching storage, not
+// an automatic Node fallback (there's no environment detection branch here; the same config would
+// pick the same adapter in a browser). The session verifyOtp sets lives for the lifetime of this
+// one client instance, which is exactly long enough for this script's three read-back queries
+// below.
 //
 // `follows`' 3 original policies (supabase/migrations/20260810020000_create_follows.sql) are all
 // scoped to `auth.uid() = user_id` — a user can read their own OUTGOING follows. The policy this
@@ -65,7 +67,7 @@ const adminClient = createAdminClient()
 // 42703 reasoning as get-flightlog-pilot-ids.ts. Fails on ANY error, not just 42703, for the same
 // reason checkFollowsTableExists does: a bad credential or network failure must not pass this
 // guard silently.
-async function checkFlightlogPilotIdColumnExists(): Promise<void> {
+async function checkFlightlogPilotIdColumnExists(adminClient: SupabaseClient): Promise<void> {
   const { error } = await adminClient.from('profiles').select('flightlog_pilot_id').limit(1)
   if (!error) return
 
@@ -80,9 +82,11 @@ async function checkFlightlogPilotIdColumnExists(): Promise<void> {
 }
 
 // generateLink provisions the auth.users row on first call and mints a single-use OTP alongside
-// it. Unlike verify-feed.mts's stable, reused test user, this run always starts from a fresh
-// auth.users row: deleteFixtureUsers removes both fixture identities at the end of every run
-// (see the finally block below), so the "first call" case is the only one that ever happens here.
+// it, returning the same existing user (with a fresh OTP) on any later call for the same email.
+// deleteFixtureUsers removes both fixture identities at the end of every run (see the finally
+// block below), so this is normally a fresh row each time — but generateLink's idempotency means
+// a leftover user from an aborted prior run (a mid-run crash, or a swallowed deleteFixtureUsers
+// error) is picked up and reused safely instead of colliding.
 async function resolveTestUser(email: string): Promise<{ userId: string; emailOtp: string }> {
   const { data, error } = await adminClient.auth.admin.generateLink({ type: 'magiclink', email })
   if (error || !data.user?.id || !data.properties?.email_otp) {
@@ -214,6 +218,12 @@ async function assertIncomingOwnPilotFollowIsVisible(viewerClient: SupabaseClien
 }
 
 async function assertMisscopedGuardFollowIsHidden(viewerClient: SupabaseClient, otherId: string): Promise<void> {
+  // Rows 2 and 3 (seedFixtures) both target OTHER_PILOT_ID — the .eq('user_id', otherId) filter
+  // below is what tells them apart, not the pilot_id filter alone. Do NOT simplify this to a
+  // pilot_id-only filter to "align" with production's getFollowersForPilot (which legitimately
+  // filters by pilot_id alone, see src/lib/follows/get-followers-for-pilot.ts): here that would
+  // also match row 3 (the viewer's OWN outgoing follow to the same pilot id, visible via the
+  // pre-existing owner-scoped policy), silently turning this negative assertion into a false pass.
   const { data, error } = await viewerClient.from('follows').select('user_id, pilot_id').eq('pilot_id', OTHER_PILOT_ID).eq('user_id', otherId)
 
   report(error === null, `negative: reading the mis-scope-guard follow through the viewer's session did not error (${error ? error.message : 'ok'})`)
@@ -240,7 +250,7 @@ async function assertOwnOutgoingFollowIsVisible(viewerClient: SupabaseClient, vi
 }
 
 await checkFollowsTableExists(adminClient)
-await checkFlightlogPilotIdColumnExists()
+await checkFlightlogPilotIdColumnExists(adminClient)
 
 const { userId: viewerId, emailOtp } = await resolveTestUser(VIEWER_EMAIL)
 const { userId: otherId } = await resolveTestUser(OTHER_EMAIL)
@@ -260,4 +270,4 @@ try {
   await cleanupFixtures(viewerId, otherId)
 }
 
-finish('follows SELECT policy (own-pilot incoming follows) verification')
+finish('follows SELECT policy (own-pilot grant present, correctly scoped, pre-existing owner grant intact) verification')

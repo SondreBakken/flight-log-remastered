@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // Shared by verify-feed.mts and verify-follows-select-policy.mts: both read from the `follows`
 // table before doing anything else and need the exact same fail-fast guard against a
 // not-yet-applied migration, so every assertion downstream isn't left to fail confusingly
-// against a client that was never actually able to reach the table.
+// against a client that was never actually able to reach the table — see
+// src/lib/follows/get-followed-pilot-ids.ts for the same table read at runtime by the app itself.
 //
 // Fails on ANY error, not just 42P01 (undefined_table) — an invalid service-role key or a
 // network failure would otherwise pass this guard silently and only surface as a confusing
