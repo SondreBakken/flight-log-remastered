@@ -44,7 +44,10 @@ function SignedInAccountForm({ userId }: { userId: string }) {
   const ownFlightlogPilotId = useOwnFlightlogPilotId(userId)
   return (
     <div className="flex flex-col gap-6">
-      <AccountForm initialDisplayName={ownDisplayName.kind === 'loaded' ? ownDisplayName.displayName : undefined} />
+      <AccountForm
+        displayNameLoadFailed={ownDisplayName.kind === 'error'}
+        initialDisplayName={ownDisplayName.kind === 'loaded' ? ownDisplayName.displayName : undefined}
+      />
       <PilotIdForm initialPilotId={ownFlightlogPilotId.kind === 'loaded' ? ownFlightlogPilotId.pilotId : undefined} />
     </div>
   )

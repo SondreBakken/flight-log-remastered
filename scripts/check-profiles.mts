@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDisplayNames } from '../src/lib/profiles/get-display-names'
+import { ProfilesQueryError } from '../src/lib/profiles/profiles-query-error'
 import { updateDisplayName } from '../src/lib/profiles/update-display-name'
 import { getFlightlogPilotIds } from '../src/lib/profiles/get-flightlog-pilot-ids'
 import { updateFlightlogPilotId } from '../src/lib/profiles/update-flightlog-pilot-id'
@@ -149,11 +150,21 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
   assertEqual([...names.entries()], [], 'getDisplayNames short-circuits to an empty Map without querying, given no user ids')
 }
 
+// #160: a query error other than 42703 now throws a ProfilesQueryError, distinguishably from an
+// empty Map, rather than degrading silently — see get-display-names.ts's own doc comment for why.
 {
   const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
   fake.forceSelectError('connection refused')
-  const names = await getDisplayNames(fake.client, ['user-a'])
-  assertEqual([...names.entries()], [], 'getDisplayNames returns an empty Map, not a thrown exception, when the query fails')
+  let caught: unknown
+  try {
+    await getDisplayNames(fake.client, ['user-a'])
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof ProfilesQueryError,
+    'getDisplayNames throws a ProfilesQueryError, not a silently returned empty Map, when the query fails',
+  )
 }
 
 // Mutation guard: dropping `display_name` from getDisplayNames's own select() list would leave
@@ -197,17 +208,23 @@ function makeFakeSupabase(seedRows: FakeProfileRow[] = []) {
 }
 
 // Proves the 42703 branch is genuinely conditional: a different (or absent) error code must
-// still hit the existing generic log-and-empty-Map path unchanged.
+// still hit the generic log-and-throw path (#160 — a ProfilesQueryError now, not the old
+// log-and-empty-Map path this block used to prove).
 {
   const fake = makeFakeSupabase([{ user_id: 'user-a', display_name: 'Alex' }])
   fake.forceSelectError('connection refused', '08006')
   const loggedErrors: unknown[][] = []
   const originalConsoleError = console.error
   console.error = (...args: unknown[]) => loggedErrors.push(args)
-  const names = await getDisplayNames(fake.client, ['user-a'])
+  let caught: unknown
+  try {
+    await getDisplayNames(fake.client, ['user-a'])
+  } catch (error) {
+    caught = error
+  }
   console.error = originalConsoleError
 
-  assertEqual([...names.entries()], [], 'getDisplayNames returns an empty Map on a non-42703 error too')
+  assert(caught instanceof ProfilesQueryError, 'getDisplayNames throws a ProfilesQueryError on a non-42703 error too')
   const loggedText = loggedErrors.map((args) => args.join(' ')).join('\n')
   assert(
     loggedText.includes('failed to load display names'),

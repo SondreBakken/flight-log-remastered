@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import AccountSettings from './index'
 
 const mockOnAuthStateChange = vi.fn()
@@ -78,14 +78,38 @@ describe('AccountSettings', () => {
     expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
   })
 
-  it('leaves the input blank when the signed-in user has no display name yet', async () => {
+  it('leaves the input blank, enabled, and without the error notice when the signed-in user has no display name yet', async () => {
     stubAuthStateChange()
 
     render(<AccountSettings />)
     emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('Display name')
+    // Pins that the 'loaded' (no name set) state actually differs from 'error' below, not just
+    // that 'error' looks right in isolation — if displayNameLoadFailed were hardcoded true at
+    // index.tsx regardless of ownDisplayName.kind, the 'error' test below would still pass, but
+    // these assertions would catch it.
     expect(screen.getByLabelText('Display name')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', false)
+    expect(screen.queryByText(/Couldn't load your current display name/)).toBeNull()
+  })
+
+  it('shows an inline notice and disables the field when the display-name lookup fails, rather than rendering it identically to still-loading', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetDisplayNames.mockRejectedValue(new Error('profiles query failed'))
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    expect(await screen.findByText(/Couldn't load your current display name/)).toBeTruthy()
+    expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', true)
+    // Scoped to the display-name form specifically (not queried page-wide): PilotIdForm renders
+    // its own independent "Save" button alongside it (see index.tsx), and only the display-name
+    // form's button is disabled by this failure.
+    const displayNameForm = screen.getByLabelText('Display name').closest('form') as HTMLFormElement
+    expect(within(displayNameForm).getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+    consoleError.mockRestore()
   })
 
   it('shows a sign-in prompt, not the form, for a signed-out visitor, without fetching a display name', async () => {

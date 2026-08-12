@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getFollowersForPilot } from '../src/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '../src/lib/comments/get-comments-for-trip-ids'
+import { ProfilesQueryError } from '../src/lib/profiles/profiles-query-error'
 import { assertRejects } from './lib/assert'
 
 let failures = 0
@@ -73,7 +74,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   let profilesQueryCalls = 0
   let forcedFollowsError: { message: string } | null = null
   let forcedCommentsError: { message: string } | null = null
-  let forcedProfilesError: { message: string } | null = null
+  let forcedProfilesError: { message: string; code?: string } | null = null
 
   const client = {
     from(table: string) {
@@ -148,7 +149,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
                 if (column === 'user_id') userIdFilter = values as string[]
                 return query
               },
-              then(resolve: (result: { data: FakeProfileRow[] | null; error: { message: string } | null }) => void) {
+              then(resolve: (result: { data: FakeProfileRow[] | null; error: { message: string; code?: string } | null }) => void) {
                 profilesQueryCalls++
                 if (forcedProfilesError) {
                   resolve({ data: null, error: forcedProfilesError })
@@ -174,8 +175,8 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
     forceCommentsError(message: string): void {
       forcedCommentsError = { message }
     },
-    forceProfilesError(message: string): void {
-      forcedProfilesError = { message }
+    forceProfilesError(message: string, code?: string): void {
+      forcedProfilesError = { message, code }
     },
     get followsQueryCalls() {
       return followsQueryCalls
@@ -229,6 +230,46 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
     assert,
     () => getFollowersForPilot(fake.client, 12677),
     'getFollowersForPilot throws, distinguishably from an empty list, when the query fails',
+  )
+}
+
+// #160: getDisplayNames now throws a ProfilesQueryError on an unexpected profiles-table failure
+// rather than degrading to an empty Map. getFollowersForPilot deliberately leaves that throw to
+// propagate as-is (see its own doc comment on why, contrasting get-comments.ts's recast) —
+// account-activity/index.tsx's SectionErrorBoundary around Followers already catches any thrown
+// error identically, so the un-recast ProfilesQueryError produces the same visible degrade a
+// FollowsQueryError would.
+{
+  const fake = makeFakeSupabase({
+    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
+  })
+  fake.forceProfilesError('connection refused')
+  let caught: unknown
+  try {
+    await getFollowersForPilot(fake.client, 12677)
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof ProfilesQueryError,
+    'a failed profiles query surfaces as a ProfilesQueryError propagating unchanged out of getFollowersForPilot (#160)',
+  )
+}
+
+// The 42703 (undefined_column) carve-out in getDisplayNames (#149/#151) is deliberately excluded
+// from the throw above — it must still degrade end-to-end through getFollowersForPilot, exactly
+// as before, since that branch exists specifically so an unapplied migration doesn't take
+// followers down.
+{
+  const fake = makeFakeSupabase({
+    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
+  })
+  fake.forceProfilesError('column "display_name" does not exist', '42703')
+  const followers = await getFollowersForPilot(fake.client, 12677)
+  assertEqual(
+    followers,
+    [{ userId: 'user-a', createdAt: '2026-01-01T00:00:00.000Z', displayName: null }],
+    'a 42703 profiles error still degrades to displayName: null end-to-end through getFollowersForPilot, rather than throwing',
   )
 }
 
@@ -346,16 +387,44 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   )
 }
 
+// #160: getDisplayNames now throws a ProfilesQueryError on an unexpected profiles-table failure
+// rather than degrading to an empty Map. getCommentsForTripIds deliberately leaves that throw to
+// propagate as-is (see its own doc comment on why, contrasting get-comments.ts's recast) —
+// account-activity/index.tsx's SectionErrorBoundary around CommentsOnMyFlights already catches
+// any thrown error identically, so the un-recast ProfilesQueryError produces the same visible
+// degrade a CommentsQueryError would. This replaces the old "degrades to displayName: null"
+// expectation the same forceProfilesError('connection refused') used to prove.
 {
   const fake = makeFakeSupabase({
     comments: [{ id: '1', user_id: 'user-a', trip_id: 10, body: 'hi', created_at: '2026-01-01T00:00:00.000Z' }],
   })
   fake.forceProfilesError('connection refused')
+  let caught: unknown
+  try {
+    await getCommentsForTripIds(fake.client, [10])
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof ProfilesQueryError,
+    'a failed profiles query surfaces as a ProfilesQueryError propagating unchanged out of getCommentsForTripIds (#160)',
+  )
+}
+
+// The 42703 (undefined_column) carve-out in getDisplayNames (#149/#151) is deliberately excluded
+// from the throw above — it must still degrade end-to-end through getCommentsForTripIds, exactly
+// as before, since that branch exists specifically so an unapplied migration doesn't take
+// comments down.
+{
+  const fake = makeFakeSupabase({
+    comments: [{ id: '1', user_id: 'user-a', trip_id: 10, body: 'hi', created_at: '2026-01-01T00:00:00.000Z' }],
+  })
+  fake.forceProfilesError('column "display_name" does not exist', '42703')
   const comments = await getCommentsForTripIds(fake.client, [10])
   assertEqual(
     comments,
     [{ id: '1', tripId: 10, userId: 'user-a', body: 'hi', createdAt: '2026-01-01T00:00:00.000Z', displayName: null }],
-    'a failed profiles query degrades every comment to displayName: null rather than failing the whole page',
+    'a 42703 profiles error still degrades to displayName: null end-to-end through getCommentsForTripIds, rather than throwing',
   )
 }
 
