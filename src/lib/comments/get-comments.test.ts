@@ -26,12 +26,15 @@ describe('getComments', () => {
     ])
   })
 
-  it('throws, distinguishably from an empty list, when the query errors', async () => {
+  it('throws, distinguishably from an empty list, when the query errors, preserving the original error as cause', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table comments' } })
+    const queryError = { message: 'permission denied for table comments' }
+    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
 
-    await expect(getComments(client, 4549)).rejects.toThrow(CommentsQueryError)
+    const error = await getComments(client, 4549).catch((thrown: unknown) => thrown)
 
+    expect(error).toBeInstanceOf(CommentsQueryError)
+    expect((error as CommentsQueryError).cause).toBe(queryError)
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
   })

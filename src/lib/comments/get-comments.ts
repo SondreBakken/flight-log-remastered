@@ -45,7 +45,7 @@ export async function getComments(supabase: SupabaseClient, tripId: number): Pro
 
   if (error) {
     console.error('[comments] failed to load comments:', error)
-    throw new CommentsQueryError(`Failed to load comments for trip ${tripId}: ${error.message}`)
+    throw new CommentsQueryError(`Failed to load comments for trip ${tripId}: ${error.message}`, { cause: error })
   }
 
   return attachDisplayNames(supabase, data as CommentRow[], toComment)

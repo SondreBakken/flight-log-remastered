@@ -48,7 +48,7 @@ export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: Pi
 
   if (error) {
     console.error('[follows] failed to load followers for pilot:', error)
-    throw new FollowsQueryError(`Failed to load followers for pilot ${pilotId}: ${error.message}`)
+    throw new FollowsQueryError(`Failed to load followers for pilot ${pilotId}: ${error.message}`, { cause: error })
   }
 
   return attachDisplayNames(supabase, data as FollowRow[], toFollower)
