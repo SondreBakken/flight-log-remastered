@@ -18,8 +18,8 @@ type AccountFormProps = {
   // failed. That matters here specifically because a blank submit stores `null` (see
   // update-display-name.ts's own "a blank name is stored as null" comment) — a returning user who
   // already has a display name set and hits this error would otherwise see a blank field and could
-  // unknowingly wipe their real name on submit. Disables the field so a blank state during an
-  // error can't be silently submitted as if it were an intentional clear.
+  // unknowingly wipe their real name on submit. Disables both the field and the Save button so a
+  // blank state during an error can't be silently submitted as if it were an intentional clear.
   displayNameLoadFailed?: boolean
 }
 
@@ -50,13 +50,13 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false 
       </label>
       {displayNameLoadFailed && (
         <p className="text-sm opacity-70">
-          Couldn&apos;t load your current display name. If you already have one set, leave this blank only if you mean
-          to clear it.
+          Couldn&apos;t load your current display name, so it can&apos;t be changed right now. Reload the page to try
+          again.
         </p>
       )}
       <button
         className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-        disabled={pending}
+        disabled={pending || displayNameLoadFailed}
         type="submit"
       >
         {pending ? 'Saving…' : 'Save'}

@@ -46,13 +46,14 @@ export default async function AccountActivity() {
           <Followers supabase={supabase} pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
-      {/* Generic rather than naming causes: this boundary can't tell which of CommentsOnMyFlights's
-          several possible throws fired — getPilotLogbook's flightlog.org round trip,
-          getCommentsForTripIds's own Supabase query (#159), or getDisplayNames's Supabase query
-          propagating through attachDisplayNames uncaught (#160) — see each function's own doc
-          comment for why it throws instead of degrading. Naming a fixed count of causes here would
-          go stale the next time a new one is added. */}
-      <SectionErrorBoundary fallback="Couldn't load this section right now.">
+      {/* Names the content (comments on your flights), not a count of causes: this boundary can't
+          tell which of CommentsOnMyFlights's several possible throws fired — getPilotLogbook's
+          flightlog.org round trip, getCommentsForTripIds's own Supabase query (#159), or
+          getDisplayNames's Supabase query propagating through attachDisplayNames uncaught (#160) —
+          see each function's own doc comment for why it throws instead of degrading. Naming a
+          fixed count of causes here would go stale the next time a new one is added, but the
+          fallback still needs to say what failed to load, same as its Followers sibling above. */}
+      <SectionErrorBoundary fallback="Couldn't load comments on your flights right now.">
         <Suspense fallback={<CommentsSkeleton />}>
           <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
         </Suspense>

@@ -78,14 +78,20 @@ describe('AccountSettings', () => {
     expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
   })
 
-  it('leaves the input blank when the signed-in user has no display name yet', async () => {
+  it('leaves the input blank, enabled, and without the error notice when the signed-in user has no display name yet', async () => {
     stubAuthStateChange()
 
     render(<AccountSettings />)
     emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('Display name')
+    // Pins that the 'loaded' (no name set) state actually differs from 'error' below, not just
+    // that 'error' looks right in isolation — if displayNameLoadFailed were hardcoded true at
+    // index.tsx regardless of ownDisplayName.kind, the 'error' test below would still pass, but
+    // these assertions would catch it.
     expect(screen.getByLabelText('Display name')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', false)
+    expect(screen.queryByText(/Couldn't load your current display name/)).toBeNull()
   })
 
   it('shows an inline notice and disables the field when the display-name lookup fails, rather than rendering it identically to still-loading', async () => {
