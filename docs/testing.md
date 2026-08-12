@@ -2,7 +2,7 @@
 
 This is the full testing reference for flight-log-remastered: every `check:*` script and what it
 actually gates, the pin/band philosophy behind the ones that touch live flightlog.org data, the
-`verify-*.mts` browser scripts that `pnpm run check` deliberately does not cover, and how to
+`verify-*.mts` live scripts that `pnpm run check` deliberately does not cover, and how to
 regenerate the gitignored fixtures the parser and scoring checks run against. Start in the
 [README](../README.md) for a front-door overview of the app; come here for the how and why of
 proving it works.
@@ -97,21 +97,26 @@ that boundary today:
   fetch of six real historical flights' already-flown GPS tracks and flightlog.org's own
   already-computed scoring geometry for each, not a roster that grows or shifts over time. Neither
   the tracks nor their scoring geometry change after the fact, so despite one side being a live
-  fetch, this pin is closer to the frozen-vs-frozen case above than a countdown. See "Browser
-  verify scripts (verify-*.mts)" below for the full scene-by-scene detail of what it pins.
+  fetch, this pin is closer to the frozen-vs-frozen case above than a countdown. See "Verify
+  scripts (verify-*.mts)" below for the full scene-by-scene detail of what it pins.
 
 See each constant's own doc comment, and `scripts/lib/curated-country-expectations.ts` generally,
 for the specific numbers and the mutation testing that verified each band and the wind-direction
 difference property.
 
-## Browser verify scripts (verify-*.mts)
+## Verify scripts (verify-*.mts)
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
-`verify-flown-sites.mts`, `verify-shot.mts`) are a different kind of check: they drive a real
-headless browser against a running app, so they are deliberately **not** part of `pnpm run check`
-or any other automated gate — there is nothing in this repo that starts a server, waits for it,
-and tears it down again. Run them by hand after touching the relevant feature. `verify-map.mts`
+`verify-flown-sites.mts`, `verify-shot.mts`, `verify-follows-select-policy.mts`) are a different
+kind of check from everything above: they run against a live target, not the frozen-vs-frozen or
+in-memory fixtures `pnpm run check` covers, so they are deliberately **not** part of `pnpm run
+check` or any other automated gate — there is nothing in this repo that starts a server, waits for
+it, and tears it down again. Run them by hand after touching the relevant feature. Most of them
+drive a real headless browser against a running app; `verify-follows-select-policy.mts` is the one
+exception, covered in its own paragraph below — it drives Supabase directly, with no browser and
+no running app at all, because the thing it proves is a PostgREST-level RLS policy rather than
+rendered UI. `verify-map.mts`
 and `verify-feed.mts` are the only two that run against `pnpm dev`. `verify-feed.mts` seeds its
 signed-in scenarios (pilot-with-track, pilot-without-track, failure-surfacing) through a real
 authenticated Supabase session rather than the deleted localStorage follow-store — a service-role
@@ -128,6 +133,23 @@ credentials in its own Node process and imports a `server-only`-gated module, ru
 
 ```bash
 pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
+```
+
+`verify-follows-select-policy.mts` (#148) proves
+`supabase/migrations/20260812000000_add_follows_select_for_own_pilot.sql`'s additive `follows`
+SELECT policy against a real authenticated Supabase session, but unlike every other script in this
+section it needs no browser and no running app: the thing under test is a PostgREST-level RLS
+policy, not rendered UI, so it's a pure Node script that signs a synthetic user in directly via
+`@supabase/supabase-js`'s own `auth.verifyOtp` (no cookies, no page context — the client is
+created with `persistSession: false`, so its session lives only in memory for this one process)
+and reads `follows` back through that client's own session.
+It provisions its own two dedicated fixture identities via `generateLink`, distinct from
+`verify-feed.mts`'s, and deletes them (rows and auth.users) again at the end of every run rather
+than reusing a stable test user. Same credential/`server-only` requirement as `verify-feed.mts`,
+run it with:
+
+```bash
+pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-follows-select-policy.mts
 ```
 
 `verify-takeoffs.mts`, `verify-sites-map.mts` and

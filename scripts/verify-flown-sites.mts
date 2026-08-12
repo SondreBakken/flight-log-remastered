@@ -5,7 +5,7 @@ import { collectPageDiagnostics, waitForMapSettled, waitForPaintIdle } from './l
 
 // #76's flown-sites map, driven against a REAL browser and pilot 4549's LIVE page (same
 // "a green build proves nothing about a map in this repo" reasoning verify-sites-map.mts's own
-// doc comment gives — see that file, and docs/testing.md's "Browser verify scripts
+// doc comment gives — see that file, and docs/testing.md's "Verify scripts
 // (verify-*.mts)" section, for the general pattern this follows). `?__verifyMap` opts into
 // flown-sites-map/index.tsx's window.__flownSitesMap/__flownSitesMapData debug handles, gated
 // the same way map-debug.ts's isMapDebugEnabled documents. Run against `pnpm run build && pnpm

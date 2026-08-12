@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Page } from 'playwright'
+import { checkFollowsTableExists } from './lib/check-follows-table'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 import { createAdminClient } from '../src/lib/supabase/admin'
@@ -60,19 +61,6 @@ const TEST_USER_EMAIL = 'verify-feed-script@example.test'
 
 const { report, finish } = createReporter()
 const adminClient = createAdminClient()
-
-// Guards against confusing mid-run failures if migrations haven't actually been applied to
-// whatever Supabase project this script's env points at — see get-followed-pilot-ids.ts for
-// the same table this reads from at runtime.
-async function checkFollowsTableExists(): Promise<void> {
-  const { error } = await adminClient.from('follows').select('user_id').limit(1)
-  if (error?.code === '42P01') {
-    console.error(
-      'the `follows` table does not exist in this Supabase project — apply supabase/migrations before running this script.',
-    )
-    process.exit(1)
-  }
-}
 
 // generateLink neither sends an email nor requires one to already exist — it provisions the
 // auth.users row on first call and returns the same one on every later call for this email, so
@@ -234,7 +222,7 @@ function reportRowInvariants(rows: RowInfo[], scenarioLabel: string): void {
   )
 }
 
-await checkFollowsTableExists()
+await checkFollowsTableExists(adminClient)
 const { userId: testUserId, emailOtp } = await resolveTestUser()
 // Idempotent re-run safety: clear out anything a previous (possibly aborted) run left behind
 // before scenario 1, not just between scenarios below.
