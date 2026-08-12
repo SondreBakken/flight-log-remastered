@@ -67,7 +67,9 @@ export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: n
 
   if (error) {
     console.error('[comments] failed to load comments for trip ids:', error)
-    throw new CommentsQueryError(`Failed to load comments for ${tripIds.length} trip ids: ${error.message}`)
+    throw new CommentsQueryError(
+      `Failed to load comments for ${tripIds.length} trip ${tripIds.length === 1 ? 'id' : 'ids'}: ${error.message}`,
+    )
   }
 
   // Display-name lookup, and why it's two queries rather than a PostgREST embed, lives in
