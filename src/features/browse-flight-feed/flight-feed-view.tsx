@@ -1,12 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
-import type { ViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
 
 // follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
@@ -23,14 +23,13 @@ export function FlightFeedView({
   follows: ViewerFollowState
   defaultPilotId: number
 }) {
-  // null specifically for 'follows-unavailable': the true, untruncated follow set is not known,
-  // so there is nothing safe to prune seen-trip-store's stored map down to (see the effect
-  // below). 'signed-out' resolves to a real, genuine empty Set — that status IS a resolved follow
-  // list, not a failure — the same treatment resolve-viewer-follow-state.ts's own doc comment
-  // describes for the adornment pages' degrade case.
+  // null specifically for 'follows-unavailable' (see followedPilotIdsOf): the true, untruncated
+  // follow set is not known, so there is nothing safe to prune seen-trip-store's stored map down
+  // to (see the effect below). 'signed-out' resolves to a real, genuine empty Set — that status
+  // IS a resolved follow list, not a failure.
   const followedIds = useMemo(() => {
-    if (follows.status === 'follows-unavailable') return null
-    return new Set(follows.status === 'resolved' ? follows.followedPilotIds : [])
+    const followedPilotIds = followedPilotIdsOf(follows)
+    return followedPilotIds === null ? null : new Set(followedPilotIds)
   }, [follows])
 
   // The true, untruncated follow set — usePilotFeedResults only ever sees selectFeedPilotIds's
@@ -56,16 +55,15 @@ export function FlightFeedView({
 }
 
 // The three states FlightFeedView can render, named and matched explicitly rather than picked
-// between with nested ternaries in the render body above.
-function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }) {
-  switch (follows.status) {
-    case 'follows-unavailable':
-      return <FollowsUnavailableNotice />
-    case 'signed-out':
-      return <FollowedPilotsFeed followedPilotIds={[]} defaultPilotId={defaultPilotId} />
-    case 'resolved':
-      return <FollowedPilotsFeed followedPilotIds={follows.followedPilotIds} defaultPilotId={defaultPilotId} />
-  }
+// between with nested ternaries in the render body above. Delegates the status → follow-list
+// mapping itself to followedPilotIdsOf (see its own doc comment) rather than re-deriving it with
+// a second switch here — a fourth ViewerFollowState variant fails to compile there (its own
+// declared, non-undefined return type leaves no case free to fall through), which is what makes
+// this function's own explicit return type below a real, checked guarantee rather than a comment.
+function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }): ReactElement {
+  const followedPilotIds = followedPilotIdsOf(follows)
+  if (followedPilotIds === null) return <FollowsUnavailableNotice />
+  return <FollowedPilotsFeed followedPilotIds={followedPilotIds} defaultPilotId={defaultPilotId} />
 }
 
 function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilotIds: PilotId[]; defaultPilotId: number }) {

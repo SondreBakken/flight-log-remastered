@@ -2,18 +2,10 @@ import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getFollowedPilotIds } from './get-followed-pilot-ids'
 import { FollowsQueryError } from './follows-query-error'
+import { toFollowButtonState, type ViewerFollowState } from './viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
 
-// A discriminated union, not a followedPilotIds array plus a followsUnavailable flag: those two
-// fields could previously disagree (a "resolved" state with a non-empty followedPilotIds AND
-// followsUnavailable: true was representable but never meant anything), which is exactly the
-// shape of bug that let the flight feed's seen-trip prune run against an unresolved list (#155
-// follow-up). Every caller now matches on `status` instead of reading followedPilotIds and
-// hoping a dropped flag would have warned it otherwise.
-export type ViewerFollowState =
-  | { status: 'signed-out' }
-  | { status: 'resolved'; followedPilotIds: PilotId[] }
-  | { status: 'follows-unavailable' }
+export { followedPilotIdsOf, toFollowButtonState, type ViewerFollowState } from './viewer-follow-state'
 
 const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 
@@ -30,15 +22,14 @@ const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 // getFollowedPilotIds's own doc comment for why that's a different case from an empty array.
 //
 // getFollowedPilotIds throws a FollowsQueryError on a query error (#155) rather than returning an
-// empty Set, but this function does not let that throw propagate. Every one of this function's
-// callers renders follow state as an adornment on a page whose real content is something else
-// entirely (a pilot's logbook, a club roster, the search results list) — for those, crashing the
-// whole page on a follows query failure would be a worse outcome than a degraded follow button.
-// So the failure is caught here and turned into an explicit 'follows-unavailable' status instead
-// of a silent one: callers for whom follow state IS the content, not an adornment — currently
-// only browse-flight-feed's following filter — match on that status and render their own visible
-// error state rather than trusting an empty followedPilotIds at face value. Only FollowsQueryError
-// is caught; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
+// empty Set, but this function does not let that throw propagate. Two contracts sit on top of it,
+// for two different kinds of caller. A page where follow state is just an adornment on content
+// that is otherwise unrelated calls resolveFollowButtonState below: a query failure there degrades
+// to the same shape a signed-out visitor already gets, since crashing the whole page over a follow
+// button would be a worse outcome than a degraded one. A page where follow state IS the content
+// matches on 'follows-unavailable' directly (see followedPilotIdsOf) and renders its own visible
+// error state, rather than trusting an empty followedPilotIds at face value. Only FollowsQueryError
+// is caught here; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
 export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): Promise<ViewerFollowState> {
   if (!getSupabaseEnv()) return SIGNED_OUT_STATE
 
@@ -58,18 +49,11 @@ export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): P
   }
 }
 
-// For the adornment callers named in resolveViewerFollowState's own doc comment above: they
-// render a follow button/list as a secondary affordance on a page whose real content is
-// something else, so a follows-unavailable state degrades to the same "no follow state" shape a
-// signed-out visitor already gets, rather than each call site re-deriving that degradation with
-// its own ad hoc destructure.
-export function toFollowButtonState(state: ViewerFollowState): { isSignedIn: boolean; followedPilotIds: PilotId[] } {
-  switch (state.status) {
-    case 'signed-out':
-      return { isSignedIn: false, followedPilotIds: [] }
-    case 'resolved':
-      return { isSignedIn: true, followedPilotIds: state.followedPilotIds }
-    case 'follows-unavailable':
-      return { isSignedIn: true, followedPilotIds: [] }
-  }
+// The one-call-site shape resolveViewerFollowState's own doc comment recommends for adornment
+// pages — replaces toFollowButtonState(await resolveViewerFollowState(x)) at each of their call
+// sites with a single named step.
+export async function resolveFollowButtonState(
+  candidatePilotIds?: PilotId[],
+): Promise<{ isSignedIn: boolean; followedPilotIds: PilotId[] }> {
+  return toFollowButtonState(await resolveViewerFollowState(candidatePilotIds))
 }
