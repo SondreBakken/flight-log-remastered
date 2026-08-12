@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { postComment } from '../src/lib/comments/post-comment'
 import { getComments } from '../src/lib/comments/get-comments'
 import { deleteComment } from '../src/lib/comments/delete-comment'
+import { CommentsQueryError } from '../src/lib/comments/comments-query-error'
 import { commentFormStateFor } from '../src/features/comment-on-flight/comment-form-state'
 import { assertRejects } from './lib/assert'
 
@@ -80,7 +81,7 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
   let forcedError: { message: string } | null = null
   let forcedInsertError: { message: string } | null = null
   let forcedRpcError: { message: string } | null = null
-  let forcedProfilesError: { message: string } | null = null
+  let forcedProfilesError: { message: string; code?: string } | null = null
 
   function makeQuery(columns: string, opts?: SelectOptions) {
     let tripIdFilter: number | null = null
@@ -161,7 +162,7 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
                 return query
               },
               then(
-                resolve: (result: { data: FakeProfileRow[] | null; error: { message: string } | null }) => void,
+                resolve: (result: { data: FakeProfileRow[] | null; error: { message: string; code?: string } | null }) => void,
               ) {
                 profilesQueryCalls++
                 if (forcedProfilesError) {
@@ -242,8 +243,8 @@ function makeFakeSupabase(seedRows: FakeCommentRow[] = [], options?: { asUser?: 
     forceRpcError(message: string): void {
       forcedRpcError = { message }
     },
-    forceProfilesError(message: string): void {
-      forcedProfilesError = { message }
+    forceProfilesError(message: string, code?: string): void {
+      forcedProfilesError = { message, code }
     },
     get insertCalls() {
       return insertCalls
@@ -441,14 +442,39 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   assertEqual(fake.profilesQueryCalls, 1, 'getComments issues exactly one profiles query for the whole page, not one per comment')
 }
 
+// #160: getDisplayNames now throws a ProfilesQueryError on an unexpected profiles-table failure
+// rather than degrading to an empty Map, and getComments recasts that into its own
+// CommentsQueryError (see get-comments.ts's own doc comment on why) so loadCommentsForFlight's
+// type-discriminating catch degrades the page the same way it does for a comments-table failure,
+// instead of a display-name-lookup failure crashing the page uncaught. This replaces the old
+// "degrades to displayName: null" expectation the same forceProfilesError('connection refused')
+// used to prove.
 {
   const fake = makeFakeSupabase([{ id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' }])
   fake.forceProfilesError('connection refused')
+  let caught: unknown
+  try {
+    await getComments(fake.client, 1)
+  } catch (error) {
+    caught = error
+  }
+  assert(
+    caught instanceof CommentsQueryError,
+    'a failed profiles query now surfaces as a CommentsQueryError (#160), not a silent displayName: null degrade',
+  )
+}
+
+// The 42703 (undefined_column) carve-out in getDisplayNames (#149/#151) is deliberately excluded
+// from the throw above — it must still degrade end-to-end through getComments, exactly as before,
+// since that branch exists specifically so an unapplied migration doesn't take comments down.
+{
+  const fake = makeFakeSupabase([{ id: '1', user_id: 'user-a', trip_id: 1, body: 'first', created_at: '2026-01-01T00:00:00.000Z' }])
+  fake.forceProfilesError('column "display_name" does not exist', '42703')
   const comments = await getComments(fake.client, 1)
   assertEqual(
     comments,
     [{ id: '1', userId: 'user-a', body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: null }],
-    'a failed profiles query degrades every comment to displayName: null rather than failing the whole page',
+    'a 42703 profiles error still degrades every comment to displayName: null end-to-end through getComments, rather than throwing',
   )
 }
 

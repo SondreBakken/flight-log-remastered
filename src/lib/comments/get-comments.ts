@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { CommentsQueryError } from './comments-query-error'
 import type { Comment } from './types'
 
@@ -36,6 +37,14 @@ function toComment(row: CommentRow, displayNames: Map<string, string | null>): C
 // this failure. This function's one caller, loadCommentsForFlight (src/lib/comments/), catches it
 // and resolves to a comments-unavailable status instead of letting it propagate — see that
 // module's own doc comment for why.
+//
+// attachDisplayNames's own getDisplayNames can also throw, a ProfilesQueryError (#160) rather
+// than degrading to an empty Map. That throw is caught below and recast as a CommentsQueryError
+// rather than left to propagate as-is: loadCommentsForFlight's catch discriminates by type
+// (`instanceof CommentsQueryError`), so an uncaught ProfilesQueryError would miss that check and
+// crash the whole flight page instead of degrading to the same comments-unavailable state a
+// comments-table failure gets. Recasting makes "the comments section couldn't be fully loaded"
+// true regardless of which of its two underlying queries failed.
 export async function getComments(supabase: SupabaseClient, tripId: number): Promise<Comment[]> {
   const { data, error } = await supabase
     .from('comments')
@@ -48,5 +57,10 @@ export async function getComments(supabase: SupabaseClient, tripId: number): Pro
     throw new CommentsQueryError(`Failed to load comments for trip ${tripId}: ${error.message}`)
   }
 
-  return attachDisplayNames(supabase, data as CommentRow[], toComment)
+  try {
+    return await attachDisplayNames(supabase, data as CommentRow[], toComment)
+  } catch (displayNameError) {
+    if (!(displayNameError instanceof ProfilesQueryError)) throw displayNameError
+    throw new CommentsQueryError(`Failed to load display names for comments on trip ${tripId}: ${displayNameError.message}`)
+  }
 }
