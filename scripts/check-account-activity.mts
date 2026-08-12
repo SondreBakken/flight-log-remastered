@@ -332,11 +332,18 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assert(fake.profilesQueryCalls === 0, 'an empty tripIds list never issues a profiles query either, since there are no authors to look up')
 }
 
+// #159: see getCommentsForTripIds's own doc comment for why a query error throws rather than
+// degrading to [] — same shape #155 established for getFollowersForPilot above. The throw is
+// caught by account-activity/index.tsx's own SectionErrorBoundary, out of this script's reach
+// (it drives getCommentsForTripIds directly, not the React tree around it).
 {
   const fake = makeFakeSupabase()
   fake.forceCommentsError('connection refused')
-  const comments = await getCommentsForTripIds(fake.client, [10])
-  assertEqual(comments, [], 'getCommentsForTripIds returns an empty list, not a thrown exception, when the query fails')
+  await assertRejects(
+    assert,
+    () => getCommentsForTripIds(fake.client, [10]),
+    'getCommentsForTripIds throws, distinguishably from an empty list, when the query fails',
+  )
 }
 
 {

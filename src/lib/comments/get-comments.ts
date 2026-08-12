@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
+import { CommentsQueryError } from './comments-query-error'
 import type { Comment } from './types'
 
 type CommentRow = {
@@ -27,6 +28,14 @@ function toComment(row: CommentRow, displayNames: Map<string, string | null>): C
 //
 // Display-name lookup, and why it's two queries rather than a PostgREST embed, now lives in
 // attachDisplayNames.
+//
+// A query error throws a CommentsQueryError rather than returning [] (#159) — a denied or
+// misconfigured RLS policy on comments used to collapse into the same [] a genuinely
+// comment-free flight renders, indistinguishable from a broken policy. The distinct error class
+// (shared with getCommentsForTripIds — see its own doc comment) lets a caller catch specifically
+// this failure. This function's one caller, loadCommentsForFlight (src/lib/comments/), catches it
+// and resolves to a comments-unavailable status instead of letting it propagate — see that
+// module's own doc comment for why.
 export async function getComments(supabase: SupabaseClient, tripId: number): Promise<Comment[]> {
   const { data, error } = await supabase
     .from('comments')
@@ -36,7 +45,7 @@ export async function getComments(supabase: SupabaseClient, tripId: number): Pro
 
   if (error) {
     console.error('[comments] failed to load comments:', error)
-    return []
+    throw new CommentsQueryError(`Failed to load comments for trip ${tripId}: ${error.message}`)
   }
 
   return attachDisplayNames(supabase, data as CommentRow[], toComment)

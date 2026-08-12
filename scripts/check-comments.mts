@@ -3,6 +3,7 @@ import { postComment } from '../src/lib/comments/post-comment'
 import { getComments } from '../src/lib/comments/get-comments'
 import { deleteComment } from '../src/lib/comments/delete-comment'
 import { commentFormStateFor } from '../src/features/comment-on-flight/comment-form-state'
+import { assertRejects } from './lib/assert'
 
 let failures = 0
 
@@ -397,11 +398,14 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
   )
 }
 
+// #159: see getComments's own doc comment for why a query error throws (a CommentsQueryError)
+// rather than degrading to [] — same shape #155 established for the follows primitives. The
+// throw is caught by loadCommentsForFlight (src/lib/comments/load-comments-for-flight.ts), out of
+// this script's reach (it drives getComments directly, not the React tree around it).
 {
   const fake = makeFakeSupabase()
   fake.forceError('connection refused')
-  const comments = await getComments(fake.client, 1)
-  assertEqual(comments, [], 'getComments returns an empty list, not a thrown exception, when the query fails')
+  await assertRejects(assert, () => getComments(fake.client, 1), 'getComments throws, distinguishably from an empty list, when the query fails')
 }
 
 // --- getComments: merging in each author's display name ---
