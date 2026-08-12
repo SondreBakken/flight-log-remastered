@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { checkFollowsTableExists } from './lib/check-follows-table'
 import { createReporter } from './lib/verify-report'
 import { createAdminClient } from '../src/lib/supabase/admin'
 import { requireSupabaseEnv } from '../src/lib/supabase/env'
@@ -12,19 +13,28 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 // `follows` back through that client's own session. In Node, supabase-js has no window/
 // localStorage to persist a session into and falls back to an in-memory storage adapter
 // (@supabase/auth-js's GoTrueClient constructor); the session set by verifyOtp lives for the
-// lifetime of this one client instance, which is exactly long enough for this script's two
+// lifetime of this one client instance, which is exactly long enough for this script's three
 // read-back queries below.
 //
 // `follows`' 3 original policies (supabase/migrations/20260810020000_create_follows.sql) are all
-// scoped to `auth.uid() = user_id` — a user can read their own OUTGOING follows. The new policy
-// this proves adds a second, additive permissive SELECT policy: `pilot_id in (select
-// flightlog_pilot_id from profiles where user_id = auth.uid())`. Postgres ORs multiple
-// permissive policies for the same command together, so this is a proof of the OR, not just
-// "RLS returns something": the positive assertion below seeds a follow row this user did NOT
-// create (following someone ELSE's pilot id), so it can only be visible through the new
-// pilot-ownership clause, never the pre-existing follower-ownership one. The negative assertion
-// seeds a row that matches NEITHER clause, to rule out "RLS is disabled entirely" as the reason
-// the positive row was visible.
+// scoped to `auth.uid() = user_id` — a user can read their own OUTGOING follows. The policy this
+// proves adds a second, additive permissive SELECT policy: `pilot_id in (select
+// flightlog_pilot_id from profiles WHERE user_id = auth.uid())`. Postgres ORs multiple permissive
+// policies for the same command together, so three fixture rows and three assertions are needed
+// to actually pin the OR, not just "RLS returns something":
+//   1. incoming (own pilot id): a row this user did NOT create, following the VIEWER's own
+//      linked pilot id — visible only via the new pilot-ownership clause.
+//   2. mis-scope guard: a row following a DIFFERENT pilot id, one linked to OTHER's own profile
+//      (not the viewer's) — this is the row that would incorrectly leak if the new policy's
+//      `where user_id = auth.uid()` were ever dropped (e.g. `select flightlog_pilot_id from
+//      profiles` with no WHERE at all), since OTHER_PILOT_ID would then be in the unscoped set of
+//      every profile's linked pilot id, not just the viewer's own. Without OTHER also having a
+//      profile row claiming this pilot id, a mis-scoped policy would still (accidentally)
+//      correctly hide it, defeating the point of this assertion — see seedFixtures.
+//   3. owner-scoped survival: the viewer's own OUTGOING follow (a row where user_id = viewer,
+//      pilot_id = someone else's) — visible only via the pre-existing auth.uid() = user_id
+//      policy. Proves that policy wasn't dropped or replaced by the migration this script
+//      targets, which is additive by design (see the migration's own doc comment).
 //
 // Two dedicated fixture identities, distinct from verify-feed.mts's verify-feed-script@example.test,
 // per this issue's scout plan — reusing that email would let two scripts race to seed/clear the
@@ -49,33 +59,30 @@ const OTHER_PILOT_ID = 900149
 const { report, finish } = createReporter()
 const adminClient = createAdminClient()
 
-// Same reasoning as verify-feed.mts's checkFollowsTableExists: fail loud and early on a
-// not-yet-applied migration instead of letting every assertion below fail confusingly.
-async function checkFollowsTableExists(): Promise<void> {
-  const { error } = await adminClient.from('follows').select('user_id').limit(1)
-  if (error?.code === '42P01') {
-    console.error('the `follows` table does not exist in this Supabase project — apply supabase/migrations before running this script.')
-    process.exit(1)
-  }
-}
-
 // Distinguishes "flightlog_pilot_id column missing" (setup problem: the migration this script
 // needs to seed a profile row isn't applied) from "the SELECT policy migration this script
 // actually tests isn't applied" (the genuine finding this script exists to surface) — same
-// 42703 reasoning as get-flightlog-pilot-ids.ts.
+// 42703 reasoning as get-flightlog-pilot-ids.ts. Fails on ANY error, not just 42703, for the same
+// reason checkFollowsTableExists does: a bad credential or network failure must not pass this
+// guard silently.
 async function checkFlightlogPilotIdColumnExists(): Promise<void> {
   const { error } = await adminClient.from('profiles').select('flightlog_pilot_id').limit(1)
-  if (error?.code === '42703') {
+  if (!error) return
+
+  if (error.code === '42703') {
     console.error(
       'the `flightlog_pilot_id` column does not exist on `profiles` — apply migration 20260811010000_add_flightlog_pilot_id_to_profiles.sql before running this script.',
     )
-    process.exit(1)
+  } else {
+    console.error(`precondition check failed querying \`profiles.flightlog_pilot_id\`: [${error.code ?? 'no code'}] ${error.message}`)
   }
+  process.exit(1)
 }
 
-// generateLink provisions the auth.users row on first call and returns the same one on every
-// later call for this email (see verify-feed.mts's resolveTestUser) — doubles as "resolve this
-// fixture's user id" and "mint this run's sign-in OTP".
+// generateLink provisions the auth.users row on first call and mints a single-use OTP alongside
+// it. Unlike verify-feed.mts's stable, reused test user, this run always starts from a fresh
+// auth.users row: deleteFixtureUsers removes both fixture identities at the end of every run
+// (see the finally block below), so the "first call" case is the only one that ever happens here.
 async function resolveTestUser(email: string): Promise<{ userId: string; emailOtp: string }> {
   const { data, error } = await adminClient.auth.admin.generateLink({ type: 'magiclink', email })
   if (error || !data.user?.id || !data.properties?.email_otp) {
@@ -85,54 +92,100 @@ async function resolveTestUser(email: string): Promise<{ userId: string; emailOt
   return { userId: data.user.id, emailOtp: data.properties.email_otp }
 }
 
-// Deletes only rows this script itself could have seeded (scoped to the two fixture user ids and
-// the two sentinel pilot ids), never a broader sweep of the table — safe to call before AND
-// after the run, so an aborted previous run never poisons this one.
+// Deletes only rows this script itself could have seeded (scoped to the two fixture user ids),
+// never a broader sweep of either table — safe to call before AND after the run, so an aborted
+// previous run never poisons this one. Throws on a delete error rather than swallowing it (same
+// convention as verify-feed.mts's seedFollowedPilots) — a cleanup failure left silent here would
+// otherwise surface next run as a confusing, misattributed duplicate-key seed failure instead of
+// the actual cleanup problem.
 async function clearFixtureRows(viewerId: string, otherId: string): Promise<void> {
-  await adminClient.from('follows').delete().in('user_id', [viewerId, otherId])
-  await adminClient.from('profiles').delete().eq('user_id', viewerId)
+  const { error: followsError } = await adminClient.from('follows').delete().in('user_id', [viewerId, otherId])
+  if (followsError) throw new Error(`failed to clear fixture follows rows: ${followsError.message}`)
+
+  const { error: profilesError } = await adminClient.from('profiles').delete().in('user_id', [viewerId, otherId])
+  if (profilesError) throw new Error(`failed to clear fixture profiles rows: ${profilesError.message}`)
 }
 
+// Never throws: called from the finally block below, where an exception here would replace
+// (mask) whatever exception the try block was already propagating. GoTrueAdminApi's deleteUser
+// can itself throw for some non-auth errors (not just return { error }), so each call is wrapped
+// individually — one fixture user's deletion failing must not skip the other's.
 async function deleteFixtureUsers(viewerId: string, otherId: string): Promise<void> {
   for (const id of [viewerId, otherId]) {
-    const { error } = await adminClient.auth.admin.deleteUser(id)
-    if (error) console.error(`cleanup: failed to delete fixture auth user ${id}: ${error.message}`)
+    try {
+      const { error } = await adminClient.auth.admin.deleteUser(id)
+      if (error) console.error(`cleanup: failed to delete fixture auth user ${id}: ${error.message}`)
+    } catch (err) {
+      console.error(`cleanup: deleteUser threw for fixture auth user ${id}: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 }
 
-// Seeds the viewer's self-declared pilot link, and two follow rows the viewer did not create
-// themselves: one targeting the viewer's own pilot id (should become visible through the new
-// policy), one targeting a different pilot id (should stay invisible). Both rows are owned by
-// `otherId` as follower so neither could ever be explained by the pre-existing
-// auth.uid() = user_id policy alone.
+// Runs both cleanup steps from the finally block specifically: clearFixtureRows can throw (by
+// design, see its own doc comment), but a cleanup failure here must never replace the original
+// error the try block was already propagating — so it's caught and logged, not rethrown.
+// deleteFixtureUsers already never throws (see its own doc comment), but is still sequenced after
+// so a failed row cleanup doesn't skip user cleanup entirely.
+async function cleanupFixtures(viewerId: string, otherId: string): Promise<void> {
+  try {
+    await clearFixtureRows(viewerId, otherId)
+  } catch (err) {
+    console.error(`cleanup: failed to clear fixture rows: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  await deleteFixtureUsers(viewerId, otherId)
+}
+
+// Seeds two profiles rows and three follows rows — see the module doc comment above for what
+// each of the three follows rows is actually pinning. OTHER also gets a profiles row (not just
+// the viewer) specifically so the mis-scope-guard row has a claimant: without it, OTHER_PILOT_ID
+// would be linked to NO profile at all, and a policy that accidentally dropped its
+// `where user_id = auth.uid()` clause would still (accidentally) hide row 2, defeating the point
+// of that assertion.
 async function seedFixtures(viewerId: string, otherId: string): Promise<void> {
-  const { error: profileError } = await adminClient
-    .from('profiles')
-    .upsert({ user_id: viewerId, flightlog_pilot_id: VIEWER_PILOT_ID }, { onConflict: 'user_id' })
-  if (profileError) throw new Error(`failed to seed viewer profile: ${profileError.message}`)
+  const { error: profileError } = await adminClient.from('profiles').upsert(
+    [
+      { user_id: viewerId, flightlog_pilot_id: VIEWER_PILOT_ID },
+      { user_id: otherId, flightlog_pilot_id: OTHER_PILOT_ID },
+    ],
+    { onConflict: 'user_id' },
+  )
+  if (profileError) throw new Error(`failed to seed fixture profiles: ${profileError.message}`)
 
   const { error: followsError } = await adminClient.from('follows').insert([
-    { user_id: otherId, pilot_id: VIEWER_PILOT_ID },
-    { user_id: otherId, pilot_id: OTHER_PILOT_ID },
+    { user_id: otherId, pilot_id: VIEWER_PILOT_ID }, // 1. incoming: visible only via the new pilot-ownership policy
+    { user_id: otherId, pilot_id: OTHER_PILOT_ID }, // 2. mis-scope guard: would leak under a policy missing its own-profile scoping
+    { user_id: viewerId, pilot_id: OTHER_PILOT_ID }, // 3. outgoing: visible only via the pre-existing owner-scoped policy
   ])
   if (followsError) throw new Error(`failed to seed follows fixtures: ${followsError.message}`)
 }
 
-// Confirms, via the RLS-bypassing admin client, that both seeded rows genuinely exist before any
+// Confirms, via the RLS-bypassing admin client, that every seeded row genuinely exists before any
 // assertion runs through the viewer's own session — without this, a seed that silently inserted
-// zero rows would make the negative assertion below pass vacuously (nothing to see because
+// zero rows would make a "not visible" assertion below pass vacuously (nothing to see because
 // nothing was ever there, not because RLS hid it).
-async function confirmFixturesSeeded(otherId: string): Promise<void> {
-  const { data, error } = await adminClient.from('follows').select('pilot_id').eq('user_id', otherId).in('pilot_id', [VIEWER_PILOT_ID, OTHER_PILOT_ID])
-  if (error) throw new Error(`failed to confirm seeded follows fixtures via admin client: ${error.message}`)
-  const seededPilotIds = new Set((data ?? []).map((row) => row.pilot_id as number))
-  report(seededPilotIds.has(VIEWER_PILOT_ID), 'setup: the admin client confirms the own-pilot follow row was actually inserted')
-  report(seededPilotIds.has(OTHER_PILOT_ID), 'setup: the admin client confirms the different-pilot follow row was actually inserted')
+async function confirmFixturesSeeded(viewerId: string, otherId: string): Promise<void> {
+  const { data: profileRows, error: profileError } = await adminClient
+    .from('profiles')
+    .select('user_id, flightlog_pilot_id')
+    .in('user_id', [viewerId, otherId])
+  if (profileError) throw new Error(`failed to confirm seeded profiles fixtures via admin client: ${profileError.message}`)
+  const seededPilotIdByUser = new Map((profileRows ?? []).map((row) => [row.user_id as string, row.flightlog_pilot_id as number | null]))
+  report(seededPilotIdByUser.get(viewerId) === VIEWER_PILOT_ID, "setup: the admin client confirms the viewer's profile links their own pilot id")
+  report(seededPilotIdByUser.get(otherId) === OTHER_PILOT_ID, "setup: the admin client confirms OTHER's profile links the mis-scope-guard pilot id")
+
+  const { data: followsRows, error: followsError } = await adminClient.from('follows').select('user_id, pilot_id').in('user_id', [viewerId, otherId])
+  if (followsError) throw new Error(`failed to confirm seeded follows fixtures via admin client: ${followsError.message}`)
+  const seeded = new Set((followsRows ?? []).map((row) => `${row.user_id}:${row.pilot_id}`))
+  report(seeded.has(`${otherId}:${VIEWER_PILOT_ID}`), 'setup: the admin client confirms the incoming own-pilot follow row was actually inserted')
+  report(seeded.has(`${otherId}:${OTHER_PILOT_ID}`), 'setup: the admin client confirms the mis-scope-guard follow row was actually inserted')
+  report(seeded.has(`${viewerId}:${OTHER_PILOT_ID}`), "setup: the admin client confirms the viewer's own outgoing follow row was actually inserted")
 }
 
 // Signs the viewer in for real via @supabase/supabase-js's own auth.verifyOtp — the plain-Node
 // equivalent of verify-feed.mts's browser-side signInAsTestUser, minus the browser: nothing here
-// depends on cookies or a page context, only the client's own in-memory session.
+// depends on cookies or a page context, only the client's own in-memory session. Throws (rather
+// than process.exit) on failure so the caller's finally block still runs cleanup — exiting here
+// directly would leak every fixture row and both fixture auth users on the live project.
 async function signInAsViewer(emailOtp: string): Promise<SupabaseClient> {
   const { url, anonKey } = requireSupabaseEnv()
   const viewerClient: SupabaseClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
@@ -141,13 +194,12 @@ async function signInAsViewer(emailOtp: string): Promise<SupabaseClient> {
   report(error === null, `sign-in: verifyOtp for the viewer fixture succeeded (${error ? error.message : 'no error'})`)
   report(data.session !== null, 'sign-in: verifyOtp returned a real session for the viewer fixture')
   if (error || !data.session) {
-    console.error('cannot continue without a real viewer session — aborting before the RLS assertions.')
-    process.exit(1)
+    throw new Error(`sign-in failed for the viewer fixture: ${error ? error.message : 'verifyOtp returned no session'}`)
   }
   return viewerClient
 }
 
-async function assertOwnPilotFollowIsVisible(viewerClient: SupabaseClient, otherId: string): Promise<void> {
+async function assertIncomingOwnPilotFollowIsVisible(viewerClient: SupabaseClient, otherId: string): Promise<void> {
   const { data, error } = await viewerClient.from('follows').select('user_id, pilot_id').eq('pilot_id', VIEWER_PILOT_ID).eq('user_id', otherId)
 
   // An error here is a distinct failure from "no rows" — treating it as "not visible" would
@@ -156,23 +208,38 @@ async function assertOwnPilotFollowIsVisible(viewerClient: SupabaseClient, other
   report(error === null, `positive: reading the own-pilot incoming follow through the viewer's session did not error (${error ? error.message : 'ok'})`)
   const rows = data ?? []
   report(
-    rows.length === 1 && rows[0].pilot_id === VIEWER_PILOT_ID && rows[0].user_id === otherId,
+    error === null && rows.length === 1 && rows[0]?.pilot_id === VIEWER_PILOT_ID && rows[0]?.user_id === otherId,
     `positive: the follow row targeting the viewer's own pilot id (${VIEWER_PILOT_ID}) IS visible through the viewer's own session (rows seen: ${JSON.stringify(rows)})`,
   )
 }
 
-async function assertOtherPilotFollowIsHidden(viewerClient: SupabaseClient, otherId: string): Promise<void> {
+async function assertMisscopedGuardFollowIsHidden(viewerClient: SupabaseClient, otherId: string): Promise<void> {
   const { data, error } = await viewerClient.from('follows').select('user_id, pilot_id').eq('pilot_id', OTHER_PILOT_ID).eq('user_id', otherId)
 
-  report(error === null, `negative: reading the different-pilot follow through the viewer's session did not error (${error ? error.message : 'ok'})`)
+  report(error === null, `negative: reading the mis-scope-guard follow through the viewer's session did not error (${error ? error.message : 'ok'})`)
   const rows = data ?? []
+  // error === null is folded into this report too — otherwise a query that errored out would log
+  // "ok" here purely because rows.length happens to be 0, misrepresenting an RLS-deny as the
+  // cause when the real cause was a broken query. The sibling error report just above already
+  // turns the run red either way, but this line's own label must not lie about why.
   report(
-    rows.length === 0,
-    `negative: the follow row targeting a DIFFERENT pilot id (${OTHER_PILOT_ID}) is NOT visible through the viewer's session (rows seen: ${JSON.stringify(rows)})`,
+    error === null && rows.length === 0,
+    `negative: the follow row targeting a DIFFERENT pilot id (${OTHER_PILOT_ID}), one that WOULD leak under a policy missing its own-profile scoping, is NOT visible through the viewer's session (rows seen: ${JSON.stringify(rows)})`,
   )
 }
 
-await checkFollowsTableExists()
+async function assertOwnOutgoingFollowIsVisible(viewerClient: SupabaseClient, viewerId: string): Promise<void> {
+  const { data, error } = await viewerClient.from('follows').select('user_id, pilot_id').eq('pilot_id', OTHER_PILOT_ID).eq('user_id', viewerId)
+
+  report(error === null, `owner-scoped: reading the viewer's own outgoing follow through their own session did not error (${error ? error.message : 'ok'})`)
+  const rows = data ?? []
+  report(
+    error === null && rows.length === 1 && rows[0]?.pilot_id === OTHER_PILOT_ID && rows[0]?.user_id === viewerId,
+    `owner-scoped: the viewer's own outgoing follow (user_id = viewer) IS visible through their own session, proving the pre-existing auth.uid() = user_id policy was not dropped or replaced (rows seen: ${JSON.stringify(rows)})`,
+  )
+}
+
+await checkFollowsTableExists(adminClient)
 await checkFlightlogPilotIdColumnExists()
 
 const { userId: viewerId, emailOtp } = await resolveTestUser(VIEWER_EMAIL)
@@ -183,14 +250,14 @@ try {
   // before seeding, same reasoning as verify-feed.mts's pre-scenario-1 cleanup.
   await clearFixtureRows(viewerId, otherId)
   await seedFixtures(viewerId, otherId)
-  await confirmFixturesSeeded(otherId)
+  await confirmFixturesSeeded(viewerId, otherId)
 
   const viewerClient = await signInAsViewer(emailOtp)
-  await assertOwnPilotFollowIsVisible(viewerClient, otherId)
-  await assertOtherPilotFollowIsHidden(viewerClient, otherId)
+  await assertIncomingOwnPilotFollowIsVisible(viewerClient, otherId)
+  await assertMisscopedGuardFollowIsHidden(viewerClient, otherId)
+  await assertOwnOutgoingFollowIsVisible(viewerClient, viewerId)
 } finally {
-  await clearFixtureRows(viewerId, otherId)
-  await deleteFixtureUsers(viewerId, otherId)
+  await cleanupFixtures(viewerId, otherId)
 }
 
 finish('follows SELECT policy (own-pilot incoming follows) verification')
