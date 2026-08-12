@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import AccountSettings from './index'
 
 const mockOnAuthStateChange = vi.fn()
@@ -104,6 +104,11 @@ describe('AccountSettings', () => {
 
     expect(await screen.findByText(/Couldn't load your current display name/)).toBeTruthy()
     expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', true)
+    // Scoped to the display-name form specifically (not queried page-wide): PilotIdForm renders
+    // its own independent "Save" button alongside it (see index.tsx), and only the display-name
+    // form's button is disabled by this failure.
+    const displayNameForm = screen.getByLabelText('Display name').closest('form') as HTMLFormElement
+    expect(within(displayNameForm).getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
     consoleError.mockRestore()
   })
 

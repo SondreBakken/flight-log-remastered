@@ -75,8 +75,8 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // propagating through attachDisplayNames (#160) — see each function's own doc comment for why a
 // query error throws rather than degrading to []. Each branch gets its own SectionErrorBoundary
 // instance rather than relying on this sibling split alone for fault isolation (see that
-// boundary's own fallback prop, below, for why CommentsOnMyFlights's fallback stays generic
-// rather than naming a fixed set of causes).
+// boundary's own fallback prop, below, for why CommentsOnMyFlights's fallback names its content
+// rather than a fixed set of causes).
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />

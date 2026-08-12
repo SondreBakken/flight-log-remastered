@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 
 const mockGetDisplayNames = vi.fn()
 
@@ -66,8 +66,13 @@ describe('useOwnDisplayName', () => {
 
     await waitFor(() => expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' }))
 
-    resolveStale(new Map([['user-1', 'Alice']]))
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    // A bare `await new Promise((resolve) => setTimeout(resolve, 0))` races the `.then` callback's
+    // setState against React's commit rather than waiting for it, same trap as the reject-path
+    // test below. Wrapping the resolve in `act` flushes the resulting state update deterministically
+    // instead of racing it against a timer.
+    await act(async () => {
+      resolveStale(new Map([['user-1', 'Alice']]))
+    })
 
     expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' })
   })
@@ -76,8 +81,13 @@ describe('useOwnDisplayName', () => {
   // request that REJECTS after a newer one has already landed must not clobber the newer state
   // either. Without `if (!cancelled)` inside the .catch, a late-arriving error for user-1 would
   // flip the already-'loaded' user-2 result to 'error', wrongly disabling user-2's own field even
-  // though their own lookup succeeded — deleting that guard alone (leaving the .then guard intact)
-  // makes this fail while leaving the stale-resolve test above green.
+  // though their own lookup succeeded. A bare `setTimeout(0)` is one macrotask tick too short to
+  // pin this: the rejection has to travel through the chain's `.then` (with no `onRejected` to
+  // trip) before it reaches `.catch`, and React commits after that, so the timer can fire while
+  // state is still frozen at the last committed value. Wrapping the reject in `act` flushes that
+  // state update deterministically instead, which is what makes this test pin the guard by
+  // construction: deleting the `.catch` branch's `if (!cancelled)` (leaving the `.then` guard
+  // intact) now makes this fail while leaving the stale-resolve test above green.
   it('a late-arriving rejection for a stale userId does not clobber a newer loaded state', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     let rejectStale!: (reason: Error) => void
@@ -97,8 +107,9 @@ describe('useOwnDisplayName', () => {
 
     await waitFor(() => expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' }))
 
-    rejectStale(new Error('stale profiles query failed'))
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await act(async () => {
+      rejectStale(new Error('stale profiles query failed'))
+    })
 
     expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' })
     consoleError.mockRestore()
