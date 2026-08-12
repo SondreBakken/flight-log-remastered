@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getFollowersForPilot } from '../src/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '../src/lib/comments/get-comments-for-trip-ids'
+import { assertRejects } from './lib/assert'
 
 let failures = 0
 
@@ -217,11 +218,18 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assertEqual(followers, [], 'a pilot id with no followers returns an empty list')
 }
 
+// #155: see getFollowersForPilot's own doc comment for why a query error throws rather than
+// degrading to []. The throw is caught by account-activity/index.tsx's SectionErrorBoundary,
+// which is out of this script's own reach (it drives getFollowersForPilot directly, not the
+// React tree around it).
 {
   const fake = makeFakeSupabase()
   fake.forceFollowsError('connection refused')
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assertEqual(followers, [], 'getFollowersForPilot returns an empty list, not a thrown exception, when the query fails')
+  await assertRejects(
+    assert,
+    () => getFollowersForPilot(fake.client, 12677),
+    'getFollowersForPilot throws, distinguishably from an empty list, when the query fails',
+  )
 }
 
 // Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only

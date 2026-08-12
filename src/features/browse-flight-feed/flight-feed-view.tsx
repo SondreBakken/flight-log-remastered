@@ -1,25 +1,36 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
+import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
 
-// followedPilotIds now arrives as a server-resolved prop (see index.tsx's own doc comment) —
-// known before the very first render, unlike the old localStorage-backed version, which had to
-// render a hydration skeleton until the browser's own store caught up. No hasHydrated left to
-// gate on.
+// follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
+// the very first render, unlike the old localStorage-backed version, which had to render a
+// hydration skeleton until the browser's own store caught up. No hasHydrated left to gate on.
+//
+// Required, not defaulted (unlike the old followedPilotIds/followsUnavailable pair) — every call
+// site, including this file's own index.test.tsx, must now say explicitly which ViewerFollowState
+// status it means, rather than a missing prop silently reading as "resolved, follows nobody".
 export function FlightFeedView({
-  followedPilotIds,
+  follows,
   defaultPilotId,
 }: {
-  followedPilotIds: PilotId[]
+  follows: ViewerFollowState
   defaultPilotId: number
 }) {
-  const followedIds = useMemo(() => new Set(followedPilotIds), [followedPilotIds])
+  // null specifically for 'follows-unavailable' (see followedPilotIdsOf): the true, untruncated
+  // follow set is not known, so there is nothing safe to prune seen-trip-store's stored map down
+  // to (see the effect below). 'signed-out' resolves to a real, genuine empty Set — that status
+  // IS a resolved follow list, not a failure.
+  const followedIds = useMemo(() => {
+    const followedPilotIds = followedPilotIdsOf(follows)
+    return followedPilotIds === null ? null : new Set(followedPilotIds)
+  }, [follows])
 
   // The true, untruncated follow set — usePilotFeedResults only ever sees selectFeedPilotIds's
   // MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to safely prune
@@ -27,28 +38,62 @@ export function FlightFeedView({
   // accumulation bug this closes). Runs whenever the resolved follow set changes (a fresh page
   // load after following/unfollowing elsewhere), not on a mount-only basis, so falling out of
   // the top MAX_PILOTS_PER_FEED stays pruned over time; unfollowing itself is already handled
-  // explicitly by FollowButton's own clearSeenTripIds call.
+  // explicitly by FollowButton's own clearSeenTripIds call. Skipped entirely while followedIds is
+  // null (follows-unavailable) — pruning against an empty stand-in here is what used to wipe the
+  // whole seen-trip store on a mere query failure (#155 follow-up).
   useEffect(() => {
+    if (followedIds === null) return
     pruneSeenTripIdsToFollowedPilots(followedIds)
   }, [followedIds])
-
-  const { pilotIds, followedCount } = selectFeedPilotIds(followedIds)
 
   return (
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-      {pilotIds.length === 0 ? (
-        <>
-          <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
-          <EmptyState defaultPilotId={defaultPilotId} />
-        </>
-      ) : (
-        // Keying by the id set itself gives every genuinely new set of followed pilots a
-        // fresh FeedForPilots instance (fresh loading state, fresh results), instead of
-        // an effect resetting old state to match the new props — see usePilotFeedResults.
-        <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
-      )}
+      <FeedBody follows={follows} defaultPilotId={defaultPilotId} />
     </section>
+  )
+}
+
+// The three states FlightFeedView can render, named and matched explicitly rather than picked
+// between with nested ternaries in the render body above. Delegates the status → follow-list
+// mapping itself to followedPilotIdsOf (see its own doc comment) rather than re-deriving it with
+// a second switch here — a fourth ViewerFollowState variant fails to compile there (its own
+// declared, non-undefined return type leaves no case free to fall through), which is what makes
+// this function's own explicit return type below a real, checked guarantee rather than a comment.
+function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }): ReactElement {
+  const followedPilotIds = followedPilotIdsOf(follows)
+  if (followedPilotIds === null) return <FollowsUnavailableNotice />
+  return <FollowedPilotsFeed followedPilotIds={followedPilotIds} defaultPilotId={defaultPilotId} />
+}
+
+function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilotIds: PilotId[]; defaultPilotId: number }) {
+  const { pilotIds, followedCount } = selectFeedPilotIds(new Set(followedPilotIds))
+
+  if (pilotIds.length === 0) {
+    return (
+      <>
+        <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
+        <EmptyState defaultPilotId={defaultPilotId} />
+      </>
+    )
+  }
+
+  // Keying by the id set itself gives every genuinely new set of followed pilots a fresh
+  // FeedForPilots instance (fresh loading state, fresh results), instead of an effect resetting
+  // old state to match the new props — see usePilotFeedResults.
+  return <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
+}
+
+// The one visible signal that this feed's own following filter could not be resolved (#155) —
+// rendered instead of, not alongside, the ordinary empty state above: "flights from pilots you
+// follow show up here" reads as an invitation to go follow someone, which is actively wrong
+// advice when the real problem is that the follow list itself failed to load.
+function FollowsUnavailableNotice() {
+  return (
+    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+      <p className="font-medium">Couldn&apos;t load the pilots you follow right now.</p>
+      <p className="mt-1 opacity-80">Try reloading the page in a moment.</p>
+    </div>
   )
 }
 

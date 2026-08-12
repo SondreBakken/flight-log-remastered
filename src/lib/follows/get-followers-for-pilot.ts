@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
+import { FollowsQueryError } from './follows-query-error'
 import type { PilotId } from '@/lib/flightlog/types'
 
 type FollowRow = { user_id: string; created_at: string }
@@ -29,6 +30,15 @@ function toFollower(row: FollowRow, displayNames: Map<string, string | null>): F
 //
 // Newest follower first: nothing about "who follows me" has a natural read order the way a
 // comment thread does, so this defaults to the one people actually want to scan first.
+//
+// A query error throws a FollowsQueryError rather than returning [] (#155) — this is
+// account-activity's own followers list, where "who follows me" IS the feature. A denied or
+// misconfigured RLS policy used to collapse into the same [] a genuinely followerless pilot
+// renders, which made a broken policy indistinguishable from having no followers. The distinct
+// error class (shared with getFollowedPilotIds — see its own doc comment) lets a caller catch
+// specifically this failure rather than any throw. The caller (account-activity/index.tsx) wraps
+// its render of this in an error boundary so the failure surfaces to the viewer instead of
+// silently showing an empty list.
 export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: PilotId): Promise<Follower[]> {
   const { data, error } = await supabase
     .from('follows')
@@ -38,7 +48,7 @@ export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: Pi
 
   if (error) {
     console.error('[follows] failed to load followers for pilot:', error)
-    return []
+    throw new FollowsQueryError(`Failed to load followers for pilot ${pilotId}: ${error.message}`)
   }
 
   return attachDisplayNames(supabase, data as FollowRow[], toFollower)

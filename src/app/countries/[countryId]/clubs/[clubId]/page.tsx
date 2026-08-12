@@ -5,7 +5,7 @@ import { getClub } from '@/lib/flightlog/club'
 import { getClubStats } from '@/lib/flightlog/club-stats'
 import { getCountries } from '@/lib/flightlog/countries'
 import { parseCanonicalCountryId } from '@/lib/flightlog/country-id'
-import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 
 type ClubParams = Promise<{ countryId: string; clubId: string }>
 
@@ -71,7 +71,7 @@ export async function Club({ params }: { params: ClubParams }) {
   // roster's own userId set, so the roster alone is a sufficient candidate list for both the
   // roster and the stats leaderboard's follow buttons; no need to fetch stats' own userIds too.
   const candidatePilotIds = club.roster.map((member) => member.userId)
-  const { isSignedIn, followedPilotIds } = await resolveViewerFollowState(candidatePilotIds)
+  const { isSignedIn, followedPilotIds } = await resolveFollowButtonState(candidatePilotIds)
 
   return (
     <BrowseClub
