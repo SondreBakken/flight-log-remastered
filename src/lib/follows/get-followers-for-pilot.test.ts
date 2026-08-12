@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 const mockAttachDisplayNames = vi.fn()
 
@@ -31,5 +32,18 @@ describe('getFollowersForPilot', () => {
 
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+
+  // Explicit decision (see this function's own doc comment): a ProfilesQueryError from
+  // attachDisplayNames is NOT recast into a FollowsQueryError here — its one caller
+  // (account-activity's SectionErrorBoundary) catches any thrown error identically, so it
+  // propagates as-is rather than being wrapped for no observable benefit.
+  it('lets a ProfilesQueryError from attachDisplayNames propagate unchanged, not recast as a FollowsQueryError', async () => {
+    const rows = [{ user_id: 'user-1', created_at: '2026-08-01T00:00:00Z' }]
+    const { client } = fakeSupabaseQuery({ data: rows, error: null })
+    const profilesError = new ProfilesQueryError('Failed to load display names for 1 user id: boom')
+    mockAttachDisplayNames.mockRejectedValue(profilesError)
+
+    await expect(getFollowersForPilot(client, 4549)).rejects.toBe(profilesError)
   })
 })
