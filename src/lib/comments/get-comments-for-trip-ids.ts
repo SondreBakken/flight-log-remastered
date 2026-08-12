@@ -62,9 +62,9 @@ function toCommentWithTripId(row: CommentRow, displayNames: Map<string, string |
 // satisfy loadCommentsForFlight's type-discriminating catch (`instanceof CommentsQueryError`);
 // this function's caller has no equivalent discrimination — SectionErrorBoundary is a plain React
 // error boundary that catches any thrown error the same way, comments-table failure or
-// display-name-lookup failure alike, and its fallback text already names both possible causes
-// (see index.tsx's own doc comment on that fallback string). Recasting here would add a layer
-// with no observable difference in behavior.
+// display-name-lookup failure alike, and its fallback text is deliberately generic rather than
+// enumerating specific causes (see index.tsx's own doc comment on that fallback string).
+// Recasting here would add a layer with no observable difference in behavior.
 export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: number[]): Promise<CommentWithTripId[]> {
   if (tripIds.length === 0) return []
 

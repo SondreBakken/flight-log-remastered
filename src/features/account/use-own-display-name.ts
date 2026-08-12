@@ -17,11 +17,12 @@ export type OwnDisplayNameState = { kind: 'loading' } | { kind: 'loaded'; displa
 // resolving to an empty Map. Unlike attachDisplayNames's server-side callers, this is a
 // client-side effect with nothing upstream to catch a rejected promise — left unhandled, it
 // would surface as an unhandled promise rejection in the browser instead of any visible state.
-// Caught here and folded into a new 'error' kind rather than a distinct error message: index.tsx
-// already treats every non-'loaded' state as "no prefill available" (`ownDisplayName.kind ===
-// 'loaded' ? ... : undefined`), the same blank-input fallback a still-loading fetch gets, so an
-// error just leaves the field blank instead of failing to render the form at all. The user can
-// still type and save a new name; they only lose the prefill of their existing one.
+// Caught here and folded into a distinct 'error' kind rather than a rethrow: account-form.tsx
+// discriminates it from 'loading' (both leave the input's own value blank, but 'error' also shows
+// an inline notice and disables the field — see that component's own doc comment) rather than
+// treating it as just another flavor of "no prefill available yet". A returning user who already
+// has a display name set must never see this collapse silently into "no name set", or a blank
+// submit would wipe their real one.
 export function useOwnDisplayName(userId: string): OwnDisplayNameState {
   const [state, setState] = useState<OwnDisplayNameState>({ kind: 'loading' })
 
@@ -33,8 +34,9 @@ export function useOwnDisplayName(userId: string): OwnDisplayNameState {
       .then((names) => {
         if (!cancelled) setState({ kind: 'loaded', displayName: names.get(userId) ?? null })
       })
-      .catch((error: unknown) => {
-        console.error('[profiles] failed to load own display name:', error)
+      .catch(() => {
+        // getDisplayNames (get-display-names.ts) already logs the underlying error at the point
+        // of failure — logging it again here would just duplicate that entry for the same cause.
         if (!cancelled) setState({ kind: 'error' })
       })
 

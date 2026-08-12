@@ -88,6 +88,19 @@ describe('AccountSettings', () => {
     expect(screen.getByLabelText('Display name')).toHaveProperty('value', '')
   })
 
+  it('shows an inline notice and disables the field when the display-name lookup fails, rather than rendering it identically to still-loading', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetDisplayNames.mockRejectedValue(new Error('profiles query failed'))
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    expect(await screen.findByText(/Couldn't load your current display name/)).toBeTruthy()
+    expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', true)
+    consoleError.mockRestore()
+  })
+
   it('shows a sign-in prompt, not the form, for a signed-out visitor, without fetching a display name', async () => {
     stubAuthStateChange()
 

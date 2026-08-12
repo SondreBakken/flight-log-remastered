@@ -38,15 +38,35 @@ describe('useOwnDisplayName', () => {
     consoleError.mockRestore()
   })
 
-  it('does not update state after unmount, once getDisplayNames resolves late', async () => {
-    let resolveDisplayNames: (value: Map<string, string | null>) => void = () => {}
-    mockGetDisplayNames.mockReturnValue(new Promise((resolve) => (resolveDisplayNames = resolve)))
+  // Pins the `cancelled` guard in the effect body — the effect keys on userId, so this exercises
+  // the guard via a userId change, which (unlike unmount) is actually observable: React 19
+  // silently no-ops a setState called after a component has unmounted, so an unmount-then-resolve
+  // test cannot tell a guarded effect apart from an unguarded one (same trap and fix as
+  // use-takeoffs.test.ts's own "late-arriving response from a stale countryId" test — see its
+  // doc comment). A slow lookup started for user-1 that resolves AFTER a fast lookup for user-2
+  // has already landed must not clobber the user-2 result with its own stale one — deleting
+  // either `if (!cancelled)` guard in use-own-display-name.ts makes this fail.
+  it('a late-arriving lookup for a stale userId does not clobber a newer one', async () => {
+    let resolveStale!: (value: Map<string, string | null>) => void
+    const stale = new Promise<Map<string, string | null>>((resolve) => {
+      resolveStale = resolve
+    })
 
-    const { result, unmount } = renderHook(() => useOwnDisplayName('user-1'))
-    unmount()
-    resolveDisplayNames(new Map([['user-1', 'Alice']]))
+    mockGetDisplayNames.mockImplementation((_supabase: unknown, userIds: string[]) =>
+      userIds[0] === 'user-1' ? stale : Promise.resolve(new Map([['user-2', 'Bob']])),
+    )
 
-    await Promise.resolve()
-    expect(result.current).toEqual({ kind: 'loading' })
+    const { result, rerender } = renderHook(({ userId }) => useOwnDisplayName(userId), {
+      initialProps: { userId: 'user-1' },
+    })
+
+    rerender({ userId: 'user-2' })
+
+    await waitFor(() => expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' }))
+
+    resolveStale(new Map([['user-1', 'Alice']]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(result.current).toEqual({ kind: 'loaded', displayName: 'Bob' })
   })
 })
