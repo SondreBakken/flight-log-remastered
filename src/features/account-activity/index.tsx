@@ -7,8 +7,7 @@ import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
-import { CommentsErrorBoundary } from './comments-error-boundary'
-import { FollowersErrorBoundary } from './followers-error-boundary'
+import { SectionErrorBoundary } from './section-error-boundary'
 import { WHO_FOLLOWS_AND_COMMENTED } from './copy'
 import type { Follower } from '@/lib/follows/get-followers-for-pilot'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
@@ -42,16 +41,16 @@ export default async function AccountActivity() {
   return (
     <div className="flex flex-col gap-8">
       <UnverifiedLinkNote />
-      <FollowersErrorBoundary>
+      <SectionErrorBoundary fallback="Couldn't load followers right now.">
         <Suspense fallback={<FollowersSkeleton />}>
           <Followers supabase={supabase} pilotId={pilotId} />
         </Suspense>
-      </FollowersErrorBoundary>
-      <CommentsErrorBoundary>
+      </SectionErrorBoundary>
+      <SectionErrorBoundary fallback="Couldn't load flights right now.">
         <Suspense fallback={<CommentsSkeleton />}>
           <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
         </Suspense>
-      </CommentsErrorBoundary>
+      </SectionErrorBoundary>
     </div>
   )
 }
@@ -63,12 +62,11 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // without waiting on CommentsOnMyFlights's own flightlog.org round trip (or vice versa). Same
 // reasoning as src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split. Note this split
 // alone does NOT isolate a thrown error between the two branches — Suspense is not an error
-// boundary. CommentsOnMyFlights below calls getPilotLogbook (flightlog.org) and can throw, so
-// it's wrapped in its own CommentsErrorBoundary (comments-error-boundary.tsx) rather than relying
-// on this sibling split for fault isolation. Followers now needs the same treatment (#155):
-// getFollowersForPilot throws on its own query errors rather than swallowing them into [], so
-// it's wrapped in its own FollowersErrorBoundary (followers-error-boundary.tsx) for the same
-// reason.
+// boundary. Each branch can throw for its own reason (CommentsOnMyFlights from getPilotLogbook's
+// flightlog.org round trip; Followers from getFollowersForPilot's Supabase query — see that
+// function's own doc comment for why a query error throws rather than degrading to []), so each
+// gets its own SectionErrorBoundary instance rather than relying on this sibling split alone for
+// fault isolation.
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />
