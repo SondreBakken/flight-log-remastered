@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { getFollowedPilotIds } from './get-followed-pilot-ids'
-import { fakeFollowsSupabase } from './follows-query-builder-fake'
+import { fakeFollowsSupabase } from '@/lib/testing/follows-query-builder-fake'
 
 describe('getFollowedPilotIds', () => {
   it('returns the queried pilot ids as a Set', async () => {

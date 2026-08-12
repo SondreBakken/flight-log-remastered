@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fakeFollowsSupabase } from './follows-query-builder-fake'
+import { fakeFollowsSupabase } from '@/lib/testing/follows-query-builder-fake'
 
 const mockAttachDisplayNames = vi.fn()
 
