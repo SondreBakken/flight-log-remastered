@@ -46,11 +46,14 @@ export default async function AccountActivity() {
           <Followers supabase={supabase} pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
-      {/* Names both possible causes — getPilotLogbook's flightlog.org round trip and
-          getCommentsForTripIds's Supabase query (#159) — rather than picking one: this boundary
-          can't tell which of the two CommentsOnMyFlights threw (see that function's own doc
-          comment for why each throws instead of degrading to []). */}
-      <SectionErrorBoundary fallback="Couldn't load your flights or comments right now.">
+      {/* Names the content (comments on your flights), not a count of causes: this boundary can't
+          tell which of CommentsOnMyFlights's several possible throws fired — getPilotLogbook's
+          flightlog.org round trip, getCommentsForTripIds's own Supabase query (#159), or
+          getDisplayNames's Supabase query propagating through attachDisplayNames uncaught (#160) —
+          see each function's own doc comment for why it throws instead of degrading. Naming a
+          fixed count of causes here would go stale the next time a new one is added, but the
+          fallback still needs to say what failed to load, same as its Followers sibling above. */}
+      <SectionErrorBoundary fallback="Couldn't load comments on your flights right now.">
         <Suspense fallback={<CommentsSkeleton />}>
           <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
         </Suspense>
@@ -67,11 +70,13 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // reasoning as src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split. Note this split
 // alone does NOT isolate a thrown error between the two branches — Suspense is not an error
 // boundary. Each branch can throw for its own reason: Followers from getFollowersForPilot's
-// Supabase query, CommentsOnMyFlights from either getPilotLogbook's flightlog.org round trip or
-// getCommentsForTripIds's Supabase query (#159) — see each function's own doc comment for why a
+// Supabase query, CommentsOnMyFlights from any of getPilotLogbook's flightlog.org round trip,
+// getCommentsForTripIds's own Supabase query (#159), or getDisplayNames's Supabase query
+// propagating through attachDisplayNames (#160) — see each function's own doc comment for why a
 // query error throws rather than degrading to []. Each branch gets its own SectionErrorBoundary
 // instance rather than relying on this sibling split alone for fault isolation (see that
-// boundary's own fallback prop, below, for why CommentsOnMyFlights's names two causes).
+// boundary's own fallback prop, below, for why CommentsOnMyFlights's fallback names its content
+// rather than a fixed set of causes).
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />

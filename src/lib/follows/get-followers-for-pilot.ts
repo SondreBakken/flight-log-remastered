@@ -39,6 +39,15 @@ function toFollower(row: FollowRow, displayNames: Map<string, string | null>): F
 // specifically this failure rather than any throw. The caller (account-activity/index.tsx) wraps
 // its render of this in an error boundary so the failure surfaces to the viewer instead of
 // silently showing an empty list.
+//
+// attachDisplayNames's own getDisplayNames can also throw, a ProfilesQueryError (#160) rather
+// than degrading to an empty Map. That throw is deliberately left to propagate as-is here, not
+// recast into a FollowsQueryError: account-activity/index.tsx's SectionErrorBoundary around
+// Followers is a plain React error boundary, catching any thrown error identically regardless of
+// type, so a ProfilesQueryError already renders the same "Couldn't load followers right now."
+// fallback a FollowsQueryError would. (Contrast get-comments.ts, whose one caller,
+// loadCommentsForFlight, DOES discriminate by `instanceof CommentsQueryError` and so needs the
+// recast to avoid a display-name failure crashing the whole flight page instead of degrading.)
 export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: PilotId): Promise<Follower[]> {
   const { data, error } = await supabase
     .from('follows')

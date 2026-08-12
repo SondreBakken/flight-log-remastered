@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { CommentsQueryError } from './comments-query-error'
 
 const mockAttachDisplayNames = vi.fn()
@@ -34,5 +35,26 @@ describe('getComments', () => {
 
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
+  })
+
+  // A ProfilesQueryError from attachDisplayNames (i.e. the getDisplayNames read failed, not the
+  // comments read) must still resolve to a CommentsQueryError here, not propagate as-is: this
+  // function's one caller, loadCommentsForFlight, only catches CommentsQueryError by type, so an
+  // uncaught ProfilesQueryError would crash the whole flight page instead of degrading it.
+  it('recasts a ProfilesQueryError from attachDisplayNames into a CommentsQueryError', async () => {
+    const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
+    const { client } = fakeSupabaseQuery({ data: rows, error: null })
+    mockAttachDisplayNames.mockRejectedValue(new ProfilesQueryError('Failed to load display names for 1 user id: boom'))
+
+    await expect(getComments(client, 4549)).rejects.toThrow(CommentsQueryError)
+  })
+
+  it('lets a non-ProfilesQueryError throw from attachDisplayNames propagate unchanged', async () => {
+    const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
+    const { client } = fakeSupabaseQuery({ data: rows, error: null })
+    const mappingBug = new TypeError('boom')
+    mockAttachDisplayNames.mockRejectedValue(mappingBug)
+
+    await expect(getComments(client, 4549)).rejects.toBe(mappingBug)
   })
 })

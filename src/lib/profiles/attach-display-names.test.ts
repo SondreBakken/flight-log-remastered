@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ProfilesQueryError } from './profiles-query-error'
 
 const mockGetDisplayNames = vi.fn()
 
@@ -67,5 +68,18 @@ describe('attachDisplayNames', () => {
     const result = await attachDisplayNames(fakeSupabase, rows, toRow)
 
     expect(result.map((out) => out.value)).toEqual(['first', 'second', 'third'])
+  })
+
+  // Regression guard for the "no try/catch here deliberately" doc comment above: a
+  // ProfilesQueryError from getDisplayNames must pass through uncaught (the exact same object,
+  // not wrapped or swallowed), so each caller of attachDisplayNames keeps making its own
+  // catch-or-propagate decision (see get-comments.ts vs get-followers-for-pilot.ts for the two
+  // different decisions made there).
+  it('propagates a ProfilesQueryError from getDisplayNames uncaught', async () => {
+    const error = new ProfilesQueryError('Failed to load display names for 1 user id: boom')
+    mockGetDisplayNames.mockRejectedValue(error)
+    const rows: Row[] = [{ user_id: 'user-1', value: 'a' }]
+
+    await expect(attachDisplayNames(fakeSupabase, rows, toRow)).rejects.toBe(error)
   })
 })
