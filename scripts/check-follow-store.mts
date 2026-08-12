@@ -220,11 +220,21 @@ function makeFakeSupabase(seedRows: FakeFollowRow[] = [], options?: { asUser?: s
   assertEqual(idsOf(ids), [], 'an empty candidate list short-circuits to an empty result without querying at all')
 }
 
+// #155: a follows query error now throws rather than degrading to an empty Set — a denied or
+// misconfigured RLS policy used to be indistinguishable from "follows nobody". The throw is
+// caught by resolve-viewer-follow-state.ts, this function's one real caller, which turns it into
+// an explicit followsUnavailable signal instead — out of this script's reach, since it drives
+// getFollowedPilotIds directly.
 {
   const fake = makeFakeSupabase()
   fake.forceSelectError('connection refused')
-  const ids = await getFollowedPilotIds(fake.client, 'user-a')
-  assertEqual(idsOf(ids), [], 'getFollowedPilotIds returns an empty set, not a thrown exception, when the query fails')
+  let threw = false
+  try {
+    await getFollowedPilotIds(fake.client, 'user-a')
+  } catch {
+    threw = true
+  }
+  assertEqual(threw, true, 'getFollowedPilotIds throws, distinguishably from an empty set, when the query fails')
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)

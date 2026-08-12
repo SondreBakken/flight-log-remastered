@@ -29,6 +29,13 @@ function toFollower(row: FollowRow, displayNames: Map<string, string | null>): F
 //
 // Newest follower first: nothing about "who follows me" has a natural read order the way a
 // comment thread does, so this defaults to the one people actually want to scan first.
+//
+// A query error throws rather than returning [] (#155) — this is account-activity's own
+// followers list, where "who follows me" IS the feature. A denied or misconfigured RLS policy
+// used to collapse into the same [] a genuinely followerless pilot renders, which made a broken
+// policy indistinguishable from having no followers. The caller (account-activity/index.tsx)
+// wraps its render of this in an error boundary so the failure surfaces to the viewer instead
+// of silently showing an empty list.
 export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: PilotId): Promise<Follower[]> {
   const { data, error } = await supabase
     .from('follows')
@@ -38,7 +45,7 @@ export async function getFollowersForPilot(supabase: SupabaseClient, pilotId: Pi
 
   if (error) {
     console.error('[follows] failed to load followers for pilot:', error)
-    return []
+    throw new Error(`Failed to load followers for pilot ${pilotId}: ${error.message}`)
   }
 
   return attachDisplayNames(supabase, data as FollowRow[], toFollower)
