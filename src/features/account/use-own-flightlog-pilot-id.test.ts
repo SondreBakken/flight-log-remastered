@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 const mockGetFlightlogPilotIds = vi.fn()
 
@@ -35,6 +36,34 @@ describe('useOwnFlightlogPilotId', () => {
     const { result } = renderHook(() => useOwnFlightlogPilotId('user-1'))
 
     await waitFor(() => expect(result.current).toEqual({ kind: 'error' }))
+    consoleError.mockRestore()
+  })
+
+  // getFlightlogPilotIds itself already logs a ProfilesQueryError at its own point of failure
+  // (see its own doc comment), so the .catch here must not log it again for that specific case —
+  // but a throw of any other shape (a bug elsewhere, not a query failure getFlightlogPilotIds
+  // already reported) has no such upstream log, and silently swallowing it here would misdiagnose
+  // it as "profiles unavailable" with zero trace anywhere.
+  it('logs a non-ProfilesQueryError throw itself, since nothing upstream already did', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const bug = new Error('unrelated mapping bug')
+    mockGetFlightlogPilotIds.mockRejectedValue(bug)
+
+    const { result } = renderHook(() => useOwnFlightlogPilotId('user-1'))
+
+    await waitFor(() => expect(result.current).toEqual({ kind: 'error' }))
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('unexpected failure'), bug)
+    consoleError.mockRestore()
+  })
+
+  it('does not re-log a ProfilesQueryError, since getFlightlogPilotIds already logged it at the point of failure', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetFlightlogPilotIds.mockRejectedValue(new ProfilesQueryError('profiles query failed'))
+
+    const { result } = renderHook(() => useOwnFlightlogPilotId('user-1'))
+
+    await waitFor(() => expect(result.current).toEqual({ kind: 'error' }))
+    expect(consoleError).not.toHaveBeenCalled()
     consoleError.mockRestore()
   })
 

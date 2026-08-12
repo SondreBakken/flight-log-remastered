@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 export type OwnFlightlogPilotIdState =
   | { kind: 'loading' }
@@ -34,10 +35,13 @@ export function useOwnFlightlogPilotId(userId: string): OwnFlightlogPilotIdState
       .then((pilotIds) => {
         if (!cancelled) setState({ kind: 'loaded', pilotId: pilotIds.get(userId) ?? null })
       })
-      .catch(() => {
-        // getFlightlogPilotIds (get-flightlog-pilot-ids.ts) already logs the underlying error at
+      .catch((error) => {
+        // getFlightlogPilotIds (get-flightlog-pilot-ids.ts) already logs a ProfilesQueryError at
         // the point of failure — logging it again here would just duplicate that entry for the
-        // same cause.
+        // same cause. Any other throw (e.g. a future mapping bug) has no such upstream log, so it
+        // gets logged here instead of silently collapsing into the same 'error' state with no
+        // trace anywhere.
+        if (!(error instanceof ProfilesQueryError)) console.error('[account] unexpected failure loading own flightlog pilot id:', error)
         if (!cancelled) setState({ kind: 'error' })
       })
 

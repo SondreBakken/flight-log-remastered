@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getDisplayNames } from '@/lib/profiles/get-display-names'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 export type OwnDisplayNameState = { kind: 'loading' } | { kind: 'loaded'; displayName: string | null } | { kind: 'error' }
 
@@ -34,9 +35,12 @@ export function useOwnDisplayName(userId: string): OwnDisplayNameState {
       .then((names) => {
         if (!cancelled) setState({ kind: 'loaded', displayName: names.get(userId) ?? null })
       })
-      .catch(() => {
-        // getDisplayNames (get-display-names.ts) already logs the underlying error at the point
+      .catch((error) => {
+        // getDisplayNames (get-display-names.ts) already logs a ProfilesQueryError at the point
         // of failure — logging it again here would just duplicate that entry for the same cause.
+        // Any other throw (e.g. a future mapping bug) has no such upstream log, so it gets logged
+        // here instead of silently collapsing into the same 'error' state with no trace anywhere.
+        if (!(error instanceof ProfilesQueryError)) console.error('[account] unexpected failure loading own display name:', error)
         if (!cancelled) setState({ kind: 'error' })
       })
 

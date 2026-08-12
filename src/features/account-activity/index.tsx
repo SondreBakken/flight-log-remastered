@@ -37,7 +37,7 @@ export default async function AccountActivity() {
   // getFlightlogPilotIds can throw a ProfilesQueryError on an unexpected failure (#163, same bug
   // class as #160's fix to getDisplayNames) rather than resolving to an empty Map. Unlike
   // Followers/CommentsOnMyFlights below, this read runs before any Suspense boundary exists —
-  // it decides which of the three branches this whole component renders — so a thrown error here
+  // it decides which of the four branches this whole component renders — so a thrown error here
   // can't be left to propagate into a SectionErrorBoundary the way those two sections' own
   // throws are (see this file's own top-of-file doc comment): there is no child tree yet for a
   // boundary to wrap. Caught here instead, and rendered as its own distinct prompt, so a broken
