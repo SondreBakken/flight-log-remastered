@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
+import { CommentsQueryError } from './comments-query-error'
 
 type CommentRow = {
   id: string
@@ -47,6 +48,14 @@ function toCommentWithTripId(row: CommentRow, displayNames: Map<string, string |
 // getFlightlogPilotIds: "no flights to check comments for" (a pilot with zero logged flights)
 // is a normal case, not an error, and `.in('trip_id', [])` would be a wasted round trip to learn
 // what's already known.
+//
+// A query error throws a CommentsQueryError rather than returning [] (#159), the same
+// distinguishable-failure shape get-comments.ts uses — a denied or misconfigured RLS policy used
+// to be indistinguishable from "none of these flights have comments". This function's one
+// caller, account-activity/index.tsx's CommentsOnMyFlights, already sits behind a
+// SectionErrorBoundary (added for getPilotLogbook's flightlog.org round trip); that same
+// boundary now also catches this throw, so the section renders its real error state instead of
+// a silently empty list.
 export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: number[]): Promise<CommentWithTripId[]> {
   if (tripIds.length === 0) return []
 
@@ -58,7 +67,7 @@ export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: n
 
   if (error) {
     console.error('[comments] failed to load comments for trip ids:', error)
-    return []
+    throw new CommentsQueryError(`Failed to load comments for ${tripIds.length} trip ids: ${error.message}`)
   }
 
   // Display-name lookup, and why it's two queries rather than a PostgREST embed, lives in
