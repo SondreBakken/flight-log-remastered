@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
@@ -16,10 +17,10 @@ import type { PilotId } from '@/lib/flightlog/types'
 // Server Component, not a client-side auth read like account/index.tsx's — this page's own
 // content (followers, comments) is itself a server-side read gated on the signed-in user's id,
 // so there's no benefit to splitting auth state into its own client roundtrip the way
-// account/index.tsx does for a form that needs useActionState. Same three-state shape as that
-// file, but resolved server-side, one level up: signed-out, signed-in-but-unlinked, or
-// signed-in-and-linked, each its own return here rather than a client component branching on a
-// hook.
+// account/index.tsx does for a form that needs useActionState. Same overall shape as that file,
+// but resolved server-side, one level up: signed-out, signed-in-but-pilot-id-lookup-failed (#163),
+// signed-in-but-unlinked, or signed-in-and-linked, each its own return here rather than a client
+// component branching on a hook.
 //
 // Renders nothing when Supabase isn't provisioned in this environment — same no-op-not-crash
 // rule as CommentsOnFlight and resolveViewerFollowState (see lib/supabase/env.ts's doc comment).
@@ -33,8 +34,23 @@ export default async function AccountActivity() {
 
   if (!user) return <SignInPrompt />
 
-  const pilotIds = await getFlightlogPilotIds(supabase, [user.id])
-  const pilotId = pilotIds.get(user.id)
+  // getFlightlogPilotIds can throw a ProfilesQueryError on an unexpected failure (#163, same bug
+  // class as #160's fix to getDisplayNames) rather than resolving to an empty Map. Unlike
+  // Followers/CommentsOnMyFlights below, this read runs before any Suspense boundary exists —
+  // it decides which of the three branches this whole component renders — so a thrown error here
+  // can't be left to propagate into a SectionErrorBoundary the way those two sections' own
+  // throws are (see this file's own top-of-file doc comment): there is no child tree yet for a
+  // boundary to wrap. Caught here instead, and rendered as its own distinct prompt, so a broken
+  // profiles query never gets misread as "this user genuinely has no pilot id linked" and shown
+  // LinkPilotPrompt's "link your pilot id" copy for the wrong reason.
+  let pilotId: number | null
+  try {
+    const pilotIds = await getFlightlogPilotIds(supabase, [user.id])
+    pilotId = pilotIds.get(user.id) ?? null
+  } catch (error) {
+    if (error instanceof ProfilesQueryError) return <PilotIdLoadErrorPrompt />
+    throw error
+  }
 
   if (pilotId == null) return <LinkPilotPrompt />
 
@@ -109,6 +125,14 @@ function LinkPilotPrompt() {
       to see {WHO_FOLLOWS_AND_COMMENTED}.
     </p>
   )
+}
+
+// Distinct copy from LinkPilotPrompt above, not a shared fallback — this fires when the pilot id
+// lookup itself failed, not when it succeeded and found nothing linked, and conflating the two
+// would tell a user with a pilot id already linked to go link one, instead of telling them the
+// lookup is what's currently broken.
+function PilotIdLoadErrorPrompt() {
+  return <p className="text-sm opacity-70">Couldn&apos;t check your linked flightlog.org pilot id right now.</p>
 }
 
 // This whole page reads off a self-declared, unverified flightlog.org pilot link (see

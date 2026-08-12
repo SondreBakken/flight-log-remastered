@@ -112,6 +112,27 @@ describe('AccountSettings', () => {
     consoleError.mockRestore()
   })
 
+  // Symmetric to the display-name error test above, for getFlightlogPilotIds's own #163 throw
+  // (same bug class as #160): a pilot-id lookup failure must surface distinctly from
+  // still-loading too, not just silently leave the field blank as if nothing were linked yet.
+  it('shows an inline notice and disables the field when the pilot-id lookup fails, rather than rendering it identically to still-loading', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetFlightlogPilotIds.mockRejectedValue(new Error('profiles query failed'))
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    expect(await screen.findByText(/Couldn't load your current flightlog.org pilot id/)).toBeTruthy()
+    expect(screen.getByLabelText('flightlog.org pilot id')).toHaveProperty('disabled', true)
+    // Scoped to the pilot-id form specifically (not queried page-wide): AccountForm renders its
+    // own independent "Save" button alongside it, and only the pilot-id form's button is disabled
+    // by this failure.
+    const pilotIdForm = screen.getByLabelText('flightlog.org pilot id').closest('form') as HTMLFormElement
+    expect(within(pilotIdForm).getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+    consoleError.mockRestore()
+  })
+
   it('shows a sign-in prompt, not the form, for a signed-out visitor, without fetching a display name', async () => {
     stubAuthStateChange()
 

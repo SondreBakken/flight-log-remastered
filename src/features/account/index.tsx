@@ -48,7 +48,10 @@ function SignedInAccountForm({ userId }: { userId: string }) {
         displayNameLoadFailed={ownDisplayName.kind === 'error'}
         initialDisplayName={ownDisplayName.kind === 'loaded' ? ownDisplayName.displayName : undefined}
       />
-      <PilotIdForm initialPilotId={ownFlightlogPilotId.kind === 'loaded' ? ownFlightlogPilotId.pilotId : undefined} />
+      <PilotIdForm
+        initialPilotId={ownFlightlogPilotId.kind === 'loaded' ? ownFlightlogPilotId.pilotId : undefined}
+        pilotIdLoadFailed={ownFlightlogPilotId.kind === 'error'}
+      />
     </div>
   )
 }
