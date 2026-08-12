@@ -400,8 +400,8 @@ function recentRowsFor(userId: string, count: number, minutesOld = 0.1): FakeCom
 
 // #159: see getComments's own doc comment for why a query error throws (a CommentsQueryError)
 // rather than degrading to [] — same shape #155 established for the follows primitives. The
-// throw is caught by comment-on-flight/index.tsx's own loadComments, out of this script's reach
-// (it drives getComments directly, not the React tree around it).
+// throw is caught by loadCommentsForFlight (src/lib/comments/load-comments-for-flight.ts), out of
+// this script's reach (it drives getComments directly, not the React tree around it).
 {
   const fake = makeFakeSupabase()
   fake.forceError('connection refused')

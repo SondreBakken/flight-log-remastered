@@ -13,19 +13,13 @@ type CommentsOnFlightProps = { tripId: number }
 //
 // A query error once Supabase IS provisioned is a different case (#159) — real content that
 // failed to load, not a missing integration — but the "additive, not load-bearing" precedent
-// still extends to it in one respect: loadCommentsForFlight (src/lib/comments/) catches
-// specifically CommentsQueryError and resolves to a comments-unavailable status instead of
-// letting it propagate, so that one failure mode does not take down the flight page (FlightTrack
-// above, in app/flights/[tripId]/page.tsx) via that page's Suspense boundary (which isn't an
-// error boundary and would otherwise let the throw reach the app-root src/app/error.tsx). This is
-// a narrower guarantee than "a comments failure can never crash the page": any other throw on
-// this path (e.g. a malformed data shape causing a TypeError inside attachDisplayNames) is NOT
-// caught and still propagates to that same app-root error.tsx, taking the already-rendered
-// FlightTrack with it — there's no route-level error.tsx under src/app/flights/ to stop it
-// earlier. It also does NOT extend to silently rendering as if there were no comments: CommentList
-// renders a distinguishable "couldn't load" notice instead of "No comments yet." so a real
-// failure is never mistaken for an empty thread. The composer still renders either way — posting
-// a new comment doesn't depend on the existing thread having loaded.
+// still extends to it in one respect: loadCommentsForFlight (src/lib/comments/) resolves it to a
+// comments-unavailable status rather than crashing the page; see that module's own doc comment
+// for the catch-vs-propagate policy behind it and what still gets through uncaught. It does NOT
+// extend to silently rendering as if there were no comments: CommentList below renders a
+// distinguishable "couldn't load" notice instead of "No comments yet." so a real failure is never
+// mistaken for an empty thread. The composer still renders either way — posting a new comment
+// doesn't depend on the existing thread having loaded.
 export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps) {
   if (!getSupabaseEnv()) return null
 
