@@ -33,7 +33,10 @@ export async function getDisplayNames(supabase: SupabaseClient, userIds: string[
     // indistinguishable from a broken policy. See each caller (attachDisplayNames's callers, and
     // use-own-display-name.ts) for how this throw is handled or converted per call site.
     console.error('[profiles] failed to load display names:', error)
-    throw new ProfilesQueryError(`Failed to load display names for ${userIds.length} user ${userIds.length === 1 ? 'id' : 'ids'}: ${error.message}`)
+    throw new ProfilesQueryError(
+      `Failed to load display names for ${userIds.length} user ${userIds.length === 1 ? 'id' : 'ids'}: ${error.message}`,
+      { cause: error },
+    )
   }
 
   return new Map((data as ProfileRow[]).map((row) => [row.user_id, row.display_name]))
