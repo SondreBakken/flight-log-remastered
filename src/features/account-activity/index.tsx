@@ -46,6 +46,10 @@ export default async function AccountActivity() {
           <Followers supabase={supabase} pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
+      {/* Names both possible causes — getPilotLogbook's flightlog.org round trip and
+          getCommentsForTripIds's Supabase query (#159) — rather than picking one: this boundary
+          can't tell which of the two CommentsOnMyFlights threw (see that function's own doc
+          comment for why each throws instead of degrading to []). */}
       <SectionErrorBoundary fallback="Couldn't load your flights or comments right now.">
         <Suspense fallback={<CommentsSkeleton />}>
           <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
@@ -65,10 +69,9 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // boundary. Each branch can throw for its own reason: Followers from getFollowersForPilot's
 // Supabase query, CommentsOnMyFlights from either getPilotLogbook's flightlog.org round trip or
 // getCommentsForTripIds's Supabase query (#159) — see each function's own doc comment for why a
-// query error throws rather than degrading to []. CommentsOnMyFlights's fallback text names both
-// possible causes rather than picking one, since its SectionErrorBoundary can't tell which of
-// the two threw. Each branch gets its own SectionErrorBoundary instance rather than relying on
-// this sibling split alone for fault isolation.
+// query error throws rather than degrading to []. Each branch gets its own SectionErrorBoundary
+// instance rather than relying on this sibling split alone for fault isolation (see that
+// boundary's own fallback prop, below, for why CommentsOnMyFlights's names two causes).
 async function Followers({ supabase, pilotId }: PilotSectionProps) {
   const followers = await getFollowersForPilot(supabase, pilotId)
   return <FollowersSection followers={followers} />
