@@ -1,14 +1,10 @@
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
-import { getComments } from '@/lib/comments/get-comments'
-import { CommentsQueryError } from '@/lib/comments/comments-query-error'
-import type { Comment } from '@/lib/comments/types'
+import { loadCommentsForFlight, type CommentsForFlight } from '@/lib/comments/load-comments-for-flight'
 import { CommentComposer } from './comment-composer'
 import { CommentItem } from './comment-item'
 
 type CommentsOnFlightProps = { tripId: number }
-
-type CommentsResult = { status: 'ok'; comments: Comment[] } | { status: 'error' }
 
 // Renders nothing at all when Supabase isn't provisioned in this environment — same
 // no-op-not-crash rule as AuthStatus and updateSession (see lib/supabase/env.ts's doc comment
@@ -17,20 +13,27 @@ type CommentsResult = { status: 'ok'; comments: Comment[] } | { status: 'error' 
 //
 // A query error once Supabase IS provisioned is a different case (#159) — real content that
 // failed to load, not a missing integration — but the "additive, not load-bearing" precedent
-// still extends to it in one respect: the flight page itself (FlightTrack above, in
-// app/flights/[tripId]/page.tsx) must not go down over a failed comments query, so this does
-// NOT let getComments's CommentsQueryError propagate to that page's Suspense boundary (which
-// isn't an error boundary and would otherwise let the throw reach the app-root src/app/error.tsx,
-// taking an already-rendered FlightTrack with it — see loadComments below). It does NOT extend
-// to silently rendering as if there were no comments, though: CommentList renders a distinguishable
-// "couldn't load" notice instead of "No comments yet." so a real failure is never mistaken for an
-// empty thread. The composer still renders either way — posting a new comment doesn't depend on
-// the existing thread having loaded.
+// still extends to it in one respect: loadCommentsForFlight (src/lib/comments/) catches
+// specifically CommentsQueryError and resolves to a comments-unavailable status instead of
+// letting it propagate, so that one failure mode does not take down the flight page (FlightTrack
+// above, in app/flights/[tripId]/page.tsx) via that page's Suspense boundary (which isn't an
+// error boundary and would otherwise let the throw reach the app-root src/app/error.tsx). This is
+// a narrower guarantee than "a comments failure can never crash the page": any other throw on
+// this path (e.g. a malformed data shape causing a TypeError inside attachDisplayNames) is NOT
+// caught and still propagates to that same app-root error.tsx, taking the already-rendered
+// FlightTrack with it — there's no route-level error.tsx under src/app/flights/ to stop it
+// earlier. It also does NOT extend to silently rendering as if there were no comments: CommentList
+// renders a distinguishable "couldn't load" notice instead of "No comments yet." so a real
+// failure is never mistaken for an empty thread. The composer still renders either way — posting
+// a new comment doesn't depend on the existing thread having loaded.
 export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps) {
   if (!getSupabaseEnv()) return null
 
   const supabase = await createClient()
-  const [commentsResult, viewerUserId] = await Promise.all([loadComments(supabase, tripId), getViewerUserId(supabase)])
+  const [commentsResult, viewerUserId] = await Promise.all([
+    loadCommentsForFlight(supabase, tripId),
+    getViewerUserId(supabase),
+  ])
 
   return (
     <section className="flex flex-col gap-4">
@@ -41,22 +44,10 @@ export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps
   )
 }
 
-// Only CommentsQueryError is caught here; any other throw (e.g. a mapping bug unrelated to the
-// query itself) propagates, same split resolveViewerFollowState uses for FollowsQueryError.
-async function loadComments(supabase: Awaited<ReturnType<typeof createClient>>, tripId: number): Promise<CommentsResult> {
-  try {
-    return { status: 'ok', comments: await getComments(supabase, tripId) }
-  } catch (error) {
-    if (!(error instanceof CommentsQueryError)) throw error
-    console.error('[comments] failed to load comments for flight:', error)
-    return { status: 'error' }
-  }
-}
-
 // Server-side, once per page render, not client-side via a per-item auth subscription (see
 // comment-item.tsx's doc comment) — this component already fetches comments live for this
-// request (getComments, above) and sits in its own Suspense boundary on the flight page, so
-// resolving the viewer here doesn't add a new dynamic hole; it's already one.
+// request (loadCommentsForFlight, above) and sits in its own Suspense boundary on the flight
+// page, so resolving the viewer here doesn't add a new dynamic hole; it's already one.
 async function getViewerUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
   const {
     data: { user },
@@ -64,10 +55,10 @@ async function getViewerUserId(supabase: Awaited<ReturnType<typeof createClient>
   return user?.id ?? null
 }
 
-type CommentListProps = { commentsResult: CommentsResult; tripId: number; viewerUserId: string | null }
+type CommentListProps = { commentsResult: CommentsForFlight; tripId: number; viewerUserId: string | null }
 
 function CommentList({ commentsResult, tripId, viewerUserId }: CommentListProps) {
-  if (commentsResult.status === 'error') {
+  if (commentsResult.status === 'comments-unavailable') {
     return <p className="text-sm opacity-70">Couldn&apos;t load comments right now.</p>
   }
 
