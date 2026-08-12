@@ -7,7 +7,7 @@ import { parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
-import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { resolveViewerFollowState, toFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 
 type TakeoffDetailParams = Promise<{ countryId: string; takeoffId: string }>
 
@@ -86,7 +86,7 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
   const mapEntry = locationEntry && hasKnownLocation(locationEntry) ? locationEntry : null
 
   const candidatePilotIds = [...new Set(flights.map((flight) => flight.userId))]
-  const { isSignedIn, followedPilotIds } = await resolveViewerFollowState(candidatePilotIds)
+  const { isSignedIn, followedPilotIds } = toFollowButtonState(await resolveViewerFollowState(candidatePilotIds))
 
   return (
     <TakeoffDetailView

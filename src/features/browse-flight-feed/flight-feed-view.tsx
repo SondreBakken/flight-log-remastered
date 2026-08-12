@@ -6,26 +6,32 @@ import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
+import type { ViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
 
-// followedPilotIds now arrives as a server-resolved prop (see index.tsx's own doc comment) —
-// known before the very first render, unlike the old localStorage-backed version, which had to
-// render a hydration skeleton until the browser's own store caught up. No hasHydrated left to
-// gate on.
+// follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
+// the very first render, unlike the old localStorage-backed version, which had to render a
+// hydration skeleton until the browser's own store caught up. No hasHydrated left to gate on.
+//
+// Required, not defaulted (unlike the old followedPilotIds/followsUnavailable pair) — every call
+// site, including this file's own index.test.tsx, must now say explicitly which ViewerFollowState
+// status it means, rather than a missing prop silently reading as "resolved, follows nobody".
 export function FlightFeedView({
-  followedPilotIds,
+  follows,
   defaultPilotId,
-  followsUnavailable = false,
 }: {
-  followedPilotIds: PilotId[]
+  follows: ViewerFollowState
   defaultPilotId: number
-  // See index.tsx's own doc comment: true only when resolveViewerFollowState's underlying query
-  // failed (#155), never for a genuine "follows nobody". Defaulted to false so existing
-  // call sites (this file's own index.test.tsx) don't have to know about a follows-error case
-  // they aren't exercising.
-  followsUnavailable?: boolean
 }) {
-  const followedIds = useMemo(() => new Set(followedPilotIds), [followedPilotIds])
+  // null specifically for 'follows-unavailable': the true, untruncated follow set is not known,
+  // so there is nothing safe to prune seen-trip-store's stored map down to (see the effect
+  // below). 'signed-out' resolves to a real, genuine empty Set — that status IS a resolved follow
+  // list, not a failure — the same treatment resolve-viewer-follow-state.ts's own doc comment
+  // describes for the adornment pages' degrade case.
+  const followedIds = useMemo(() => {
+    if (follows.status === 'follows-unavailable') return null
+    return new Set(follows.status === 'resolved' ? follows.followedPilotIds : [])
+  }, [follows])
 
   // The true, untruncated follow set — usePilotFeedResults only ever sees selectFeedPilotIds's
   // MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to safely prune
@@ -33,31 +39,51 @@ export function FlightFeedView({
   // accumulation bug this closes). Runs whenever the resolved follow set changes (a fresh page
   // load after following/unfollowing elsewhere), not on a mount-only basis, so falling out of
   // the top MAX_PILOTS_PER_FEED stays pruned over time; unfollowing itself is already handled
-  // explicitly by FollowButton's own clearSeenTripIds call.
+  // explicitly by FollowButton's own clearSeenTripIds call. Skipped entirely while followedIds is
+  // null (follows-unavailable) — pruning against an empty stand-in here is what used to wipe the
+  // whole seen-trip store on a mere query failure (#155 follow-up).
   useEffect(() => {
+    if (followedIds === null) return
     pruneSeenTripIdsToFollowedPilots(followedIds)
   }, [followedIds])
-
-  const { pilotIds, followedCount } = selectFeedPilotIds(followedIds)
 
   return (
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-      {followsUnavailable ? (
-        <FollowsUnavailableNotice />
-      ) : pilotIds.length === 0 ? (
-        <>
-          <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
-          <EmptyState defaultPilotId={defaultPilotId} />
-        </>
-      ) : (
-        // Keying by the id set itself gives every genuinely new set of followed pilots a
-        // fresh FeedForPilots instance (fresh loading state, fresh results), instead of
-        // an effect resetting old state to match the new props — see usePilotFeedResults.
-        <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
-      )}
+      <FeedBody follows={follows} defaultPilotId={defaultPilotId} />
     </section>
   )
+}
+
+// The three states FlightFeedView can render, named and matched explicitly rather than picked
+// between with nested ternaries in the render body above.
+function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }) {
+  switch (follows.status) {
+    case 'follows-unavailable':
+      return <FollowsUnavailableNotice />
+    case 'signed-out':
+      return <FollowedPilotsFeed followedPilotIds={[]} defaultPilotId={defaultPilotId} />
+    case 'resolved':
+      return <FollowedPilotsFeed followedPilotIds={follows.followedPilotIds} defaultPilotId={defaultPilotId} />
+  }
+}
+
+function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilotIds: PilotId[]; defaultPilotId: number }) {
+  const { pilotIds, followedCount } = selectFeedPilotIds(new Set(followedPilotIds))
+
+  if (pilotIds.length === 0) {
+    return (
+      <>
+        <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
+        <EmptyState defaultPilotId={defaultPilotId} />
+      </>
+    )
+  }
+
+  // Keying by the id set itself gives every genuinely new set of followed pilots a fresh
+  // FeedForPilots instance (fresh loading state, fresh results), instead of an effect resetting
+  // old state to match the new props — see usePilotFeedResults.
+  return <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
 }
 
 // The one visible signal that this feed's own following filter could not be resolved (#155) —

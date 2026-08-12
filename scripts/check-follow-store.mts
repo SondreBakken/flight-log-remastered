@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { followPilot } from '../src/lib/follows/follow-pilot'
 import { unfollowPilot } from '../src/lib/follows/unfollow-pilot'
 import { getFollowedPilotIds } from '../src/lib/follows/get-followed-pilot-ids'
+import { assertRejects } from './lib/assert'
 
 let failures = 0
 
@@ -13,6 +14,11 @@ function assertEqual<T>(actual: T, expected: T, label: string): void {
     console.error(`  expected: ${JSON.stringify(expected)}`)
     console.error(`  actual:   ${JSON.stringify(actual)}`)
   }
+}
+
+function assert(condition: boolean, label: string): void {
+  console.log(`${condition ? 'ok' : 'FAIL'} - ${label}`)
+  if (!condition) failures++
 }
 
 function idsOf(ids: Set<number>): number[] {
@@ -220,21 +226,18 @@ function makeFakeSupabase(seedRows: FakeFollowRow[] = [], options?: { asUser?: s
   assertEqual(idsOf(ids), [], 'an empty candidate list short-circuits to an empty result without querying at all')
 }
 
-// #155: a follows query error now throws rather than degrading to an empty Set — a denied or
-// misconfigured RLS policy used to be indistinguishable from "follows nobody". The throw is
-// caught by resolve-viewer-follow-state.ts, this function's one real caller, which turns it into
-// an explicit followsUnavailable signal instead — out of this script's reach, since it drives
-// getFollowedPilotIds directly.
+// #155: see getFollowedPilotIds's own doc comment for why a query error throws rather than
+// degrading to an empty Set. The throw is caught by resolve-viewer-follow-state.ts, this
+// function's one real caller, which turns it into an explicit 'follows-unavailable' status
+// instead — out of this script's reach, since it drives getFollowedPilotIds directly.
 {
   const fake = makeFakeSupabase()
   fake.forceSelectError('connection refused')
-  let threw = false
-  try {
-    await getFollowedPilotIds(fake.client, 'user-a')
-  } catch {
-    threw = true
-  }
-  assertEqual(threw, true, 'getFollowedPilotIds throws, distinguishably from an empty set, when the query fails')
+  await assertRejects(
+    assert,
+    () => getFollowedPilotIds(fake.client, 'user-a'),
+    'getFollowedPilotIds throws, distinguishably from an empty set, when the query fails',
+  )
 }
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} - ${failures} failure(s)`)

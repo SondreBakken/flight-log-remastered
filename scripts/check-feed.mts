@@ -935,24 +935,24 @@ await withStubbedFetch(
 // end without a browser — pure logic tests on feed.ts alone cannot see a JSX prop wired to the
 // wrong value.
 //
-// followedPilotIds now arrives as a server-resolved prop (#115 moved the follow list
-// server-side — see index.tsx's own doc comment), known before the very first render — there is
-// no more separate hydration-skeleton branch to exercise (the old localStorage-backed version's
-// whole reason for one).
+// follows now arrives as a required, server-resolved ViewerFollowState prop (#115 moved the
+// follow list server-side — see index.tsx's own doc comment), known before the very first
+// render — there is no more separate hydration-skeleton branch to exercise (the old
+// localStorage-backed version's whole reason for one).
 // =====================================================================================
 
 {
   const empty = renderToStaticMarkup(
-    createElement(FlightFeedView, { followedPilotIds: [], defaultPilotId: 1 }),
+    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [] }, defaultPilotId: 1 }),
   )
   assert(empty.includes('Recent flights'), 'FlightFeedView: renders real content immediately, no hydration gap')
   assert(
     empty.includes('You are not following any pilots yet'),
-    'FlightFeedView: an empty followedPilotIds list renders the empty state',
+    'FlightFeedView: a resolved, empty followedPilotIds list renders the empty state',
   )
 
   const withFollows = renderToStaticMarkup(
-    createElement(FlightFeedView, { followedPilotIds: [4549], defaultPilotId: 1 }),
+    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [4549] }, defaultPilotId: 1 }),
   )
   assert(
     !withFollows.includes('You are not following any pilots yet'),
@@ -960,20 +960,20 @@ await withStubbedFetch(
   )
 }
 
-// #155: followsUnavailable is a genuinely different case from an empty followedPilotIds list —
-// a follows query failure, not "follows nobody" — and must render its own visible notice instead
-// of the misleading "you follow nobody" empty state.
+// #155: 'follows-unavailable' is a genuinely different status from a resolved, empty follow
+// list — a follows query failure, not "follows nobody" — and must render its own visible notice
+// instead of the misleading "you follow nobody" empty state.
 {
   const unavailable = renderToStaticMarkup(
-    createElement(FlightFeedView, { followedPilotIds: [], defaultPilotId: 1, followsUnavailable: true }),
+    createElement(FlightFeedView, { follows: { status: 'follows-unavailable' }, defaultPilotId: 1 }),
   )
   assert(
     unavailable.includes('load the pilots you follow right now'),
-    'FlightFeedView: followsUnavailable renders its own error notice',
+    "FlightFeedView: status 'follows-unavailable' renders its own error notice",
   )
   assert(
     !unavailable.includes('You are not following any pilots yet'),
-    'FlightFeedView: followsUnavailable does not fall back to the "follows nobody" empty state',
+    "FlightFeedView: status 'follows-unavailable' does not fall back to the \"follows nobody\" empty state",
   )
 }
 

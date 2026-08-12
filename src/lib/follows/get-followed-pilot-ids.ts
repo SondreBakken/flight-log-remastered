@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { FollowsQueryError } from './follows-query-error'
 import type { PilotId } from '@/lib/flightlog/types'
 
 type FollowRow = { pilot_id: PilotId }
@@ -13,11 +14,12 @@ type FollowRow = { pilot_id: PilotId }
 // candidates to check" is not "no filter at all"), it returns every pilot the caller follows,
 // which is what the flight feed needs (it has no fixed candidate list — it IS the list).
 //
-// A query error throws rather than returning an empty Set (#155), the same distinguishable-
-// failure shape getFollowersForPilot uses — a denied or misconfigured RLS policy used to be
-// indistinguishable from "follows nobody". resolveViewerFollowState is this function's one
-// caller and is where that throw gets turned into an explicit signal for the callers who can't
-// afford to crash on it; see its own doc comment for that split.
+// A query error throws a FollowsQueryError rather than returning an empty Set (#155), the same
+// distinguishable-failure shape getFollowersForPilot uses — a denied or misconfigured RLS policy
+// used to be indistinguishable from "follows nobody". The distinct error class is what lets
+// resolveViewerFollowState (this function's one caller) catch specifically this failure and turn
+// it into an explicit signal, without also swallowing an unrelated bug; see its own doc comment
+// for that split.
 export async function getFollowedPilotIds(
   supabase: SupabaseClient,
   userId: string,
@@ -32,7 +34,7 @@ export async function getFollowedPilotIds(
 
   if (error) {
     console.error('[follows] failed to load followed pilot ids:', error)
-    throw new Error(`Failed to load followed pilot ids for user ${userId}: ${error.message}`)
+    throw new FollowsQueryError(`Failed to load followed pilot ids for user ${userId}: ${error.message}`)
   }
 
   return new Set((data as FollowRow[]).map((row) => row.pilot_id))

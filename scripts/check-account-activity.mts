@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getFollowersForPilot } from '../src/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '../src/lib/comments/get-comments-for-trip-ids'
+import { assertRejects } from './lib/assert'
 
 let failures = 0
 
@@ -217,21 +218,18 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
   assertEqual(followers, [], 'a pilot id with no followers returns an empty list')
 }
 
-// #155: a follows query error now throws rather than degrading to []  — "who follows me" is
-// this page's own content, and collapsing a denied/misconfigured RLS policy into the same []
-// a genuinely followerless pilot renders made the two indistinguishable. The throw is caught by
-// account-activity/index.tsx's FollowersErrorBoundary, which is out of this script's own reach
-// (it drives getFollowersForPilot directly, not the React tree around it).
+// #155: see getFollowersForPilot's own doc comment for why a query error throws rather than
+// degrading to []. The throw is caught by account-activity/index.tsx's SectionErrorBoundary,
+// which is out of this script's own reach (it drives getFollowersForPilot directly, not the
+// React tree around it).
 {
   const fake = makeFakeSupabase()
   fake.forceFollowsError('connection refused')
-  let threw = false
-  try {
-    await getFollowersForPilot(fake.client, 12677)
-  } catch {
-    threw = true
-  }
-  assert(threw, 'getFollowersForPilot throws, distinguishably from an empty list, when the query fails')
+  await assertRejects(
+    assert,
+    () => getFollowersForPilot(fake.client, 12677),
+    'getFollowersForPilot throws, distinguishably from an empty list, when the query fails',
+  )
 }
 
 // Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only
