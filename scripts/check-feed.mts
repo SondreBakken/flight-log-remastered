@@ -960,6 +960,23 @@ await withStubbedFetch(
   )
 }
 
+// #155: followsUnavailable is a genuinely different case from an empty followedPilotIds list —
+// a follows query failure, not "follows nobody" — and must render its own visible notice instead
+// of the misleading "you follow nobody" empty state.
+{
+  const unavailable = renderToStaticMarkup(
+    createElement(FlightFeedView, { followedPilotIds: [], defaultPilotId: 1, followsUnavailable: true }),
+  )
+  assert(
+    unavailable.includes('load the pilots you follow right now'),
+    'FlightFeedView: followsUnavailable renders its own error notice',
+  )
+  assert(
+    !unavailable.includes('You are not following any pilots yet'),
+    'FlightFeedView: followsUnavailable does not fall back to the "follows nobody" empty state',
+  )
+}
+
 {
   const withFailure = renderToStaticMarkup(
     createElement(FeedView, {

@@ -34,7 +34,7 @@ describe('resolveViewerFollowState', () => {
 
     const state = await resolveViewerFollowState([4549])
 
-    expect(state).toEqual({ isSignedIn: false, followedPilotIds: [] })
+    expect(state).toEqual({ isSignedIn: false, followedPilotIds: [], followsUnavailable: false })
     expect(mockCreateClient).not.toHaveBeenCalled()
   })
 
@@ -43,7 +43,7 @@ describe('resolveViewerFollowState', () => {
 
     const state = await resolveViewerFollowState([4549])
 
-    expect(state).toEqual({ isSignedIn: false, followedPilotIds: [] })
+    expect(state).toEqual({ isSignedIn: false, followedPilotIds: [], followsUnavailable: false })
     expect(mockGetFollowedPilotIds).not.toHaveBeenCalled()
   })
 
@@ -73,5 +73,17 @@ describe('resolveViewerFollowState', () => {
 
     expect(state.isSignedIn).toBe(true)
     expect([...state.followedPilotIds].sort((a, b) => a - b)).toEqual([4549, 12677])
+    expect(state.followsUnavailable).toBe(false)
+  })
+
+  it('degrades to an explicit followsUnavailable state, without crashing, when getFollowedPilotIds throws', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetFollowedPilotIds.mockRejectedValue(new Error('follows query failed'))
+
+    const state = await resolveViewerFollowState([4549])
+
+    expect(state).toEqual({ isSignedIn: true, followedPilotIds: [], followsUnavailable: true })
+    consoleError.mockRestore()
   })
 })

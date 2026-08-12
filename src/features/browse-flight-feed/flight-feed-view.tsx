@@ -15,9 +15,15 @@ import type { PilotId } from '@/lib/flightlog/types'
 export function FlightFeedView({
   followedPilotIds,
   defaultPilotId,
+  followsUnavailable = false,
 }: {
   followedPilotIds: PilotId[]
   defaultPilotId: number
+  // See index.tsx's own doc comment: true only when resolveViewerFollowState's underlying query
+  // failed (#155), never for a genuine "follows nobody". Defaulted to false so existing
+  // call sites (this file's own index.test.tsx) don't have to know about a follows-error case
+  // they aren't exercising.
+  followsUnavailable?: boolean
 }) {
   const followedIds = useMemo(() => new Set(followedPilotIds), [followedPilotIds])
 
@@ -37,7 +43,9 @@ export function FlightFeedView({
   return (
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-      {pilotIds.length === 0 ? (
+      {followsUnavailable ? (
+        <FollowsUnavailableNotice />
+      ) : pilotIds.length === 0 ? (
         <>
           <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
           <EmptyState defaultPilotId={defaultPilotId} />
@@ -49,6 +57,19 @@ export function FlightFeedView({
         <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
       )}
     </section>
+  )
+}
+
+// The one visible signal that this feed's own following filter could not be resolved (#155) —
+// rendered instead of, not alongside, the ordinary empty state above: "flights from pilots you
+// follow show up here" reads as an invitation to go follow someone, which is actively wrong
+// advice when the real problem is that the follow list itself failed to load.
+function FollowsUnavailableNotice() {
+  return (
+    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+      <p className="font-medium">Couldn&apos;t load the pilots you follow right now.</p>
+      <p className="mt-1 opacity-80">Try reloading the page in a moment.</p>
+    </div>
   )
 }
 

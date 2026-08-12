@@ -20,7 +20,19 @@ type FlightFeedProps = {
 // visitors with an empty follow list are indistinguishable here on purpose (both resolve to an
 // empty array — see resolve-viewer-follow-state.ts) and render the same empty state, which is
 // also what a signed-out visitor already saw before #115 (an empty localStorage follow list).
+//
+// A follows query failure is a third, genuinely different case (#155) and is NOT folded into
+// that same empty array: the following filter IS this feature's content, so FlightFeedView
+// renders followsUnavailable as its own visible error state rather than the misleading "you
+// follow nobody" empty state — see resolve-viewer-follow-state.ts's own doc comment for why
+// this is the one caller that reads that flag instead of letting it stay implicit.
 export default async function FlightFeed({ defaultPilotId }: FlightFeedProps) {
-  const { followedPilotIds } = await resolveViewerFollowState()
-  return <FlightFeedView followedPilotIds={followedPilotIds} defaultPilotId={defaultPilotId} />
+  const { followedPilotIds, followsUnavailable } = await resolveViewerFollowState()
+  return (
+    <FlightFeedView
+      followedPilotIds={followedPilotIds}
+      defaultPilotId={defaultPilotId}
+      followsUnavailable={followsUnavailable}
+    />
+  )
 }
