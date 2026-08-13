@@ -209,6 +209,21 @@ describe('startPilotVerificationAction', () => {
     expect(mockSendVerificationEmail).not.toHaveBeenCalled()
   })
 
+  it('surfaces a distinguishable rate-limited outcome, without sending, when issuance hits the RPC\'s own re-issuance cooldown', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'rate-limited' })
+
+    const state = await startPilotVerificationAction()
+
+    expect(state).toEqual({
+      status: 'error',
+      message: 'Wait a minute before requesting another code.',
+    })
+    expect(mockSendVerificationEmail).not.toHaveBeenCalled()
+  })
+
   it('surfaces a generic error, without crashing or sending, when issuance throws a genuine ProfilesQueryError', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
@@ -299,6 +314,10 @@ describe('startPilotVerificationStateFor', () => {
     expect(startPilotVerificationStateFor({ kind: 'pilot-id-changed' })).toEqual({
       status: 'error',
       message: 'Your linked pilot id changed while we were verifying it. Try again.',
+    })
+    expect(startPilotVerificationStateFor({ kind: 'rate-limited' })).toEqual({
+      status: 'error',
+      message: 'Wait a minute before requesting another code.',
     })
     expect(startPilotVerificationStateFor({ kind: 'started-logged' })).toEqual({
       status: 'started-logged',

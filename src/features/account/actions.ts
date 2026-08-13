@@ -154,6 +154,7 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
 
     const issued = await issuePilotVerification(adminClient, user.id, emailOutcome.email)
     if (issued.kind === 'no-linked-pilot-id') return startPilotVerificationStateFor({ kind: 'no-linked-pilot-id' })
+    if (issued.kind === 'rate-limited') return startPilotVerificationStateFor({ kind: 'rate-limited' })
     if (issued.boundPilotId !== pilotId) return startPilotVerificationStateFor({ kind: 'pilot-id-changed' })
 
     try {

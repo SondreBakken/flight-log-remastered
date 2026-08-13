@@ -56,6 +56,17 @@ describe('issuePilotVerification', () => {
     expect(result).toEqual({ kind: 'no-linked-pilot-id' })
   })
 
+  it('returns a distinguishable rate-limited outcome, not a thrown error, when the RPC raises RL001', async () => {
+    const { client } = fakeSupabaseRpc({
+      data: null,
+      error: { code: 'RL001', message: 'a verification code was issued too recently; wait before requesting another' },
+    })
+
+    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
+
+    expect(result).toEqual({ kind: 'rate-limited' })
+  })
+
   it('throws a ProfilesQueryError, preserving the original error as cause, on a genuine unexpected RPC error', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const queryError = { code: '57014', message: 'canceling statement due to statement timeout' }

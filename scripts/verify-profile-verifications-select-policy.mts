@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { checkProfileVerificationsTableExists } from './lib/check-profile-verifications-table'
+import { checkProfileVerificationIssuanceTableExists, checkProfileVerificationsTableExists } from './lib/check-profile-verifications-table'
 import { createReporter } from './lib/verify-report'
 import { createAdminClient } from '../src/lib/supabase/admin'
 import { requireSupabaseEnv } from '../src/lib/supabase/env'
@@ -114,6 +114,39 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 //         table at all (this migration's SELECT revoke was previously scoped to `authenticated`
 //         only, an inconsistency with zero live effect given the row-level policy but pinned
 //         here anyway).
+//   - ROUND 6 (this version) adds coverage for issue #181's re-issuance cooldown
+//     (20260813030000_rate_limit_issue_pilot_verification.sql, rewritten after review against a
+//     real Postgres cluster found the first version bypassable via a pilot-id relink and
+//     vulnerable to a check-then-act TOCTOU — see that migration's own doc comment for both
+//     defects and their fixes). assertServiceRoleIssueWithinCooldownIsRateLimited is the
+//     PostgREST-level round-trip proof that RL001 actually reaches a caller as `error.code`, not
+//     just something reasoned about from the plpgsql source: it reuses
+//     assertServiceRoleIssuesVerificationForLinkedUser's own just-completed issuance as call #1,
+//     immediately re-issues for the SAME target_user_id, and asserts the second call is rejected
+//     with error.code === 'RL001' — well inside the 60-second cooldown window, and confirms the
+//     rejected call left the prior code's hash untouched.
+//   - ROUND 7 (this version) fixes a defect round 6's own fix introduced (round 2 of this
+//     migration's review trail: the cooldown upsert ran BEFORE the "no linked pilot id" check,
+//     so an unlinked target_user_id hit profile_verification_issuance's auth.users FK and raised
+//     23503 instead of the expected P0001 — closed by reordering the migration's function body,
+//     see that migration's own doc comment) and adds the three should-fix gaps round 2's review
+//     flagged but didn't block on:
+//       - assertRelinkDoesNotResetCooldown pins round 1 defect 1's own regression: the ORIGINAL
+//         vulnerability this migration's redesign closed (cooldown state living in a row the
+//         pilot-id-change trigger deletes) had no assertion proving the fix holds. Reuses
+//         assertPilotIdChangeInvalidatesVerification's own relink, immediately after, and asserts
+//         the cooldown is still RL001-rejected rather than reset.
+//       - assertProfileVerificationIssuanceHasNoClientGrants mirrors
+//         assertTruncateIsClosedForClientRoles/assertAnonHasNoSelectGrantAtAll's grant-catalog
+//         proof, but for profile_verification_issuance itself, via a new sibling RPC
+//         (profile_verification_issuance_privilege_grants(), added to the same migration for the
+//         same PostgREST-can't-see-information_schema reason profile_verifications' own RPC
+//         exists) — confirms anon/authenticated hold zero privileges on the table, any level.
+//       - assertCooldownAllowsReissueAfterWindow is the OTHER direction of round 6's
+//         assertServiceRoleIssueWithinCooldownIsRateLimited: a re-issue past the 60-second window
+//         must succeed and rotate the stored hash, not just that a re-issue inside the window is
+//         rejected. Simulates the window passing via a direct admin-client UPDATE of
+//         last_issued_at rather than sleeping 60+ seconds in a test run.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -143,6 +176,7 @@ const OWNER_NEW_PILOT_ID = 900173
 const CORRECT_CODE = 'PV172CORRECT'
 const WRONG_CODE = 'PV172WRONGXX'
 const EXPIRED_CODE = 'PV172EXPIRED'
+const REISSUED_CODE = 'PV172REISSUE'
 
 // Must match the migration's own hashing exactly (encode(sha256(convert_to(code, 'utf8')),
 // 'hex')) — same algorithm, same lowercase-hex encoding, so a hash computed here and one computed
@@ -172,8 +206,19 @@ async function resolveTestUser(email: string): Promise<{ userId: string; emailOt
 }
 
 // Scoped to only the two fixture user ids, safe to call before AND after the run.
+//
+// Also clears profile_verification_issuance, not just profile_verifications/profiles: that table
+// has `on delete cascade` off auth.users, so a clean run's own cleanupFixtures (which deletes the
+// fixture auth users) already clears it — but deleteFixtureUsers logs and swallows a failed
+// deleteUser rather than throwing (see its own doc comment), so a prior run that hit that path
+// could leave the fixture auth user, and its issuance row, behind. Without this explicit clear, a
+// leftover last_issued_at from a previous run's own assertServiceRoleIssuesVerificationForLinkedUser
+// could make THIS run's first issuance call spuriously hit RL001 if re-run within 60 seconds.
 async function clearFixtureRows(ownerId: string, otherId: string): Promise<void> {
   const ids = [ownerId, otherId]
+  const { error: issuanceError } = await adminClient.from('profile_verification_issuance').delete().in('user_id', ids)
+  if (issuanceError) throw new Error(`failed to clear fixture profile_verification_issuance rows: ${issuanceError.message}`)
+
   const { error: verificationsError } = await adminClient.from('profile_verifications').delete().in('user_id', ids)
   if (verificationsError) throw new Error(`failed to clear fixture profile_verifications rows: ${verificationsError.message}`)
 
@@ -248,6 +293,17 @@ async function fetchPrivilegeGrants(): Promise<PrivilegeGrantRow[]> {
   return (data ?? []) as PrivilegeGrantRow[]
 }
 
+// Same reasoning as fetchPrivilegeGrants above, for issue #181's own new table: PostgREST doesn't
+// expose information_schema for any role, so profile_verification_issuance's grant catalog is
+// only reachable through its own service_role-only RPC
+// (20260813030000_rate_limit_issue_pilot_verification.sql's
+// profile_verification_issuance_privilege_grants(), added specifically for this).
+async function fetchProfileVerificationIssuanceGrants(): Promise<PrivilegeGrantRow[]> {
+  const { data, error } = await adminClient.rpc('profile_verification_issuance_privilege_grants')
+  if (error) throw new Error(`failed to read profile_verification_issuance' own privilege grants via the service_role-only RPC: ${error.message}`)
+  return (data ?? []) as PrivilegeGrantRow[]
+}
+
 // PostgREST has no TRUNCATE verb, so unlike INSERT/UPDATE/DELETE below (each probed by actually
 // attempting them and checking for a privilege-denied error), there is no live request this
 // script could ever send to prove TRUNCATE is closed — this migration's own round-3/round-4
@@ -269,6 +325,23 @@ function assertTruncateIsClosedForClientRoles(grants: PrivilegeGrantRow[]): void
 function assertAnonHasNoSelectGrantAtAll(grants: PrivilegeGrantRow[]): void {
   const anonSelectColumns = grants.filter((g) => g.grantee === 'anon' && g.privilege_type === 'SELECT').map((g) => g.column_name)
   report(anonSelectColumns.length === 0, `negative: anon holds no column-level SELECT grant on profile_verifications at all, including otp_code_hash (columns seen: ${JSON.stringify(anonSelectColumns)})`)
+}
+
+// Round 2's should-fix, round 3's coverage: profile_verification_issuance's own migration
+// (20260813030000_rate_limit_issue_pilot_verification.sql) revokes all privileges from
+// public/anon/authenticated up front and grants no policies in either direction — this is the
+// grant-catalog proof that revoke actually stuck, the same way assertTruncateIsClosedForClientRoles
+// and assertAnonHasNoSelectGrantAtAll pin profile_verifications' own revokes above. Unlike those
+// two (which each check one specific privilege/role combination this table already had prior
+// coverage gaps for), this checks the client roles hold NO privilege at all on this table — table
+// or column level, any of SELECT/INSERT/UPDATE/DELETE/TRUNCATE — since nothing about this table
+// is ever meant to be client-reachable in the first place.
+function assertProfileVerificationIssuanceHasNoClientGrants(grants: PrivilegeGrantRow[]): void {
+  const clientGrants = grants.filter((g) => g.grantee === 'anon' || g.grantee === 'authenticated')
+  report(
+    clientGrants.length === 0,
+    `negative: profile_verification_issuance grants zero privileges to anon/authenticated, table or column level (grants seen: ${JSON.stringify(clientGrants)})`,
+  )
 }
 
 // Round 3's headline property: there is no INSERT grant left at all, so this must fail outright.
@@ -415,6 +488,66 @@ async function assertServiceRoleIssuesVerificationForLinkedUser(ownerId: string,
   report(row?.email === OWNER_SCRAPED_EMAIL, `positive: the issued row's email matches what was passed in (admin read: ${JSON.stringify(row)})`)
 }
 
+// Issue #181's cooldown, round-tripped through PostgREST for real:
+// 20260813030000_rate_limit_issue_pilot_verification.sql gates re-issuance with an atomic
+// `insert ... on conflict do update ... where` against a dedicated profile_verification_issuance
+// table, raising RL001 when the WHERE clause finds no row affected. Called immediately after
+// assertServiceRoleIssuesVerificationForLinkedUser's own successful issuance for `ownerId`
+// (reused as call #1, well inside the 60-second window), so this only needs to make call #2 and
+// check it's rejected — plus that the rejection didn't silently overwrite the first call's row,
+// proving the whole second transaction (including the profile_verifications write further down
+// the function body) rolled back, not just the cooldown table's own upsert.
+async function assertServiceRoleIssueWithinCooldownIsRateLimited(ownerId: string): Promise<void> {
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, 'SHOULD-NOT-PERSIST')
+  report(error !== null, `negative: re-issuing for the same user inside the 60-second cooldown was rejected (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'RL001', `negative: the cooldown rejection round-trips through PostgREST as error.code === 'RL001' (code seen: ${code_ ?? 'none'})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('otp_code_hash')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(
+    row?.otp_code_hash === sha256Hex(CORRECT_CODE),
+    `negative: the rate-limited re-issuance did not overwrite the prior call's persisted code hash (admin read: ${JSON.stringify(row)})`,
+  )
+}
+
+// Round 2's should-fix, round 3's coverage: the OTHER direction of the cooldown, that a re-issue
+// past the 60-second window succeeds and rotates the stored code, not just that a re-issue WITHIN
+// the window is rejected (assertServiceRoleIssueWithinCooldownIsRateLimited above only proves the
+// latter). Simulates the window passing via a direct admin-client UPDATE of
+// profile_verification_issuance.last_issued_at to 61 seconds in the past, rather than actually
+// sleeping 60+ seconds in a test run — adminClient has no RLS/grant restriction on this table to
+// route around (see this table's own zero-client-grants posture), so this is a legitimate
+// fixture-seeding move, not a workaround for something the app itself could ever do.
+async function forceIssuanceCooldownExpired(ownerId: string): Promise<void> {
+  const { error } = await adminClient
+    .from('profile_verification_issuance')
+    .update({ last_issued_at: new Date(Date.now() - 61_000).toISOString() })
+    .eq('user_id', ownerId)
+  if (error) throw new Error(`failed to force-expire the fixture cooldown window: ${error.message}`)
+}
+
+async function assertCooldownAllowsReissueAfterWindow(ownerId: string): Promise<void> {
+  await forceIssuanceCooldownExpired(ownerId)
+
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, REISSUED_CODE)
+  report(error === null, `positive: re-issuing once the 60-second cooldown window has passed succeeded (error: ${error ?? 'none'}, code: ${code_ ?? 'n/a'})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('otp_code_hash')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(
+    row?.otp_code_hash === sha256Hex(REISSUED_CODE),
+    `positive: the re-issued row's otp_code_hash rotated to match the new code once the cooldown window had passed (admin read: ${JSON.stringify(row)})`,
+  )
+}
+
 // THE negative case round 4's version could never distinguish from a bug: a target_user_id with
 // genuinely no linked profiles row must still raise P0001 ("no flightlog pilot id linked to the
 // target profile"), but now for the right reason (an actual failed lookup) rather than the
@@ -524,6 +657,22 @@ async function assertPilotIdChangeInvalidatesVerification(ownerClient: SupabaseC
   )
 }
 
+// Round 1 defect 1's own regression pin: the ORIGINAL vulnerability this migration's rewrite
+// closed was the cooldown living on profile_verifications.otp_issued_at, a row
+// invalidate_profile_verification_on_pilot_change deletes on every pilot-id change — so relinking
+// away and back reset the cooldown every time (six issuances/six emails in under a second,
+// measured live). The redesign moved cooldown state to profile_verification_issuance, a table the
+// trigger has no reason to ever touch, but nothing before now actually asserted that holds:
+// re-uses assertPilotIdChangeInvalidatesVerification's own just-completed relink (still well
+// inside the 60-second window from assertServiceRoleIssuesVerificationForLinkedUser's original
+// issuance) and asserts an immediate re-issue attempt is STILL rejected with RL001, not a fresh
+// success.
+async function assertRelinkDoesNotResetCooldown(ownerId: string): Promise<void> {
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, 'SHOULD-NOT-PERSIST-AFTER-RELINK')
+  report(error !== null, `negative: re-issuing immediately after a pilot-id relink was still rejected (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'RL001', `negative: the relink did NOT reset the cooldown — the rejection is still RL001, not a fresh success (code seen: ${code_ ?? 'none'})`)
+}
+
 // Proves the trigger's WHEN clause is actually scoped to pilot-id changes, not "any profile
 // update" — otherwise assertPilotIdChangeInvalidatesVerification above could pass for the wrong
 // reason (a trigger that fires on every UPDATE, unconditionally deleting the row).
@@ -543,6 +692,7 @@ async function assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient: Supaba
 }
 
 await checkProfileVerificationsTableExists(adminClient)
+await checkProfileVerificationIssuanceTableExists(adminClient)
 
 const { userId: ownerId, emailOtp: ownerEmailOtp } = await resolveTestUser(OWNER_EMAIL)
 const { userId: otherId, emailOtp: otherEmailOtp } = await resolveTestUser(OTHER_EMAIL)
@@ -560,6 +710,9 @@ try {
   assertTruncateIsClosedForClientRoles(privilegeGrants)
   assertAnonHasNoSelectGrantAtAll(privilegeGrants)
 
+  const issuanceGrants = await fetchProfileVerificationIssuanceGrants()
+  assertProfileVerificationIssuanceHasNoClientGrants(issuanceGrants)
+
   await assertDirectInsertIsPrivilegeDenied(ownerClient, ownerId)
   await assertDirectUpdateIsPrivilegeDenied(ownerClient, ownerId)
   await assertDirectDeleteIsPrivilegeDenied(ownerClient, ownerId)
@@ -567,6 +720,7 @@ try {
   await assertOwnerCannotIssueVerificationDirectly(ownerClient, ownerId)
   await assertServiceRoleIssueWithoutLinkedPilotIdFails()
   await assertServiceRoleIssuesVerificationForLinkedUser(ownerId, CORRECT_CODE)
+  await assertServiceRoleIssueWithinCooldownIsRateLimited(ownerId)
 
   await assertOwnerCanReadOwnRow(ownerClient, ownerId)
   await assertOwnerCannotSelectOtpCodeHash(ownerClient, ownerId)
@@ -582,7 +736,9 @@ try {
   await assertExpiredCodeDoesNotConfirm(ownerClient, ownerId)
 
   await assertPilotIdChangeInvalidatesVerification(ownerClient, ownerId)
+  await assertRelinkDoesNotResetCooldown(ownerId)
   await assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient, ownerId)
+  await assertCooldownAllowsReissueAfterWindow(ownerId)
 } finally {
   await cleanupFixtures(ownerId, otherId)
 }
