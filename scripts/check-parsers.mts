@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { parseFlights, parsePilot } from '../src/lib/flightlog/parse-flights'
+import { parseFlights, parsePilot, hasProfileCell, isPilotNotFoundPage } from '../src/lib/flightlog/parse-flights'
+import { parsePilotEmail } from '../src/lib/flightlog/parse-pilot-email'
 import { parseTrack } from '../src/lib/flightlog/parse-track'
 import { parseCountries } from '../src/lib/flightlog/parse-countries'
 import { parseClubs } from '../src/lib/flightlog/parse-clubs'
@@ -27,6 +28,7 @@ import { hasKnownLocation } from '../src/lib/flightlog/has-known-location'
 const requiredFixtures = [
   'fixtures/pilot-12677.html',
   'fixtures/pilot-4549.html',
+  'fixtures/pilot-nonexistent.html',
   'fixtures/track-1001428.kml',
   'fixtures/track-233524.kml',
   'fixtures/track-235690.kml',
@@ -90,6 +92,36 @@ for (const [file, userId] of pilotFixtures) {
   assert(pilot.name.trim() !== '', `${file}: pilot name is non-empty`)
   assert(flights.length > 0, `${file}: parses at least one flight`)
 }
+
+// #173: pilot-12677.html (the owner's own account) carries a real mailto anchor; pilot-4549.html
+// carries the identical info-cell shape with no mailto anchor at all — the live-confirmed "no
+// email on file" case, not a hypothetical.
+const email12677 = parsePilotEmail(readFileSync('fixtures/pilot-12677.html', 'utf8'))
+const email4549 = parsePilotEmail(readFileSync('fixtures/pilot-4549.html', 'utf8'))
+console.log(`pilot-12677.html: email=${email12677}, pilot-4549.html: email=${email4549 ?? 'null'}`)
+assert(email12677 === 'sondrebakken@gmail.com', `pilot-12677.html: resolves the expected email (got ${email12677})`)
+assert(email4549 === null, `pilot-4549.html: resolves to null — no mailto anchor on this profile (got ${email4549})`)
+
+// The review round on #173 (before any caller wired this up): fetched live against a
+// confirmed-unallocated pilot id (999999999, this repo's established "nonexistent" convention —
+// see a22/a26/a42/rqtid1's own nonexistent fixtures) rather than assumed. This disproved the
+// prior assumption (is-fallback-pilot.ts's old doc comment) that a=28 has no dedicated not-found
+// signal: it renders WITHOUT the profile cell at all, not with the cell present-but-empty. Proves
+// get-pilot-email.ts's cell-presence + not-found-page check resolves the real not-found path
+// correctly against real captured markup, not just synthetic test HTML.
+const nonexistentPilotHtml = readFileSync('fixtures/pilot-nonexistent.html', 'utf8')
+const nonexistentHasCell = hasProfileCell(nonexistentPilotHtml)
+const nonexistentIsNotFoundPage = isPilotNotFoundPage(nonexistentPilotHtml)
+const nonexistentPilotEmail = parsePilotEmail(nonexistentPilotHtml)
+console.log(
+  `pilot-nonexistent.html: hasProfileCell=${nonexistentHasCell} isPilotNotFoundPage=${nonexistentIsNotFoundPage} email=${nonexistentPilotEmail ?? 'null'}`,
+)
+assert(nonexistentHasCell === false, `pilot-nonexistent.html: a genuine not-found page has no profile cell at all (got hasProfileCell=${nonexistentHasCell})`)
+assert(
+  nonexistentIsNotFoundPage === true,
+  `pilot-nonexistent.html: resolves as the real a=28 not-found page, not an unrecognised one (got isPilotNotFoundPage=${nonexistentIsNotFoundPage})`,
+)
+assert(nonexistentPilotEmail === null, `pilot-nonexistent.html: resolves to null — no mailto anchor on a not-found page (got ${nonexistentPilotEmail})`)
 
 const track = parseTrack(readFileSync('fixtures/track-1001428.kml', 'utf8'), 1001428)
 const stats1001428 = track.stats

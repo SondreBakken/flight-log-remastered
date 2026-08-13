@@ -67,9 +67,41 @@ function readTakeoffRef(href: string | undefined): TakeoffRef | null {
   return { countryId: Number(countryId), takeoffId: Number(takeoffId) }
 }
 
+// Shared with parse-pilot-email.ts (and get-pilot-email.ts's own cell-presence check) — all
+// three read the exact same profile cell, and duplicating the selector string risked one
+// changing without the others, silently degrading lookups.
+export const PROFILE_CELL_SELECTOR = 'td[width="s180"]'
+
+// A page-shape check for a=28's own not-found signal, live-verified (curl, 2026-08 — see
+// docs/testing.md's fixture-regeneration recipe) at pilot ids 1, 2, 30000, 50000, 99999 and
+// 999999999, all confirmed unallocated (adjacent ids like 12678/12679 resolve to real, distinct
+// pilots): the page renders WITHOUT this cell at all, not with the cell present-but-empty this
+// file's own is-fallback-pilot.ts doc comment describes. Getting this wrong matters: a caller
+// that throws on every missing-cell page (e.g. to catch a WAF challenge or markup drift) would
+// throw on every ordinary "no such pilot" lookup too, unless it can tell this genuine not-found
+// shape apart from a truly unrecognised one first.
+export function hasProfileCell(html: string): boolean {
+  return cheerio.load(html)(PROFILE_CELL_SELECTOR).length > 0
+}
+
+const PILOT_NOT_FOUND_TEXT = 'not found'
+
+// The actual not-found signal for a=28 (see hasProfileCell's own doc comment): a page-shell
+// `<div>` whose only content is the literal text "not found" — confirmed byte-identical (aside
+// from the requested user_id and a per-request honeypot resource link) across every unallocated
+// id sampled live. Not scoped to a specific selector beyond `<div>` since the marker carries no
+// class or id of its own; a genuinely unrecognised page (WAF challenge, empty body, markup
+// drift) has no reason to also happen to contain this exact text.
+export function isPilotNotFoundPage(html: string): boolean {
+  const $ = cheerio.load(html)
+  return $('div')
+    .toArray()
+    .some((el) => $(el).text().trim() === PILOT_NOT_FOUND_TEXT)
+}
+
 export function parsePilot(html: string, userId: number): Pilot {
   const $ = cheerio.load(html)
-  const profileCell = $('td[width="s180"]').first()
+  const profileCell = $(PROFILE_CELL_SELECTOR).first()
   const lines = profileCell
     .html()
     ?.split(/<br\s*\/?>/i)
