@@ -54,6 +54,34 @@ alter table public.profile_verification_issuance enable row level security;
 -- profile_verifications' own SELECT revoke documents.
 revoke all on public.profile_verification_issuance from public, anon, authenticated;
 
+-- Test-support only, same shape and same reason as profile_verifications' own
+-- profile_verifications_privilege_grants() (20260813000000_create_profile_verifications.sql):
+-- PostgREST does not expose information_schema over REST for any role, so there is no direct way
+-- for scripts/verify-profile-verifications-select-policy.mts to read this table's grant catalog
+-- and pin the revoke above in either direction. A dedicated SECURITY DEFINER function scoped to
+-- THIS table (rather than widening the existing profile_verifications_privilege_grants() with a
+-- table-name parameter) keeps each introspection function's blast radius equal to the single
+-- table it reports on, matching how the row-level lockdown itself is scoped per table rather than
+-- shared. service_role-only: nothing here should be reachable by a client session.
+create function public.profile_verification_issuance_privilege_grants()
+returns table(source text, grantee text, privilege_type text, column_name text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select 'table'::text as source, grantee, privilege_type, null::text as column_name
+  from information_schema.role_table_grants
+  where table_schema = 'public' and table_name = 'profile_verification_issuance'
+  union all
+  select 'column'::text as source, grantee, privilege_type, column_name
+  from information_schema.role_column_grants
+  where table_schema = 'public' and table_name = 'profile_verification_issuance';
+$$;
+
+revoke all on function public.profile_verification_issuance_privilege_grants() from public;
+grant execute on function public.profile_verification_issuance_privilege_grants() to service_role;
+
 -- DEFECT 2 — check-then-act TOCTOU. The first version of this migration gated re-issuance with a
 -- plain `select otp_issued_at ... where user_id = target_user_id` followed by a separate
 -- `insert ... on conflict do update`, exactly the same check-then-act shape
@@ -95,14 +123,27 @@ revoke all on public.profile_verification_issuance from public, anon, authentica
 -- them apart today, so the 'rate-limited' result kind already added there needs no further change
 -- (RL001 is still exactly what gets raised, just from a different table underneath).
 --
--- Checked before the "no linked pilot id" lookup, not after, same ordering the first version of
--- this migration used and for the same reason: the cooldown is about how recently issuance
--- happened for THIS user, independent of whether their pilot-id link is still valid right now.
--- Ordering only matters for which exception a caller sees when both could theoretically apply,
--- and both branches raising an exception rolls back the whole function body (this insert
--- included) in the same transaction — a rejected cooldown check never leaves a stray
--- profile_verification_issuance row behind, and a subsequent "no linked pilot id" failure never
--- leaves the cooldown bumped for an issuance that didn't actually happen.
+-- REWRITTEN AGAIN (round 3 of this migration's own review trail) — checked AFTER the "no linked
+-- pilot id" lookup now, not before. The first version of this redesign ran the cooldown upsert
+-- first, on the reasoning that the cooldown is about how recently issuance happened for THIS
+-- user, independent of whether their pilot-id link is still valid right now. That reasoning
+-- missed a real defect: profile_verification_issuance.user_id references auth.users, so a call
+-- for a target_user_id with no real auth.users row (the exact shape of an "unlinked" caller —
+-- there is usually no profiles row either, hence no linked pilot id in the first place) raised
+-- 23503 (FK violation) out of the upsert before the pilot-id check was ever reached, instead of
+-- the P0001 an unlinked caller is actually supposed to see. Moving the pilot-id check first closes
+-- that: an unlinked caller is now rejected with P0001 before the cooldown upsert runs at all, so
+-- it never touches a table with an FK it can't satisfy.
+--
+-- Accepted tradeoff: an unlinked caller is no longer cooldown-gated — nothing stops repeated calls
+-- against the same never-linked target_user_id from each re-evaluating the pilot-id lookup instead
+-- of being short-circuited by a prior cooldown row. This costs nothing in practice: that path
+-- writes no profile_verification_issuance row and no profile_verifications row either (both raise
+-- exceptions are inside the same transaction, so nothing persists), and sends no email — the
+-- outbound email only happens in issuePilotVerification's TS caller, which only runs after this
+-- RPC returns successfully. Combined with this RPC being service_role-only (no `authenticated`
+-- EXECUTE grant, see this table's own migration history), there is no realistic abuse surface a
+-- cooldown would be closing here that the FK-avoidance ordering doesn't already make moot.
 create or replace function public.issue_pilot_verification(target_user_id uuid, scraped_email text, code text)
 returns integer
 language plpgsql
@@ -113,6 +154,14 @@ declare
   actual_pilot_id integer;
   issuance_rows integer;
 begin
+  select flightlog_pilot_id into actual_pilot_id
+  from public.profiles
+  where user_id = target_user_id;
+
+  if actual_pilot_id is null then
+    raise exception 'no flightlog pilot id linked to the target profile';
+  end if;
+
   insert into public.profile_verification_issuance (user_id, last_issued_at)
   values (target_user_id, now())
   on conflict (user_id) do update
@@ -124,14 +173,6 @@ begin
   if issuance_rows = 0 then
     raise exception 'a verification code was issued too recently; wait before requesting another'
       using errcode = 'RL001';
-  end if;
-
-  select flightlog_pilot_id into actual_pilot_id
-  from public.profiles
-  where user_id = target_user_id;
-
-  if actual_pilot_id is null then
-    raise exception 'no flightlog pilot id linked to the target profile';
   end if;
 
   insert into public.profile_verifications
