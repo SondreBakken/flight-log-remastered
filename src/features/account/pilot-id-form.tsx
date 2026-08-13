@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useEffect } from 'react'
 import { saveFlightlogPilotId } from './actions'
 import type { PilotIdFormState } from './pilot-id-form-state'
 
@@ -19,6 +19,15 @@ type PilotIdFormProps = {
   // both the field and the Save button so a blank state during an error can't be silently
   // submitted as if it were an intentional unlink.
   pilotIdLoadFailed?: boolean
+  // Called once, right after a save resolves to 'success' (#177's own review follow-up).
+  // invalidate_verification_on_pilot_id_change (see that trigger's own doc comment in
+  // 20260813000000_create_profile_verifications.sql) deletes the caller's profile_verifications
+  // row server-side whenever flightlog_pilot_id actually changes — but nothing client-side ever
+  // learns about that write on its own. Without this, a user who relinks to a different pilot id
+  // keeps seeing "Re-verify" (the verified-state UI) for a verification that no longer exists.
+  // index.tsx threads this to the same refreshKey bump used by PilotVerification's own start/
+  // confirm paths.
+  onSaved?: () => void
 }
 
 // A separate form/action from AccountForm, not a second field on it, because the two fields have
@@ -29,9 +38,18 @@ type PilotIdFormProps = {
 //
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
-export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false }: PilotIdFormProps) {
+export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, onSaved }: PilotIdFormProps) {
   const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
+
+  useEffect(() => {
+    if (state.status === 'success') onSaved?.()
+    // onSaved excluded deliberately — see confirm-pilot-verification-form.tsx's own identical
+    // effect for why: index.tsx passes a fresh closure every render, and including it would
+    // re-fire this on every unrelated parent re-render while state is still 'success', not only
+    // once when the save itself actually succeeded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
   // Shown whenever a pilot id is on record — either already loaded on mount, just saved by this
   // submission, or still on record despite an unrelated failed resubmission — not on every idle
   // render, so a first-time visitor with nothing linked yet doesn't see a note about a link that
