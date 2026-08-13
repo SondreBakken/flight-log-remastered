@@ -172,6 +172,10 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 //     downstream check (the verification row still existing) would hold even if the update never
 //     ran at all. Both now add `.select('user_id')` to the update and assert exactly one row came
 //     back, turning "did not error" into a positive control that the update actually touched a row.
+//     This relies on profiles' SELECT policy (`using (true)`, 20260811000000_create_profiles.sql)
+//     being unconditional — if that policy is ever narrowed, these assertions would start failing
+//     with a misleading "did not touch a row" message even though the update succeeded, because RLS
+//     would be filtering the RETURNING clause instead.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -772,8 +776,7 @@ async function assertPilotIdChangeInvalidatesVerification(ownerClient: SupabaseC
     .select('user_id')
   report(updateError === null, `trigger: changing the owner's declared pilot id did not error (${updateError ? updateError.message : 'ok'})`)
   if (updateError) throw new Error(`failed to update the owner's declared pilot id: ${updateError.message}`)
-  if (updateRows?.length !== 1) throw new Error(`expected the pilot-id UPDATE to touch exactly 1 row, touched ${updateRows?.length ?? 0} (rows: ${JSON.stringify(updateRows)})`)
-  report(updateRows.length === 1, `trigger: the pilot-id UPDATE actually touched the owner's profiles row, not a silent no-op (rows returned: ${JSON.stringify(updateRows)})`)
+  report(updateRows?.length === 1, `trigger: the pilot-id UPDATE actually touched the owner's profiles row, not a silent no-op (rows returned: ${JSON.stringify(updateRows)})`)
 
   const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('user_id').eq('user_id', ownerId)
   if (readError) throw new Error(`failed to read back profile_verifications via admin client: ${readError.message}`)
@@ -815,8 +818,7 @@ async function assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient: Supaba
     .select('user_id')
   report(updateError === null, `trigger: an unrelated profile update (display_name) did not error (${updateError ? updateError.message : 'ok'})`)
   if (updateError) throw new Error(`failed to apply the unrelated profile update: ${updateError.message}`)
-  if (updateRows?.length !== 1) throw new Error(`expected the unrelated profile UPDATE to touch exactly 1 row, touched ${updateRows?.length ?? 0} (rows: ${JSON.stringify(updateRows)})`)
-  report(updateRows.length === 1, `trigger: the unrelated profile UPDATE actually touched the owner's profiles row, not a silent no-op (rows returned: ${JSON.stringify(updateRows)})`)
+  report(updateRows?.length === 1, `trigger: the unrelated profile UPDATE actually touched the owner's profiles row, not a silent no-op (rows returned: ${JSON.stringify(updateRows)})`)
 
   const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('user_id').eq('user_id', ownerId)
   if (readError) throw new Error(`failed to read back profile_verifications via admin client: ${readError.message}`)
