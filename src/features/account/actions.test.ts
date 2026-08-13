@@ -219,7 +219,7 @@ describe('startPilotVerificationAction', () => {
 
     expect(state).toEqual({
       status: 'error',
-      message: 'Please wait before requesting another code.',
+      message: 'Wait a minute before requesting another code.',
     })
     expect(mockSendVerificationEmail).not.toHaveBeenCalled()
   })
@@ -317,7 +317,7 @@ describe('startPilotVerificationStateFor', () => {
     })
     expect(startPilotVerificationStateFor({ kind: 'rate-limited' })).toEqual({
       status: 'error',
-      message: 'Please wait before requesting another code.',
+      message: 'Wait a minute before requesting another code.',
     })
     expect(startPilotVerificationStateFor({ kind: 'started-logged' })).toEqual({
       status: 'started-logged',
