@@ -18,7 +18,7 @@ describe('sendVerificationEmail', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
     const send = vi.fn().mockResolvedValue({ data: { id: 'email-1' }, error: null })
 
-    await sendVerificationEmail('pilot@example.com', '123456', { send })
+    const outcome = await sendVerificationEmail('pilot@example.com', '123456', { send })
 
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -27,6 +27,7 @@ describe('sendVerificationEmail', () => {
       }),
     )
     expect(consoleLog).not.toHaveBeenCalled()
+    expect(outcome).toEqual({ status: 'sent' })
   })
 
   it('sends from the FLIGHTLOG_VERIFICATION_FROM_ADDRESS env var when set, instead of the hardcoded fallback', async () => {
@@ -47,11 +48,12 @@ describe('sendVerificationEmail', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
     const send = vi.fn()
 
-    await sendVerificationEmail('pilot@example.com', '123456', { send })
+    const outcome = await sendVerificationEmail('pilot@example.com', '123456', { send })
 
     expect(send).not.toHaveBeenCalled()
     expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('pilot@example.com'))
     expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('123456'))
+    expect(outcome).toEqual({ status: 'logged' })
   })
 
   it.each(['false', '0'])(

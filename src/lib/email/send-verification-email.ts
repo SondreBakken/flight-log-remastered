@@ -29,14 +29,22 @@ function createResendClient(): VerificationEmailClient {
   return new Resend(process.env.RESEND_API_KEY).emails
 }
 
+// A read-outcome-shaped result (status, like PilotEmailOutcome in get-pilot-email.ts), not an
+// action-result kind: this just reports which of the two things this function does actually
+// happened, it doesn't represent a business decision of its own. #183: callers (startPilotVerificationAction)
+// need to tell "really sent via Resend" apart from "flag off, only logged server-side" — a bare
+// Promise<void> made both branches indistinguishable, so a deploy with the flag off could tell a
+// user to check an inbox nothing was ever sent to.
+export type SendVerificationEmailOutcome = { status: 'sent' } | { status: 'logged' }
+
 // Business logic: send a pilot-verification code by email, gated behind
 // FLIGHTLOG_VERIFICATION_EMAIL_ENABLED so the confirm flow (#6) stays testable in dev without a
 // live Resend send domain. Off (the default): logs the code server-side instead of sending. On:
 // sends via Resend and never logs the code.
-export async function sendVerificationEmail(email: string, code: string, resendClient?: VerificationEmailClient): Promise<void> {
+export async function sendVerificationEmail(email: string, code: string, resendClient?: VerificationEmailClient): Promise<SendVerificationEmailOutcome> {
   if (!isVerificationEmailEnabled()) {
     console.log(`[email] verification code for ${email}: ${code}`)
-    return
+    return { status: 'logged' }
   }
 
   const client = resendClient ?? createResendClient()
@@ -50,4 +58,6 @@ export async function sendVerificationEmail(email: string, code: string, resendC
   if (error) {
     throw new Error(`Failed to send verification email: ${error.message}`, { cause: error })
   }
+
+  return { status: 'sent' }
 }

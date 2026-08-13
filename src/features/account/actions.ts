@@ -155,13 +155,12 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
     if (issued.boundPilotId !== pilotId) return startPilotVerificationStateFor({ kind: 'pilot-id-changed' })
 
     try {
-      await sendVerificationEmail(emailOutcome.email, issued.code)
+      const sendOutcome = await sendVerificationEmail(emailOutcome.email, issued.code)
+      return startPilotVerificationStateFor(sendOutcome.status === 'logged' ? { kind: 'started-logged' } : { kind: 'started' })
     } catch (error) {
       console.error('[account] pilot verification code issued but failed to send:', error)
       return startPilotVerificationStateFor({ kind: 'send-failed' })
     }
-
-    return startPilotVerificationStateFor({ kind: 'started' })
   } catch (error) {
     if (!(error instanceof ProfilesQueryError)) throw error
     console.error('[account] failed to start pilot verification:', error)
