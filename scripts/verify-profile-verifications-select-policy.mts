@@ -5,47 +5,50 @@ import { createReporter } from './lib/verify-report'
 import { createAdminClient } from '../src/lib/supabase/admin'
 import { requireSupabaseEnv } from '../src/lib/supabase/env'
 
-// Proves supabase/migrations/20260813000000_create_profile_verifications.sql's RLS AND its
-// SECURITY DEFINER confirm function AND its pilot-id-change trigger are actually enforced on the
-// live project — against REAL authenticated Supabase sessions, not a stubbed client. Pure Node
-// script, no browser: the thing under test is PostgREST-level RLS plus an RPC-exposed database
-// function. See verify-follows-select-policy.mts's own header comment for why persistSession:
-// false is what makes @supabase/auth-js hold the session in memory rather than reaching for
-// browser storage.
+// Proves supabase/migrations/20260813000000_create_profile_verifications.sql's RLS, its two
+// SECURITY DEFINER functions (issue_pilot_verification, confirm_pilot_verification), and its
+// pilot-id-change trigger are actually enforced on the live project — against REAL authenticated
+// Supabase sessions, not a stubbed client. Pure Node script, no browser: the thing under test is
+// PostgREST-level RLS/grants plus two RPC-exposed database functions. See
+// verify-follows-select-policy.mts's own header comment for why persistSession: false is what
+// makes @supabase/auth-js hold the session in memory rather than reaching for browser storage.
 //
-// This file's original version (kept its name across the rewrite — nothing outside this file
-// references the filename) only covered the SELECT/UPDATE positive+negative pair, seeded via the
-// RLS-bypassing admin client. Review of the migration's first version found that coverage had two
-// real holes:
-//   1. The INSERT policy had zero coverage in either direction — seeding via the admin client
-//      never exercises `with check` at all. Fixed below: assertOwnerCanInsertOwnPendingRow and
-//      assertSpoofedUserIdInsertFails both insert through the OWNER'S OWN session.
-//   2. "other user cannot update" was actually just re-testing the SELECT-negative path (proved by
-//      mutation: relaxing the UPDATE policy's `using` clause to `(true)` still showed 0 rows
-//      affected, because RLS ANDs the SELECT policy into every UPDATE's row-visibility check
-//      regardless of `using` — see 20260810010000_add_comments_soft_delete_policy.sql's own doc
-//      comment for the general mechanism). That assertion is kept below (still a real property:
-//      OTHER can't even locate the row to attempt an update against), but it no longer stands in
-//      for testing what the UPDATE policy's `with check` actually restricts — that's now covered
-//      by assertOwnerCannotSelfVerifyViaUpdate below, which updates the OWNER's own row (so the
-//      pre-image is visible) and asserts the specific write `with check` blocks.
-//
-// New coverage for this rewrite (issue #172's redesign, see the migration's own doc comment for
-// the three findings it fixes):
-//   - assertOwnerCannotSelfVerifyViaUpdate: a bare PATCH status='verified' on the owner's own
-//     row, via the owner's own session, must fail — this is exploit #2 from the review, replayed
-//     live against the fixed policy.
-//   - assertOwnerCannotWriteOtpCodeHash: the owner's own session cannot write otp_code_hash via
-//     UPDATE — proves the column-privilege revoke in the migration (not just the `with check`,
-//     which cannot express a column-level restriction at all) is what's actually closing the
-//     self-forged-hash variant of the same exploit.
-//   - assertWrongCodeDoesNotConfirm / assertOtherUserCannotConfirmOwnersCode /
-//     assertCorrectCodeConfirms / assertReplayedCodeDoesNotConfirm /
-//     assertExpiredCodeDoesNotConfirm: exercise confirm_pilot_verification (the SECURITY DEFINER
-//     function) via RPC, through real sessions, for every branch of its WHERE clause.
-//   - assertPilotIdChangeInvalidatesVerification / assertUnrelatedProfileUpdateDoesNotInvalidate:
-//     exercise the trigger that binds a verification to the specific pilot id it was issued for
-//     (exploit #3 from the review).
+// This file's name and shape have carried across two prior rewrites (kept on purpose — nothing
+// outside this file references the filename):
+//   - Round 1 added the first real coverage of the INSERT policy (the original version only ever
+//     exercised SELECT/UPDATE, seeded through the RLS-bypassing admin client) and separated
+//     "other user can't even locate the row" from "the owner's own write is content-restricted".
+//   - Round 2 added coverage for the owner being blocked from writing otp_expires_at and from
+//     reading otp_code_hash back, on top of round 1's coverage.
+//   - Round 3 (this version) follows the migration's redesign: there is no client-writable
+//     INSERT/UPDATE surface left on this table at all, so most of round 1 and round 2's
+//     INSERT/UPDATE-door mutation coverage is now moot — there is no door left to have a gap in.
+//     What replaces it:
+//       - assertDirectInsertIsPrivilegeDenied / assertDirectUpdateIsPrivilegeDenied /
+//         assertDirectDeleteIsPrivilegeDenied: prove the table-level privilege is actually ABSENT
+//         for the owner's own session, not merely that RLS filtered the attempt out. The
+//         distinction matters (see 20260810010000_add_comments_soft_delete_policy.sql's own doc
+//         comment on RLS's UPDATE ... USING clause silently returning "0 rows affected" instead
+//         of erroring) — a privilege-level denial raises a Postgres error (42501) before RLS is
+//         even consulted, so these assertions check for that error, not just an empty result.
+//       - assertOwnerCannotSelectOtpCodeHash / assertOwnerCannotSelectStar: prove otp_code_hash
+//         is excluded from the column-level SELECT grant itself (round 2's brute-forceable-hash
+//         finding), not just hidden by app-code choosing not to ask for it.
+//       - assertIssueVerificationEndToEnd / assertSpoofedPilotIdIsIgnored /
+//         assertIssueWithoutLinkedPilotIdFails / assertReissueWhilePendingReplacesPriorCode:
+//         exercise issue_pilot_verification (new in this round) via RPC, through a real session,
+//         including round 1's original finding #3 (a caller-supplied pilot id must never be
+//         trusted) replayed against the NEW write path that finding's own original fix didn't yet
+//         cover (issuance wasn't a function yet in round 1).
+//       - assertWrongCodeDoesNotConfirm / assertOtherUserCannotConfirmOwnersCode /
+//         assertCorrectCodeConfirms / assertReplayedCodeDoesNotConfirm /
+//         assertExpiredCodeDoesNotConfirm: confirm_pilot_verification's coverage, carried over
+//         from round 2 essentially unchanged (only its internal hashing changed, from pgcrypto's
+//         digest() to core Postgres's sha256() — this script's own sha256Hex helper below already
+//         matches whichever the migration uses, so no assertion needed to change).
+//       - assertPilotIdChangeInvalidatesVerification / assertUnrelatedProfileUpdateDoesNotInvalidate:
+//         the pilot-id-change trigger, carried over from round 1/2 unchanged — this round's
+//         changes don't touch it, but it's re-run here to confirm that's still true.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -63,24 +66,28 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 
 const OWNER_EMAIL = 'verify-profile-verifications-owner@example.test'
 const OTHER_EMAIL = 'verify-profile-verifications-other@example.test'
+const UNLINKED_EMAIL = 'verify-profile-verifications-unlinked@example.test'
 
 const OWNER_SCRAPED_EMAIL = 'owner-scraped@flightlog.example.test'
-const FUTURE_EXPIRY = new Date(Date.now() + 15 * 60 * 1000).toISOString()
-const PAST_EXPIRY = new Date(Date.now() - 60 * 1000).toISOString()
 
 // Obviously-fake sentinel pilot ids tied to this issue, same convention as
 // verify-follows-select-policy.mts's VIEWER_PILOT_ID/OTHER_PILOT_ID: flightlog_pilot_id has no
 // FK/check constraint, so any integer works and there is no real pilot to collide with.
 const OWNER_PILOT_ID = 900172
 const OWNER_NEW_PILOT_ID = 900173
+const SPOOFED_PILOT_ID = 900199
 
 const CORRECT_CODE = 'PV172CORRECT'
 const WRONG_CODE = 'PV172WRONGXX'
 const EXPIRED_CODE = 'PV172EXPIRED'
+const REISSUE_CODE = 'PV172REISSUE'
 
-// Must match the migration's own hashing exactly (encode(digest(code, 'sha256'), 'hex')) — same
-// algorithm, same lowercase-hex encoding, so a hash computed here and one computed by Postgres
-// for the same plaintext are byte-for-byte identical.
+// Must match the migration's own hashing exactly (encode(sha256(convert_to(code, 'utf8')),
+// 'hex')) — same algorithm, same lowercase-hex encoding, so a hash computed here and one computed
+// by Postgres for the same plaintext are byte-for-byte identical. Only used below to seed an
+// EXPIRED code directly via the admin client (issue_pilot_verification itself always computes a
+// future expiry, so there is no RPC path that can produce an already-expired row — the same gap
+// a real privileged issuance path would have, worked around here the same way).
 function sha256Hex(code: string): string {
   return createHash('sha256').update(code, 'utf8').digest('hex')
 }
@@ -101,17 +108,18 @@ async function resolveTestUser(email: string): Promise<{ userId: string; emailOt
   return { userId: data.user.id, emailOtp: data.properties.email_otp }
 }
 
-// Scoped to only the two fixture user ids, safe to call before AND after the run.
-async function clearFixtureRows(ownerId: string, otherId: string): Promise<void> {
-  const { error: verificationsError } = await adminClient.from('profile_verifications').delete().in('user_id', [ownerId, otherId])
+// Scoped to only the three fixture user ids, safe to call before AND after the run.
+async function clearFixtureRows(ownerId: string, otherId: string, unlinkedId: string): Promise<void> {
+  const ids = [ownerId, otherId, unlinkedId]
+  const { error: verificationsError } = await adminClient.from('profile_verifications').delete().in('user_id', ids)
   if (verificationsError) throw new Error(`failed to clear fixture profile_verifications rows: ${verificationsError.message}`)
 
-  const { error: profilesError } = await adminClient.from('profiles').delete().in('user_id', [ownerId, otherId])
+  const { error: profilesError } = await adminClient.from('profiles').delete().in('user_id', ids)
   if (profilesError) throw new Error(`failed to clear fixture profiles rows: ${profilesError.message}`)
 }
 
-async function deleteFixtureUsers(ownerId: string, otherId: string): Promise<void> {
-  for (const id of [ownerId, otherId]) {
+async function deleteFixtureUsers(ownerId: string, otherId: string, unlinkedId: string): Promise<void> {
+  for (const id of [ownerId, otherId, unlinkedId]) {
     try {
       const { error } = await adminClient.auth.admin.deleteUser(id)
       if (error) console.error(`cleanup: failed to delete fixture auth user ${id}: ${error.message}`)
@@ -121,22 +129,30 @@ async function deleteFixtureUsers(ownerId: string, otherId: string): Promise<voi
   }
 }
 
-async function cleanupFixtures(ownerId: string, otherId: string): Promise<void> {
+async function cleanupFixtures(ownerId: string, otherId: string, unlinkedId: string): Promise<void> {
   try {
-    await clearFixtureRows(ownerId, otherId)
+    await clearFixtureRows(ownerId, otherId, unlinkedId)
   } catch (err) {
     console.error(`cleanup: failed to clear fixture rows: ${err instanceof Error ? err.message : String(err)}`)
   }
-  await deleteFixtureUsers(ownerId, otherId)
+  await deleteFixtureUsers(ownerId, otherId, unlinkedId)
 }
 
-// Only the owner needs a profiles row: it's what assertPilotIdChangeInvalidatesVerification
-// updates to fire the trigger under test. Seeded via the admin client — profiles' own RLS isn't
-// what this script is testing, so bypassing it here is fine (same reasoning
-// verify-follows-select-policy.mts's seedFixtures uses for its profiles rows).
-async function seedOwnerProfile(ownerId: string): Promise<void> {
-  const { error } = await adminClient.from('profiles').upsert({ user_id: ownerId, flightlog_pilot_id: OWNER_PILOT_ID }, { onConflict: 'user_id' })
-  if (error) throw new Error(`failed to seed owner fixture profile: ${error.message}`)
+// OWNER and OTHER both need a profiles row with a linked pilot id: OWNER's backs
+// issue_pilot_verification/the trigger test, OTHER's backs assertOtherCannotSelectOwnersRow
+// needing a real session. UNLINKED deliberately gets NO profiles row at all — it's what
+// assertIssueWithoutLinkedPilotIdFails calls issue_pilot_verification as. Seeded via the admin
+// client — profiles' own RLS isn't what this script is testing, same reasoning
+// verify-follows-select-policy.mts's seedFixtures uses for its profiles rows.
+async function seedProfiles(ownerId: string, otherId: string): Promise<void> {
+  const { error } = await adminClient.from('profiles').upsert(
+    [
+      { user_id: ownerId, flightlog_pilot_id: OWNER_PILOT_ID },
+      { user_id: otherId, flightlog_pilot_id: OWNER_PILOT_ID + 1000 },
+    ],
+    { onConflict: 'user_id' },
+  )
+  if (error) throw new Error(`failed to seed fixture profiles: ${error.message}`)
 }
 
 async function signInAsUser(email: string, emailOtp: string): Promise<SupabaseClient> {
@@ -152,66 +168,69 @@ async function signInAsUser(email: string, emailOtp: string): Promise<SupabaseCl
   return sessionClient
 }
 
-// Exercises the INSERT policy's `with check (auth.uid() = user_id ...)` directly: an owner
-// trying to insert a row under a DIFFERENT user_id (spoofing) must be rejected, not silently
-// re-targeted or ignored.
-async function assertSpoofedUserIdInsertFails(ownerClient: SupabaseClient, otherId: string): Promise<void> {
-  const { data, error } = await ownerClient
-    .from('profile_verifications')
-    .insert({ user_id: otherId, status: 'pending', flightlog_pilot_id: OWNER_PILOT_ID, email: OWNER_SCRAPED_EMAIL })
-    .select('user_id')
-
-  report(error !== null, `negative: inserting a row under a spoofed user_id (not the caller's own) was rejected (error: ${error?.message ?? 'none — BUG'})`)
-  report((data ?? []).length === 0, `negative: no row was created by the spoofed-user_id insert attempt (rows returned: ${JSON.stringify(data)})`)
-}
-
-// The real seed for every assertion below this one: inserted through the OWNER'S OWN session,
-// not the admin client, so this also doubles as the INSERT policy's positive case.
-async function assertOwnerCanInsertOwnPendingRow(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+// Round 3's headline property: there is no INSERT grant left at all, so this must fail with a
+// Postgres privilege error (42501) raised before RLS is even consulted — not the "0 rows
+// affected" shape a merely RLS-denied write produces (see this file's own module comment).
+async function assertDirectInsertIsPrivilegeDenied(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { data, error } = await ownerClient
     .from('profile_verifications')
     .insert({ user_id: ownerId, status: 'pending', flightlog_pilot_id: OWNER_PILOT_ID, email: OWNER_SCRAPED_EMAIL })
-    .select('user_id, status')
+    .select('user_id')
 
-  report(error === null, `positive: owner inserting their own pending row did not error (${error ? error.message : 'ok'})`)
-  const rows = data ?? []
-  report(
-    error === null && rows.length === 1 && rows[0]?.status === 'pending',
-    `positive: the owner's own pending row IS insertable through their own session (rows seen: ${JSON.stringify(rows)})`,
-  )
+  report(error !== null, `negative: a direct INSERT was rejected outright (error: ${error?.message ?? 'none — BUG'})`)
+  report(error?.code === '42501', `negative: the INSERT rejection is a table-level privilege denial (42501), not an RLS filter (code seen: ${error?.code ?? 'none'})`)
+  report((data ?? []).length === 0, `negative: no row was created by the direct INSERT attempt (rows returned: ${JSON.stringify(data)})`)
 }
 
-// Exploit #2 from the review, replayed live: a bare PATCH landing status='verified' directly,
-// with no code ever confirmed, must be rejected by the UPDATE policy's `with check`.
-async function assertOwnerCannotSelfVerifyViaUpdate(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
-  const { data, error } = await ownerClient.from('profile_verifications').update({ status: 'verified' }).eq('user_id', ownerId).select('user_id, status')
+async function assertDirectUpdateIsPrivilegeDenied(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { data, error } = await ownerClient.from('profile_verifications').update({ status: 'verified' }).eq('user_id', ownerId).select('user_id')
 
-  report(error !== null, `negative: a direct PATCH status='verified' on the owner's own row was rejected (error: ${error?.message ?? 'none — BUG'})`)
-  report((data ?? []).length === 0, `negative: no row came back verified from the direct-PATCH attempt (rows returned: ${JSON.stringify(data)})`)
-
-  const { data: adminRow, error: adminError } = await adminClient.from('profile_verifications').select('status').eq('user_id', ownerId).single()
-  if (adminError) throw new Error(`failed to read back owner row via admin client: ${adminError.message}`)
-  report(adminRow?.status === 'pending', `negative: the owner's row genuinely stayed 'pending' after the rejected PATCH (admin read: ${JSON.stringify(adminRow)})`)
+  report(error !== null, `negative: a direct UPDATE was rejected outright (error: ${error?.message ?? 'none — BUG'})`)
+  report(error?.code === '42501', `negative: the UPDATE rejection is a table-level privilege denial (42501), not an RLS filter (code seen: ${error?.code ?? 'none'})`)
+  report((data ?? []).length === 0, `negative: no row came back from the direct UPDATE attempt (rows returned: ${JSON.stringify(data)})`)
 }
 
-// The self-forged-hash variant of the same exploit: even with status pinned to 'pending', a
-// client that could freely write otp_code_hash could stage a hash of a code they invented, then
-// separately call confirm_pilot_verification with that same code to self-certify. This proves
-// the migration's column-privilege revoke — not just the with-check — is what actually closes it,
-// since Postgres RLS has no column-level policies to express "this column, not that one".
-async function assertOwnerCannotWriteOtpCodeHash(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
-  const forgedHash = sha256Hex('SELF-FORGED')
+async function assertDirectDeleteIsPrivilegeDenied(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { data, error } = await ownerClient.from('profile_verifications').delete().eq('user_id', ownerId).select('user_id')
+
+  report(error !== null, `negative: a direct DELETE was rejected outright (error: ${error?.message ?? 'none — BUG'})`)
+  report(error?.code === '42501', `negative: the DELETE rejection is a table-level privilege denial (42501), not an RLS filter (code seen: ${error?.code ?? 'none'})`)
+  report((data ?? []).length === 0, `negative: no row came back from the direct DELETE attempt (rows returned: ${JSON.stringify(data)})`)
+}
+
+// The self-forged-hash/brute-force finding from round 2: even though the owner can read their
+// own row, otp_code_hash specifically must be excluded from the column-level SELECT grant, so
+// asking for it by name errors instead of silently omitting it.
+async function assertOwnerCannotSelectOtpCodeHash(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { data, error } = await ownerClient.from('profile_verifications').select('otp_code_hash').eq('user_id', ownerId)
+
+  report(error !== null, `negative: selecting otp_code_hash by name was rejected (error: ${error?.message ?? 'none — BUG'})`)
+  report((data ?? []).length === 0, `negative: no otp_code_hash value came back (rows returned: ${JSON.stringify(data)})`)
+}
+
+// select('*') expands to every column at parse time, so it must ALSO fail once otp_code_hash is
+// excluded from the grant — not silently omit that one column and return the rest. Any call site
+// elsewhere in the app must name columns explicitly instead (see the migration's own doc
+// comment).
+async function assertOwnerCannotSelectStar(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { data, error } = await ownerClient.from('profile_verifications').select('*').eq('user_id', ownerId)
+
+  report(error !== null, `negative: select('*') was rejected because it implicitly includes otp_code_hash (error: ${error?.message ?? 'none — BUG'})`)
+  report((data ?? []).length === 0, `negative: select('*') returned no rows (rows returned: ${JSON.stringify(data)})`)
+}
+
+async function assertOwnerCanReadOwnRow(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { data, error } = await ownerClient
     .from('profile_verifications')
-    .update({ otp_code_hash: forgedHash })
+    .select('user_id, status, otp_expires_at, flightlog_pilot_id, email, created_at')
     .eq('user_id', ownerId)
-    .select('user_id, otp_code_hash')
 
-  report(error !== null, `negative: owner writing otp_code_hash directly was rejected (error: ${error?.message ?? 'none — BUG'})`)
-  report((data ?? []).length === 0, `negative: no row came back with the forged hash (rows returned: ${JSON.stringify(data)})`)
+  report(error === null, `positive: the owner reading their own row via the explicit non-hash column list did not error (${error ? error.message : 'ok'})`)
+  const rows = data ?? []
+  report(rows.length === 1 && rows[0]?.user_id === ownerId, `positive: the owner's own row IS readable through their own session (rows seen: ${JSON.stringify(rows)})`)
 }
 
-async function assertOtherCannotReadOwnersRow(otherClient: SupabaseClient, ownerId: string): Promise<void> {
+async function assertOtherCannotSelectOwnersRow(otherClient: SupabaseClient, ownerId: string): Promise<void> {
   const { data, error } = await otherClient.from('profile_verifications').select('user_id, status').eq('user_id', ownerId)
 
   report(error === null, `negative: a different authenticated user reading the owner's row did not error (${error ? error.message : 'ok'})`)
@@ -219,29 +238,68 @@ async function assertOtherCannotReadOwnersRow(otherClient: SupabaseClient, owner
   report(error === null && rows.length === 0, `negative: the owner's row is NOT visible to a different authenticated user (rows seen: ${JSON.stringify(rows)})`)
 }
 
-// RLS's UPDATE ... USING clause filters rows out of the update target entirely rather than
-// erroring, so a genuine deny looks like "0 rows affected", not a thrown error. This assertion
-// proves OTHER can't even locate the row to attempt a write against — a distinct property from
-// assertOwnerCannotSelfVerifyViaUpdate above, which proves the OWNER's own write is still
-// content-restricted even though they CAN locate their own row.
-async function assertOtherCannotUpdateOwnersRow(otherClient: SupabaseClient, ownerId: string): Promise<void> {
-  const { data, error } = await otherClient.from('profile_verifications').update({ email: 'hijacked@example.test' }).eq('user_id', ownerId).select('user_id')
-
-  report(error === null, `negative: a different authenticated user updating the owner's row did not error (${error ? error.message : 'ok'})`)
-  const rows = data ?? []
-  report(error === null && rows.length === 0, `negative: the owner's row is NOT updatable by a different authenticated user (rows seen: ${JSON.stringify(rows)})`)
+async function callIssue(client: SupabaseClient, pilotId: number, scrapedEmail: string, code: string): Promise<{ error: string | null; code_: string | null }> {
+  const { error } = await client.rpc('issue_pilot_verification', { pilot_id: pilotId, scraped_email: scrapedEmail, code })
+  return { error: error?.message ?? null, code_: error?.code ?? null }
 }
 
-// Simulates what issue #174's privileged issuance path does: hash a real code and stash it with
-// a future expiry. Done via the admin client because the migration's own column-privilege revoke
-// means no user-scoped client — owner's or otherwise — can write otp_code_hash (see
-// assertOwnerCannotWriteOtpCodeHash above), which is the point.
-async function seedRealCode(ownerId: string, code: string, expiresAt: string): Promise<void> {
-  const { error } = await adminClient
+// The core end-to-end path: a real session issuing a real code, then reading it back through the
+// admin client (bypassing this table's own now-nonexistent client SELECT-of-hash grant, which is
+// exactly why the admin client — not the owner's session — is used to inspect otp_code_hash here).
+async function assertIssueVerificationEndToEnd(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { error } = await callIssue(ownerClient, OWNER_PILOT_ID, OWNER_SCRAPED_EMAIL, CORRECT_CODE)
+  report(error === null, `function: issue_pilot_verification succeeded for the owner's real linked pilot id (${error ?? 'ok'})`)
+
+  const { data: row, error: readError } = await adminClient
     .from('profile_verifications')
-    .update({ status: 'pending', otp_code_hash: sha256Hex(code), otp_expires_at: expiresAt })
+    .select('status, otp_code_hash, otp_expires_at, flightlog_pilot_id, email')
     .eq('user_id', ownerId)
-  if (error) throw new Error(`failed to seed a real otp_code_hash via admin client: ${error.message}`)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+
+  report(row?.status === 'pending', `function: the issued row is 'pending' (admin read: ${JSON.stringify(row)})`)
+  report(row?.otp_code_hash === sha256Hex(CORRECT_CODE), 'function: otp_code_hash is the sha256 hex digest of the plaintext code, hashed server-side')
+  report(row?.flightlog_pilot_id === OWNER_PILOT_ID, `function: flightlog_pilot_id matches the caller's real linked profile (${row?.flightlog_pilot_id})`)
+  report(row?.email === OWNER_SCRAPED_EMAIL, 'function: email matches the scraped address passed in')
+  report(new Date(row?.otp_expires_at as string).getTime() > Date.now(), 'function: otp_expires_at was computed server-side in the future')
+}
+
+// Round 1's finding #3, replayed against the NEW write path: a spoofed pilot_id argument must be
+// ignored in favor of the calling user's real profiles.flightlog_pilot_id, never trusted as-is.
+async function assertSpoofedPilotIdIsIgnored(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { error } = await callIssue(ownerClient, SPOOFED_PILOT_ID, OWNER_SCRAPED_EMAIL, REISSUE_CODE)
+  report(error === null, `function: issue_pilot_verification with a spoofed pilot_id argument did not itself error (${error ?? 'ok'})`)
+
+  const { data: row, error: readError } = await adminClient.from('profile_verifications').select('flightlog_pilot_id').eq('user_id', ownerId).single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(
+    row?.flightlog_pilot_id === OWNER_PILOT_ID,
+    `negative: the stored flightlog_pilot_id is the REAL profiles value (${OWNER_PILOT_ID}), not the spoofed argument (${SPOOFED_PILOT_ID}) — stored: ${row?.flightlog_pilot_id}`,
+  )
+}
+
+// A caller with no linked pilot id at all (no profiles row) must not be able to create a
+// verification row for any pilot id — the function has nothing legitimate to bind it to.
+async function assertIssueWithoutLinkedPilotIdFails(unlinkedClient: SupabaseClient, unlinkedId: string): Promise<void> {
+  const { error, code_ } = await callIssue(unlinkedClient, 1, 'unlinked@example.test', 'IRRELEVANTCODE')
+  report(error !== null, `negative: issue_pilot_verification for a caller with no linked profiles.flightlog_pilot_id was rejected (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'P0001', `negative: the rejection is the function's own raised exception (P0001), not some other failure (code seen: ${code_ ?? 'none'})`)
+
+  const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('user_id').eq('user_id', unlinkedId)
+  if (readError) throw new Error(`failed to read back unlinked-user rows via admin client: ${readError.message}`)
+  report((rows ?? []).length === 0, `negative: no row was created for the unlinked caller (rows seen: ${JSON.stringify(rows)})`)
+}
+
+// Re-issuing while a row is already pending must replace the prior code/expiry, not error or
+// leave two rows behind — the migration's own upsert (`on conflict (user_id) do update`).
+async function assertReissueWhilePendingReplacesPriorCode(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { error } = await callIssue(ownerClient, OWNER_PILOT_ID, OWNER_SCRAPED_EMAIL, CORRECT_CODE)
+  report(error === null, `function: re-issuing while pending did not error (${error ?? 'ok'})`)
+
+  const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('otp_code_hash').eq('user_id', ownerId)
+  if (readError) throw new Error(`failed to read back owner rows via admin client: ${readError.message}`)
+  report((rows ?? []).length === 1, `function: exactly one row exists for the owner after re-issuing (upsert, not a duplicate insert) — rows: ${JSON.stringify(rows)}`)
+  report(rows?.[0]?.otp_code_hash === sha256Hex(CORRECT_CODE), 'function: the re-issued row holds the NEW code, replacing the spoofed-pilot-id call above')
 }
 
 async function confirmAs(client: SupabaseClient, code: string): Promise<{ confirmed: boolean | null; error: string | null }> {
@@ -289,6 +347,18 @@ async function assertReplayedCodeDoesNotConfirm(ownerClient: SupabaseClient): Pr
   report(confirmed === false, `function: a used/already-verified code cannot be replayed (returned: ${confirmed})`)
 }
 
+// issue_pilot_verification always computes a future expiry, so there is no RPC path that
+// produces an already-expired row — this seeds one directly via the admin client, the same way a
+// privileged issuance path bypasses this table's client-facing grants entirely (service_role does
+// on a real project, same as this script's adminClient).
+async function seedExpiredCode(ownerId: string, code: string): Promise<void> {
+  const { error } = await adminClient
+    .from('profile_verifications')
+    .update({ status: 'pending', otp_code_hash: sha256Hex(code), otp_expires_at: new Date(Date.now() - 60 * 1000).toISOString() })
+    .eq('user_id', ownerId)
+  if (error) throw new Error(`failed to seed an expired otp_code_hash via admin client: ${error.message}`)
+}
+
 async function assertExpiredCodeDoesNotConfirm(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { confirmed, error } = await confirmAs(ownerClient, EXPIRED_CODE)
   report(error === null, `function: calling confirm_pilot_verification with an expired code did not error (${error ?? 'ok'})`)
@@ -299,11 +369,12 @@ async function assertExpiredCodeDoesNotConfirm(ownerClient: SupabaseClient, owne
   report(row?.status === 'pending', `function: the row stayed 'pending' after the expired-code attempt (admin read: ${JSON.stringify(row)})`)
 }
 
-// Exploit #3 from the review: binds a verification to the exact pilot id it verified. Resets the
+// Round 1's finding #3: binds a verification to the exact pilot id it verified. Resets the
 // owner's row to 'verified' bound to OWNER_PILOT_ID via the admin client first (independent of
 // whatever state the confirm-function assertions above left it in), then changes the OWNER's own
 // declared pilot id through their own session — the same write path a real profile edit uses —
-// and asserts the trigger deleted the now-stale verification.
+// and asserts the trigger deleted the now-stale verification. Unaffected by round 3's changes,
+// re-run here to confirm that's still true.
 async function assertPilotIdChangeInvalidatesVerification(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { error: seedError } = await adminClient
     .from('profile_verifications')
@@ -344,36 +415,45 @@ await checkProfileVerificationsTableExists(adminClient)
 
 const { userId: ownerId, emailOtp: ownerEmailOtp } = await resolveTestUser(OWNER_EMAIL)
 const { userId: otherId, emailOtp: otherEmailOtp } = await resolveTestUser(OTHER_EMAIL)
+const { userId: unlinkedId, emailOtp: unlinkedEmailOtp } = await resolveTestUser(UNLINKED_EMAIL)
 
 try {
   // Idempotent re-run safety: clear anything a previous (possibly aborted) run left behind
   // before seeding.
-  await clearFixtureRows(ownerId, otherId)
-  await seedOwnerProfile(ownerId)
+  await clearFixtureRows(ownerId, otherId, unlinkedId)
+  await seedProfiles(ownerId, otherId)
+  // unlinkedId deliberately gets no profiles row at all — see seedProfiles's own doc comment.
 
   const ownerClient = await signInAsUser(OWNER_EMAIL, ownerEmailOtp)
   const otherClient = await signInAsUser(OTHER_EMAIL, otherEmailOtp)
+  const unlinkedClient = await signInAsUser(UNLINKED_EMAIL, unlinkedEmailOtp)
 
-  await assertSpoofedUserIdInsertFails(ownerClient, otherId)
-  await assertOwnerCanInsertOwnPendingRow(ownerClient, ownerId)
-  await assertOwnerCannotSelfVerifyViaUpdate(ownerClient, ownerId)
-  await assertOwnerCannotWriteOtpCodeHash(ownerClient, ownerId)
-  await assertOtherCannotReadOwnersRow(otherClient, ownerId)
-  await assertOtherCannotUpdateOwnersRow(otherClient, ownerId)
+  await assertDirectInsertIsPrivilegeDenied(ownerClient, ownerId)
+  await assertDirectUpdateIsPrivilegeDenied(ownerClient, ownerId)
+  await assertDirectDeleteIsPrivilegeDenied(ownerClient, ownerId)
 
-  await seedRealCode(ownerId, CORRECT_CODE, FUTURE_EXPIRY)
+  await assertIssueVerificationEndToEnd(ownerClient, ownerId)
+  await assertSpoofedPilotIdIsIgnored(ownerClient, ownerId)
+  await assertIssueWithoutLinkedPilotIdFails(unlinkedClient, unlinkedId)
+  await assertReissueWhilePendingReplacesPriorCode(ownerClient, ownerId)
+
+  await assertOwnerCanReadOwnRow(ownerClient, ownerId)
+  await assertOwnerCannotSelectOtpCodeHash(ownerClient, ownerId)
+  await assertOwnerCannotSelectStar(ownerClient, ownerId)
+  await assertOtherCannotSelectOwnersRow(otherClient, ownerId)
+
   await assertWrongCodeDoesNotConfirm(ownerClient)
   await assertOtherUserCannotConfirmOwnersCode(otherClient)
   await assertCorrectCodeConfirms(ownerClient, ownerId)
   await assertReplayedCodeDoesNotConfirm(ownerClient)
 
-  await seedRealCode(ownerId, EXPIRED_CODE, PAST_EXPIRY)
+  await seedExpiredCode(ownerId, EXPIRED_CODE)
   await assertExpiredCodeDoesNotConfirm(ownerClient, ownerId)
 
   await assertPilotIdChangeInvalidatesVerification(ownerClient, ownerId)
   await assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient, ownerId)
 } finally {
-  await cleanupFixtures(ownerId, otherId)
+  await cleanupFixtures(ownerId, otherId, unlinkedId)
 }
 
-finish('profile_verifications RLS, confirm_pilot_verification, and the pilot-id-change trigger verification')
+finish('profile_verifications privilege lock-down, issue_pilot_verification, confirm_pilot_verification, and the pilot-id-change trigger verification')
