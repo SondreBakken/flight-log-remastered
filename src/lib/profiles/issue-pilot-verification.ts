@@ -11,6 +11,12 @@ import { generateOtpCode } from './generate-otp-code'
 // module from recognising it.
 const RAISE_EXCEPTION_SQLSTATE = 'P0001'
 
+// SQLSTATE for issue_pilot_verification's re-issuance cooldown rejection
+// (20260813030000_rate_limit_issue_pilot_verification.sql). A custom code, not another bare
+// `raise exception`: that would also come back as P0001, indistinguishable from the
+// no-linked-pilot-id rejection above by the same by-code matching this module already relies on.
+const RATE_LIMITED_SQLSTATE = 'RL001'
+
 export type IssuePilotVerificationResult =
   // boundPilotId is issue_pilot_verification's return value (20260813010000_fix_..._toctou.sql),
   // i.e. whatever pilot id `profiles` actually said for this user AT THE MOMENT THE RPC RAN — not
@@ -32,6 +38,11 @@ export type IssuePilotVerificationResult =
   // "this specific user hasn't linked a pilot id yet", which needs its own reaction (surface a
   // "link your pilot id first" prompt, not a generic error toast).
   | { kind: 'no-linked-pilot-id' }
+  // The target's row was issued a code within the last 60 seconds (see the migration named above
+  // for the exact window and why). Same "expected business-rule rejection, not a query failure"
+  // reasoning as 'no-linked-pilot-id' above — the SQL function raised this on purpose, so it gets
+  // its own outcome instead of falling into the generic ProfilesQueryError throw path.
+  | { kind: 'rate-limited' }
 
 // Business logic: generate a plaintext OTP and persist it (hashed) via the service_role-only
 // issue_pilot_verification RPC, against an injected Supabase client — same testability
@@ -67,6 +78,7 @@ export async function issuePilotVerification(
 
   if (error) {
     if (error.code === RAISE_EXCEPTION_SQLSTATE) return { kind: 'no-linked-pilot-id' }
+    if (error.code === RATE_LIMITED_SQLSTATE) return { kind: 'rate-limited' }
 
     console.error('[profiles] failed to issue pilot verification:', error)
     throw new ProfilesQueryError(`Failed to issue a pilot verification code for user ${userId}: ${error.message}`, {

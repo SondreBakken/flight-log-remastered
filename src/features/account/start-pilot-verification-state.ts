@@ -26,6 +26,12 @@ export type StartPilotVerificationResult =
   // doc comment on why), but the email is never sent, so this exists specifically so the action
   // doesn't silently report success while quietly having emailed no one.
   | { kind: 'pilot-id-changed' }
+  // issue_pilot_verification's re-issuance cooldown rejected this call (#181,
+  // 20260813030000_rate_limit_issue_pilot_verification.sql) — the target's row was already issued
+  // a code within the last 60 seconds. Distinct from 'error'/GENERIC_ERROR_MESSAGE below so the
+  // user sees why nothing happened instead of a generic failure, since this is an expected
+  // business-rule rejection, not a query failure (same distinction 'no-linked-pilot-id' draws).
+  | { kind: 'rate-limited' }
   // sendVerificationEmail resolved 'logged' (see its own doc comment): FLIGHTLOG_VERIFICATION_
   // EMAIL_ENABLED is off, so the code went to the server log, not to the pilot's inbox. Distinct
   // from 'started' (the Resend-sent path) specifically so the mapper below can avoid telling the
@@ -38,6 +44,7 @@ const NO_LINKED_PILOT_ID_MESSAGE = 'Link your flightlog.org pilot id first, then
 const PILOT_NOT_FOUND_MESSAGE = "We couldn't find that pilot on flightlog.org anymore. Check your linked pilot id."
 const NO_EMAIL_MESSAGE = 'Your flightlog.org profile has no email address on file. Add one on flightlog.org and try again.'
 const PILOT_ID_CHANGED_MESSAGE = 'Your linked pilot id changed while we were verifying it. Try again.'
+const RATE_LIMITED_MESSAGE = 'Please wait before requesting another code.'
 const STARTED_LOGGED_MESSAGE = 'Verification started. Check the server log for your code.'
 const SEND_FAILED_MESSAGE = 'Your verification code was generated, but we could not email it. Try again in a moment.'
 const GENERIC_ERROR_MESSAGE = 'Something went wrong starting pilot id verification. Try again.'
@@ -57,6 +64,8 @@ export function startPilotVerificationStateFor(result: StartPilotVerificationRes
       return { status: 'error', message: NO_EMAIL_MESSAGE }
     case 'pilot-id-changed':
       return { status: 'error', message: PILOT_ID_CHANGED_MESSAGE }
+    case 'rate-limited':
+      return { status: 'error', message: RATE_LIMITED_MESSAGE }
     case 'started-logged':
       return { status: 'started-logged', message: STARTED_LOGGED_MESSAGE }
     case 'send-failed':
