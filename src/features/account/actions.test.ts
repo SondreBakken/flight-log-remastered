@@ -119,7 +119,7 @@ describe('startPilotVerificationAction', () => {
     mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
-    mockSendVerificationEmail.mockResolvedValue(undefined)
+    mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
 
     const state = await startPilotVerificationAction()
 
@@ -131,6 +131,21 @@ describe('startPilotVerificationAction', () => {
       'pilot@example.com',
     )
     expect(mockSendVerificationEmail).toHaveBeenCalledWith('pilot@example.com', '123456')
+  })
+
+  it('surfaces a distinguishable "started-logged" outcome, not the generic success state, when sendVerificationEmail resolves \'logged\' (flag off, code only reached the server log)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockSendVerificationEmail.mockResolvedValue({ status: 'logged' })
+
+    const state = await startPilotVerificationAction()
+
+    expect(state).toEqual({
+      status: 'started-logged',
+      message: 'Verification started. Check the server log for your code.',
+    })
   })
 
   it('looks up the linked pilot id through the session-scoped client (never the admin client), with the session-derived user id as target_user_id', async () => {
@@ -148,7 +163,7 @@ describe('startPilotVerificationAction', () => {
     )
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
-    mockSendVerificationEmail.mockResolvedValue(undefined)
+    mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
 
     await startPilotVerificationAction()
 
@@ -282,6 +297,10 @@ describe('startPilotVerificationStateFor', () => {
     expect(startPilotVerificationStateFor({ kind: 'pilot-id-changed' })).toEqual({
       status: 'error',
       message: 'Your linked pilot id changed while we were verifying it. Try again.',
+    })
+    expect(startPilotVerificationStateFor({ kind: 'started-logged' })).toEqual({
+      status: 'started-logged',
+      message: 'Verification started. Check the server log for your code.',
     })
     expect(startPilotVerificationStateFor({ kind: 'send-failed' })).toEqual({
       status: 'error',
