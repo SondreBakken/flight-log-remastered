@@ -202,6 +202,19 @@ describe('PilotVerification, verified', () => {
 
     expect(screen.queryByText('Something went wrong starting verification.')).toBeNull()
   })
+
+  // #206: pins the lifted `phase` wiring on this specific call site. Per #184, starting
+  // verification on an already-verified profile downgrades it to 'pending' — a double-fire here
+  // would cost a live flightlog.org scrape, a real email send, AND an unwanted loss of verified
+  // status, so this is the highest-consequence of the three StartVerificationTrigger call sites.
+  it('disables the "Re-verify" trigger while its request is in flight', () => {
+    mockStartPilotVerificationAction.mockReturnValue(new Promise(() => {}))
+
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'verified' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Re-verify' }))
+
+    expect(screen.getByRole('button', { name: 'Starting…' })).toHaveProperty('disabled', true)
+  })
 })
 
 describe('PilotVerification, pending', () => {

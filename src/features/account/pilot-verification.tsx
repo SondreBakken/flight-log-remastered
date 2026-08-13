@@ -19,6 +19,11 @@ type PilotVerificationProps = {
 // why this lives one level up instead of inside StartVerificationTrigger itself.
 type TriggerMessage = { kind: 'error' | 'info'; text: string } | null
 
+// 'requesting': startPilotVerificationAction is actually in flight. 'awaiting-refresh': the request
+// has settled and the refresh it triggered is still outstanding. See PilotVerification's own
+// `phase` state below for why this lives one level up instead of inside StartVerificationTrigger.
+type TriggerPhase = 'idle' | 'requesting' | 'awaiting-refresh'
+
 // Third sibling alongside AccountForm/PilotIdForm in index.tsx. Only rendered there once a pilot
 // id is actually linked (see SignedInAccountForm's own doc comment) — startPilotVerificationAction
 // already rejects a missing link server-side too, so this is a UX gate, not the only one.
@@ -53,7 +58,7 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   // 'none'/'verified' render it directly at the root, so a transition into or out of 'pending'
   // remounts the instance — a local phase would reset to 'idle' on that remount and re-enable a
   // button whose underlying request is still in flight (#206).
-  const [phase, setPhase] = useState<'idle' | 'requesting' | 'awaiting-refresh'>('idle')
+  const [phase, setPhase] = useState<TriggerPhase>('idle')
 
   // React's "adjusting state when a prop changes" pattern
   // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes), not
@@ -172,8 +177,8 @@ function StartVerificationTrigger({
   message: TriggerMessage
   onMessageChange: (message: TriggerMessage) => void
   onSettled: () => void
-  phase: 'idle' | 'requesting' | 'awaiting-refresh'
-  onPhaseChange: (phase: 'idle' | 'requesting' | 'awaiting-refresh') => void
+  phase: TriggerPhase
+  onPhaseChange: (phase: TriggerPhase) => void
 }) {
   async function handleClick() {
     onPhaseChange('requesting')
