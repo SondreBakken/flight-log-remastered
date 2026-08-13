@@ -104,6 +104,31 @@ describe('PilotVerification, none', () => {
     expect(screen.getByRole('button')).toHaveProperty('disabled', false)
   })
 
+  // handleClick's onMessageChange(null) at the top, clearing any message left over from a prior
+  // attempt the instant a new one starts (rather than leaving stale text on screen for the
+  // duration of the new request) — deleting that line leaves every other test in this file green.
+  it('clears a previous error message the instant a new attempt starts, before the new request settles', async () => {
+    mockStartPilotVerificationAction.mockResolvedValueOnce({
+      status: 'error',
+      message: 'Something went wrong starting verification.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+    await screen.findByText('Something went wrong starting verification.')
+
+    // Re-enable the button, simulating the refresh the first attempt triggered having landed.
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    let resolveSecond!: (result: { status: 'success' }) => void
+    mockStartPilotVerificationAction.mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+
+    expect(screen.queryByText('Something went wrong starting verification.')).toBeNull()
+
+    resolveSecond({ status: 'success' })
+  })
+
   it('shows the started-logged info message distinctly from an error', async () => {
     mockStartPilotVerificationAction.mockResolvedValue({
       status: 'started-logged',
@@ -117,6 +142,32 @@ describe('PilotVerification, none', () => {
     expect(info.className).not.toContain('text-red-600')
     expect(info.getAttribute('aria-live')).toBe('polite')
   })
+
+  // #190: the 'none' → 'pending' transition changes PilotVerification's own root element type
+  // (StartVerificationTrigger directly → a wrapping div around ConfirmPilotVerificationForm plus
+  // the "Send a new code" trigger), unmounting the trigger instance that set this message. Without
+  // lifting the message into PilotVerification itself, it would be discarded along with that
+  // instance and the pending view would show no hint that no email was actually sent.
+  it('keeps the started-logged message visible across a "none" to "pending" transition', async () => {
+    mockStartPilotVerificationAction.mockResolvedValue({
+      status: 'started-logged',
+      message: 'Verification started. Check the server log for your code.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+
+    await screen.findByText('Verification started. Check the server log for your code.')
+
+    rerender(
+      <PilotVerification
+        onStatusChanged={vi.fn()}
+        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+      />,
+    )
+
+    expect(screen.getByText('Verification started. Check the server log for your code.')).toBeTruthy()
+  })
 })
 
 describe('PilotVerification, verified', () => {
@@ -129,6 +180,27 @@ describe('PilotVerification, verified', () => {
   it('does not render the "verified" warning under the "none" status, pinning the two branches are distinct', () => {
     render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     expect(screen.queryByText(/temporarily un-verifies your pilot id/)).toBeNull()
+  })
+
+  // #190: 'verified' and 'none' both render StartVerificationTrigger at PilotVerification's own
+  // root position, so React reuses the same instance across a transition between them rather than
+  // remounting it. A stale error from a failed "Re-verify" attempt must not leak into the
+  // "Verify your pilot id" render that follows it (e.g. after an unrelated pilot id relink resets
+  // the row back to 'none').
+  it('does not carry a stale error message from a "Re-verify" attempt into a following "none" render', async () => {
+    mockStartPilotVerificationAction.mockResolvedValue({
+      status: 'error',
+      message: 'Something went wrong starting verification.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'verified' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Re-verify' }))
+
+    await screen.findByText('Something went wrong starting verification.')
+
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    expect(screen.queryByText('Something went wrong starting verification.')).toBeNull()
   })
 })
 
