@@ -14,10 +14,37 @@ type PilotVerificationProps = {
   onStatusChanged: () => void
 }
 
+// Result of the last startPilotVerificationAction call, regardless of which StartVerificationTrigger
+// instance triggered it — see the doc comment on PilotVerification's own `message` state below for
+// why this lives one level up instead of inside StartVerificationTrigger itself.
+type TriggerMessage = { kind: 'error' | 'info'; text: string } | null
+
 // Third sibling alongside AccountForm/PilotIdForm in index.tsx. Only rendered there once a pilot
 // id is actually linked (see SignedInAccountForm's own doc comment) — startPilotVerificationAction
 // already rejects a missing link server-side too, so this is a UX gate, not the only one.
 export function PilotVerification({ status, onStatusChanged }: PilotVerificationProps) {
+  // Lives here, not inside StartVerificationTrigger, so it survives that component unmounting and
+  // remounting across a status.kind transition that changes PilotVerification's own root element
+  // type (e.g. 'none' → 'pending': StartVerificationTrigger directly → a wrapping div, see the
+  // 'pending' branch below) — otherwise a 'started-logged' message set the instant before such a
+  // transition would be discarded along with the unmounted instance that held it (#190).
+  const [message, setMessage] = useState<TriggerMessage>(null)
+
+  // Same "adjust state during render" idiom as StartVerificationTrigger's own prevStatus check
+  // below (see its doc comment for the pattern itself). 'none' and 'verified' both render
+  // StartVerificationTrigger at that same root position, so React treats a transition between them
+  // as reusing the same instance rather than remounting it — without this, a stale message from a
+  // failed 'Re-verify' attempt could leak into an unrelated later 'none' render (#190), e.g. after
+  // a pilot id relink resets an unrelated verification row back to 'none'. 'pending' is the only
+  // kind a trigger click can ever actually produce (issue_pilot_verification is the only writer of
+  // a 'pending' row), so landing on any other kind means the transition happened for a reason other
+  // than what `message` describes — only a transition INTO 'pending' preserves it.
+  const [prevKind, setPrevKind] = useState(status.kind)
+  if (status.kind !== prevKind) {
+    setPrevKind(status.kind)
+    if (status.kind !== 'pending') setMessage(null)
+  }
+
   if (status.kind === 'loading') return null
 
   if (status.kind === 'error') {
@@ -33,13 +60,23 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   }
 
   if (status.kind === 'none') {
-    return <StartVerificationTrigger label="Verify your pilot id" onSettled={onStatusChanged} status={status} />
+    return (
+      <StartVerificationTrigger
+        label="Verify your pilot id"
+        message={message}
+        onMessageChange={setMessage}
+        onSettled={onStatusChanged}
+        status={status}
+      />
+    )
   }
 
   if (status.kind === 'verified') {
     return (
       <StartVerificationTrigger
         label="Re-verify"
+        message={message}
+        onMessageChange={setMessage}
         onSettled={onStatusChanged}
         status={status}
         // Per #184's resolution: starting verification unconditionally resets an already-verified
@@ -64,7 +101,13 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
           variant), which persists a pending row for an email that was never delivered. Without this,
           that user's only way out was relinking their pilot id (which deletes the row via
           invalidate_verification_on_pilot_id_change) and relinking back. */}
-      <StartVerificationTrigger label="Send a new code" onSettled={onStatusChanged} status={status} />
+      <StartVerificationTrigger
+        label="Send a new code"
+        message={message}
+        onMessageChange={setMessage}
+        onSettled={onStatusChanged}
+        status={status}
+      />
     </div>
   )
 }
@@ -76,7 +119,9 @@ function formatExpiry(otpExpiresAt: string): string {
 // startPilotVerificationAction takes no arguments — like followPilotAction/unfollowPilotAction
 // (see follow-button/index.tsx's own handleClick), it's called directly from a click handler
 // rather than bound through useActionState, which needs a form and at least one field to bind.
-// Local pending/result state lives here instead, same shape as FollowButton's own useState pair.
+// Local pending state lives here, same shape as FollowButton's own useState pair — the result
+// `message` itself lives one level up in PilotVerification instead, controlled through props; see
+// that component's own doc comment on why.
 //
 // `status` is threaded through purely as a "did the refetch actually land yet" signal (see the
 // render-time check below), not read for its own value here — pilot-verification.tsx's own three
@@ -85,19 +130,24 @@ function StartVerificationTrigger({
   label,
   warning,
   status,
+  message,
+  onMessageChange,
   onSettled,
 }: {
   label: string
   warning?: string
   status: OwnPilotVerificationStatusState
+  message: TriggerMessage
+  onMessageChange: (message: TriggerMessage) => void
   onSettled: () => void
 }) {
   // 'requesting': startPilotVerificationAction is actually in flight. 'awaiting-refresh': the
   // request has settled and the refresh it triggered is still outstanding. Both disable the
   // button; only 'requesting' changes its label — see the render-time check below for why
-  // 'awaiting-refresh' exists as its own phase rather than folding straight back to 'idle'.
+  // 'awaiting-refresh' exists as its own phase rather than folding straight back to 'idle'. Kept
+  // local (unlike `message`) is fine: a remount always starts a fresh button the user hasn't
+  // clicked yet, so there's no in-flight click to lose track of.
   const [phase, setPhase] = useState<'idle' | 'requesting' | 'awaiting-refresh'>('idle')
-  const [message, setMessage] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
 
   // React's "adjusting state when a prop changes" pattern
   // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes), not
@@ -123,7 +173,7 @@ function StartVerificationTrigger({
 
   async function handleClick() {
     setPhase('requesting')
-    setMessage(null)
+    onMessageChange(null)
     const result: StartPilotVerificationState = await startPilotVerificationAction()
     // Always refresh, regardless of outcome, and hold the button disabled until that refresh
     // actually lands (via the render-time check above) for every outcome, not only success: 'error'
@@ -134,11 +184,11 @@ function StartVerificationTrigger({
     setPhase('awaiting-refresh')
     onSettled()
     if (result.status === 'error') {
-      setMessage({ kind: 'error', text: result.message })
+      onMessageChange({ kind: 'error', text: result.message })
       return
     }
     if (result.status === 'started-logged') {
-      setMessage({ kind: 'info', text: result.message })
+      onMessageChange({ kind: 'info', text: result.message })
     }
   }
 

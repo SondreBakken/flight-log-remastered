@@ -117,6 +117,32 @@ describe('PilotVerification, none', () => {
     expect(info.className).not.toContain('text-red-600')
     expect(info.getAttribute('aria-live')).toBe('polite')
   })
+
+  // #190: the 'none' → 'pending' transition changes PilotVerification's own root element type
+  // (StartVerificationTrigger directly → a wrapping div around ConfirmPilotVerificationForm plus
+  // the "Send a new code" trigger), unmounting the trigger instance that set this message. Without
+  // lifting the message into PilotVerification itself, it would be discarded along with that
+  // instance and the pending view would show no hint that no email was actually sent.
+  it('keeps the started-logged message visible across a "none" to "pending" transition', async () => {
+    mockStartPilotVerificationAction.mockResolvedValue({
+      status: 'started-logged',
+      message: 'Verification started. Check the server log for your code.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+
+    await screen.findByText('Verification started. Check the server log for your code.')
+
+    rerender(
+      <PilotVerification
+        onStatusChanged={vi.fn()}
+        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+      />,
+    )
+
+    expect(screen.getByText('Verification started. Check the server log for your code.')).toBeTruthy()
+  })
 })
 
 describe('PilotVerification, verified', () => {
@@ -129,6 +155,27 @@ describe('PilotVerification, verified', () => {
   it('does not render the "verified" warning under the "none" status, pinning the two branches are distinct', () => {
     render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     expect(screen.queryByText(/temporarily un-verifies your pilot id/)).toBeNull()
+  })
+
+  // #190: 'verified' and 'none' both render StartVerificationTrigger at PilotVerification's own
+  // root position, so React reuses the same instance across a transition between them rather than
+  // remounting it. A stale error from a failed "Re-verify" attempt must not leak into the
+  // "Verify your pilot id" render that follows it (e.g. after an unrelated pilot id relink resets
+  // the row back to 'none').
+  it('does not carry a stale error message from a "Re-verify" attempt into a following "none" render', async () => {
+    mockStartPilotVerificationAction.mockResolvedValue({
+      status: 'error',
+      message: 'Something went wrong starting verification.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'verified' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Re-verify' }))
+
+    await screen.findByText('Something went wrong starting verification.')
+
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    expect(screen.queryByText('Something went wrong starting verification.')).toBeNull()
   })
 })
 

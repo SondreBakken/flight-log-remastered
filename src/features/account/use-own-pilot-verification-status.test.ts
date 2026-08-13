@@ -155,4 +155,36 @@ describe('useOwnPilotVerificationStatus', () => {
 
     expect(result.current).toEqual({ kind: 'verified' })
   })
+
+  // Pins the reference-identity contract StartVerificationTrigger's own prevStatus check depends
+  // on (see that component's doc comment in pilot-verification.tsx): every settled fetch must
+  // produce a NEW object identity even when the row's values are unchanged, since an identity
+  // change is the only signal that component has that a refetch actually landed. A future
+  // value-equality optimization here (e.g. returning the previous state object when the row is
+  // unchanged) would make this test fail instead of silently disabling every
+  // "Verify"/"Re-verify"/"Send a new code" button in the app.
+  it('returns a new object identity per fetch even when the underlying row is unchanged', async () => {
+    mockMaybeSingle.mockResolvedValue({
+      data: {
+        status: 'pending',
+        otp_expires_at: '2026-08-13T10:32:00.000Z',
+        email: 'pilot@example.com',
+        flightlog_pilot_id: 4549,
+        created_at: '2026-08-13T10:22:00.000Z',
+      },
+      error: null,
+    })
+
+    const { result, rerender } = renderHook(({ refreshKey }) => useOwnPilotVerificationStatus('user-1', refreshKey), {
+      initialProps: { refreshKey: 0 },
+    })
+
+    await waitFor(() => expect(result.current.kind).toBe('pending'))
+    const first = result.current
+
+    rerender({ refreshKey: 1 })
+
+    await waitFor(() => expect(result.current).not.toBe(first))
+    expect(result.current).toEqual(first)
+  })
 })
