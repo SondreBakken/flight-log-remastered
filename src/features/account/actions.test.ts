@@ -8,6 +8,7 @@ vi.mock('server-only', () => ({}))
 
 const mockCreateClient = vi.fn()
 const mockGetUser = vi.fn()
+const mockRpc = vi.fn()
 const mockCreateAdminClient = vi.fn()
 const mockGetFlightlogPilotIds = vi.fn()
 const mockGetPilotEmail = vi.fn()
@@ -38,12 +39,13 @@ vi.mock('@/lib/email/send-verification-email', () => ({
   sendVerificationEmail: (...args: unknown[]) => mockSendVerificationEmail(...args),
 }))
 
-import { startPilotVerificationAction } from './actions'
+import { startPilotVerificationAction, confirmPilotVerificationAction } from './actions'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { startPilotVerificationStateFor } from './start-pilot-verification-state'
+import { confirmPilotVerificationStateFor } from './confirm-pilot-verification-state'
 
 beforeEach(() => {
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
+  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser }, rpc: mockRpc })
   mockCreateAdminClient.mockReturnValue({ __brand: 'admin-client' })
 })
 
@@ -309,6 +311,106 @@ describe('startPilotVerificationStateFor', () => {
     expect(startPilotVerificationStateFor({ kind: 'error' })).toEqual({
       status: 'error',
       message: 'Something went wrong starting pilot id verification. Try again.',
+    })
+  })
+})
+
+function formDataWithCode(code: string): FormData {
+  const formData = new FormData()
+  formData.set('code', code)
+  return formData
+}
+
+describe('confirmPilotVerificationAction', () => {
+  it('rejects with a sign-in prompt, never touching the RPC, when there is no session', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('123456'))
+
+    expect(state).toEqual({ status: 'error', message: 'Sign in to confirm your flightlog.org pilot id verification.' })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('skips the RPC entirely for a blank code', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('   '))
+
+    expect(state.status).toBe('error')
+    expect(mockRpc).not.toHaveBeenCalled()
+    expect(mockGetUser).not.toHaveBeenCalled()
+  })
+
+  it('confirms on a correct, unexpired code — the RPC resolves true', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockRpc.mockResolvedValue({ data: true, error: null })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('123456'))
+
+    expect(state).toEqual({ status: 'success' })
+    expect(mockRpc).toHaveBeenCalledWith('confirm_pilot_verification', { submitted_code: '123456' })
+  })
+
+  it('surfaces a combined incorrect-or-expired message when the RPC resolves false (wrong or expired code — indistinguishable from a plain boolean)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockRpc.mockResolvedValue({ data: false, error: null })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('000000'))
+
+    expect(state).toEqual({
+      status: 'error',
+      message: 'That code is incorrect or has expired. Start verification again for a fresh code.',
+    })
+  })
+
+  it('trims surrounding whitespace before submitting the code to the RPC', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockRpc.mockResolvedValue({ data: true, error: null })
+
+    await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('  123456  '))
+
+    expect(mockRpc).toHaveBeenCalledWith('confirm_pilot_verification', { submitted_code: '123456' })
+  })
+
+  it('surfaces a generic error, without crashing, on a genuine RPC error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'db unavailable' } })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('123456'))
+
+    expect(state).toEqual({
+      status: 'error',
+      message: 'Something went wrong confirming your pilot id verification. Try again.',
+    })
+  })
+
+  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreateClient.mockImplementation(() => {
+      throw new Error('Supabase is not configured')
+    })
+
+    const state = await confirmPilotVerificationAction({ status: 'idle' }, formDataWithCode('123456'))
+
+    expect(state).toEqual({
+      status: 'error',
+      message: 'Something went wrong confirming your pilot id verification. Try again.',
+    })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirmPilotVerificationStateFor', () => {
+  it('maps every ConfirmPilotVerificationResult kind to a UI state', () => {
+    expect(confirmPilotVerificationStateFor({ kind: 'confirmed' })).toEqual({ status: 'success' })
+    expect(confirmPilotVerificationStateFor({ kind: 'incorrect-or-expired' })).toEqual({
+      status: 'error',
+      message: 'That code is incorrect or has expired. Start verification again for a fresh code.',
+    })
+    expect(confirmPilotVerificationStateFor({ kind: 'db-error' })).toEqual({
+      status: 'error',
+      message: 'Something went wrong confirming your pilot id verification. Try again.',
     })
   })
 })

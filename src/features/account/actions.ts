@@ -14,6 +14,7 @@ import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { accountFormStateFor, type AccountFormState } from './account-form-state'
 import { pilotIdFormStateFor, type PilotIdFormState } from './pilot-id-form-state'
 import { startPilotVerificationStateFor, type StartPilotVerificationState } from './start-pilot-verification-state'
+import { confirmPilotVerificationStateFor, type ConfirmPilotVerificationState } from './confirm-pilot-verification-state'
 
 const SIGN_IN_MESSAGE = 'Sign in to set a display name.'
 const GENERIC_ERROR_MESSAGE = 'Something went wrong saving your display name. Try again.'
@@ -21,6 +22,7 @@ const PILOT_ID_SIGN_IN_MESSAGE = 'Sign in to link your flightlog.org pilot id.'
 const PILOT_ID_GENERIC_ERROR_MESSAGE = 'Something went wrong saving your flightlog.org pilot id. Try again.'
 const VERIFICATION_SIGN_IN_MESSAGE = 'Sign in to verify your flightlog.org pilot id.'
 const VERIFICATION_GENERIC_ERROR_MESSAGE = 'Something went wrong starting pilot id verification. Try again.'
+const CONFIRM_VERIFICATION_SIGN_IN_MESSAGE = 'Sign in to confirm your flightlog.org pilot id verification.'
 
 // Mirrors comment-on-flight/actions.ts's submitComment: try/catch around createClient() so a
 // missing Supabase config becomes a generic error rather than a crash, and getUser() re-derives
@@ -166,4 +168,50 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
     console.error('[account] failed to start pilot verification:', error)
     return startPilotVerificationStateFor({ kind: 'error' })
   }
+}
+
+// #177: confirms a previously-issued verification code. Bound to a form via useActionState (see
+// confirm-pilot-verification-form.tsx), unlike startPilotVerificationAction above — this one has
+// an actual field (the code) worth wiring through FormData/useActionState the normal way.
+//
+// Same try/catch-then-getUser shape as saveFlightlogPilotId above. Calls confirm_pilot_verification
+// via the normal session-scoped client (createClient()), never createAdminClient(): that RPC is
+// authenticated-callable and derives auth.uid() from the caller's own session internally (see the
+// function's own doc comment in 20260813000000_create_profile_verifications.sql) — unlike
+// issue_pilot_verification (startPilotVerificationAction's RPC), which is service_role-only for an
+// unrelated reason (its `code` argument is caller-supplied, making the admin client load-bearing
+// there, not just incidental). Nothing here passes a client-supplied user id either; the RPC has
+// no such parameter to begin with.
+//
+// A blank code short-circuits before ever calling Supabase: an empty string can never match a
+// stored hash, so there's a real (if small) round trip to skip, with no assumption needed about
+// what a real code looks like — the RPC is the sole authority on that.
+export async function confirmPilotVerificationAction(
+  _prevState: ConfirmPilotVerificationState,
+  formData: FormData,
+): Promise<ConfirmPilotVerificationState> {
+  const rawCode = formData.get('code')
+  const code = typeof rawCode === 'string' ? rawCode.trim() : ''
+  if (code.length === 0) return confirmPilotVerificationStateFor({ kind: 'incorrect-or-expired' })
+
+  let supabase: Awaited<ReturnType<typeof createClient>>
+  try {
+    supabase = await createClient()
+  } catch (error) {
+    console.error('[account] Supabase is not configured:', error)
+    return confirmPilotVerificationStateFor({ kind: 'db-error' })
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { status: 'error', message: CONFIRM_VERIFICATION_SIGN_IN_MESSAGE }
+
+  const { data, error } = await supabase.rpc('confirm_pilot_verification', { submitted_code: code })
+  if (error) {
+    console.error('[account] failed to confirm pilot verification:', error)
+    return confirmPilotVerificationStateFor({ kind: 'db-error' })
+  }
+
+  return confirmPilotVerificationStateFor(data ? { kind: 'confirmed' } : { kind: 'incorrect-or-expired' })
 }
