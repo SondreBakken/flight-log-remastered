@@ -9,6 +9,7 @@ import { isValidPilotId } from '@/lib/flightlog/types'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
 import { getPilotEmail } from '@/lib/flightlog/get-pilot-email'
 import { issuePilotVerification } from '@/lib/profiles/issue-pilot-verification'
+import { confirmPilotVerification } from '@/lib/profiles/confirm-pilot-verification'
 import { sendVerificationEmail } from '@/lib/email/send-verification-email'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { accountFormStateFor, type AccountFormState } from './account-form-state'
@@ -175,18 +176,28 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
 // confirm-pilot-verification-form.tsx), unlike startPilotVerificationAction above — this one has
 // an actual field (the code) worth wiring through FormData/useActionState the normal way.
 //
-// Same try/catch-then-getUser shape as saveFlightlogPilotId above. Calls confirm_pilot_verification
-// via the normal session-scoped client (createClient()), never createAdminClient(): that RPC is
-// authenticated-callable and derives auth.uid() from the caller's own session internally (see the
-// function's own doc comment in 20260813000000_create_profile_verifications.sql) — unlike
-// issue_pilot_verification (startPilotVerificationAction's RPC), which is service_role-only for an
-// unrelated reason (its `code` argument is caller-supplied, making the admin client load-bearing
-// there, not just incidental). Nothing here passes a client-supplied user id either; the RPC has
-// no such parameter to begin with.
+// Same try/catch-then-getUser shape as saveFlightlogPilotId above. Delegates the RPC call to
+// confirmPilotVerification (src/lib/profiles/confirm-pilot-verification.ts), which calls
+// confirm_pilot_verification via the normal session-scoped client (createClient()), never
+// createAdminClient(): that RPC is authenticated-callable and derives auth.uid() from the caller's
+// own session internally (see the function's own doc comment in
+// 20260813000000_create_profile_verifications.sql) — unlike issue_pilot_verification
+// (startPilotVerificationAction's RPC), which is service_role-only for an unrelated reason (its
+// `code` argument is caller-supplied, making the admin client load-bearing there, not just
+// incidental). Nothing here passes a client-supplied user id either; the RPC has no such parameter
+// to begin with.
 //
 // A blank code short-circuits before ever calling Supabase: an empty string can never match a
 // stored hash, so there's a real (if small) round trip to skip, with no assumption needed about
 // what a real code looks like — the RPC is the sole authority on that.
+//
+// Only one try/catch, unlike startPilotVerificationAction's two: confirmPilotVerification throws
+// ProfilesQueryError for a genuine unexpected RPC failure (its own module's doc comment), the same
+// class getFlightlogPilotIds/issuePilotVerification throw deliberately — its 'locked-out' outcome
+// (#189, 20260813040000_lockout_confirm_pilot_verification_attempts.sql) is a typed result, not a
+// throw, exactly like issuePilotVerification's own 'rate-limited'/'no-linked-pilot-id', so it needs
+// no separate catch branch here, only another arm in the switch confirmPilotVerificationStateFor
+// already provides.
 export async function confirmPilotVerificationAction(
   _prevState: ConfirmPilotVerificationState,
   formData: FormData,
@@ -208,11 +219,12 @@ export async function confirmPilotVerificationAction(
   } = await supabase.auth.getUser()
   if (!user) return { status: 'error', message: CONFIRM_VERIFICATION_SIGN_IN_MESSAGE }
 
-  const { data, error } = await supabase.rpc('confirm_pilot_verification', { submitted_code: code })
-  if (error) {
+  try {
+    const result = await confirmPilotVerification(supabase, code)
+    return confirmPilotVerificationStateFor(result)
+  } catch (error) {
+    if (!(error instanceof ProfilesQueryError)) throw error
     console.error('[account] failed to confirm pilot verification:', error)
     return confirmPilotVerificationStateFor({ kind: 'db-error' })
   }
-
-  return confirmPilotVerificationStateFor(data ? { kind: 'confirmed' } : { kind: 'incorrect-or-expired' })
 }

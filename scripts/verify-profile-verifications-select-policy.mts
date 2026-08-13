@@ -147,6 +147,23 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 //         must succeed and rotate the stored hash, not just that a re-issue inside the window is
 //         rejected. Simulates the window passing via a direct admin-client UPDATE of
 //         last_issued_at rather than sleeping 60+ seconds in a test run.
+//   - ROUND 8 (this version) adds coverage for issue #189's confirm_pilot_verification attempt
+//     lockout (20260813040000_lockout_confirm_pilot_verification_attempts.sql), a related but
+//     distinct problem from #181's re-issuance cooldown above: nothing before that migration
+//     capped how many times a code could be GUESSED once issued. Runs last, reusing the owner's
+//     row exactly as assertCooldownAllowsReissueAfterWindow leaves it ('pending', REISSUED_CODE,
+//     a fresh failed_attempts=0), rather than seeding its own fixture — deliberately, so it also
+//     doubles as a regression pin that nothing upstream leaves failed_attempts non-zero on a
+//     freshly (re-)issued row.
+//       - assertLockoutAfterFiveWrongAttempts: five wrong guesses (never the real code) land
+//         failed_attempts at exactly 5 without risking an accidental real confirm.
+//       - assertLockoutRejectsEvenTheCorrectCode: the defense-in-depth case #189 itself calls
+//         out — once locked out, a call carrying the ACTUAL correct code must still be rejected
+//         (error.code === 'AL001'), not silently confirmed, and must leave the row untouched.
+//       - assertReissueResetsFailedAttempts / assertReissuedCodeConfirmsAfterLockout: the other
+//         direction — a fresh issuance resets the counter and the row confirms normally again,
+//         proving the lockout is scoped to the code it was counted against, not a permanent block
+//         on the user.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -177,6 +194,15 @@ const CORRECT_CODE = 'PV172CORRECT'
 const WRONG_CODE = 'PV172WRONGXX'
 const EXPIRED_CODE = 'PV172EXPIRED'
 const REISSUED_CODE = 'PV172REISSUE'
+
+// Round 8 (issue #189): the lockout coverage reuses REISSUED_CODE as the row's real, currently-
+// issued code (it's already sitting on the owner's row by the time these assertions run, from
+// assertCooldownAllowsReissueAfterWindow's own re-issuance), guesses this deliberately-wrong code
+// five times, then re-submits REISSUED_CODE itself as the sixth call to prove the lockout rejects
+// even the correct code once the threshold is hit. LOCKOUT_RESET_CODE is the fresh code issued
+// afterwards, to prove a re-issuance resets the counter.
+const LOCKOUT_WRONG_CODE = 'PV189WRONGXX'
+const LOCKOUT_RESET_CODE = 'PV189RESETXX'
 
 // Must match the migration's own hashing exactly (encode(sha256(convert_to(code, 'utf8')),
 // 'hex')) — same algorithm, same lowercase-hex encoding, so a hash computed here and one computed
@@ -548,6 +574,83 @@ async function assertCooldownAllowsReissueAfterWindow(ownerId: string): Promise<
   )
 }
 
+// Round 8 (issue #189): confirm_pilot_verification's attempt lockout
+// (20260813040000_lockout_confirm_pilot_verification_attempts.sql). Runs against the owner's row
+// as left by assertCooldownAllowsReissueAfterWindow above — 'pending', a fresh failed_attempts=0
+// (the trigger deletion in assertPilotIdChangeInvalidatesVerification earlier reset the row to
+// nonexistent, and assertUnrelatedProfileUpdateDoesNotInvalidate's upsert then
+// assertCooldownAllowsReissueAfterWindow's own re-issuance both leave failed_attempts at its
+// column default of 0), and REISSUED_CODE as the row's real, currently-issued code. Five wrong
+// guesses (LOCKOUT_WRONG_CODE, never the real code) exhaust the threshold without ever risking an
+// accidental real confirm.
+async function assertLockoutAfterFiveWrongAttempts(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  for (let attemptNumber = 1; attemptNumber <= 5; attemptNumber++) {
+    const { confirmed, error } = await confirmAs(ownerClient, LOCKOUT_WRONG_CODE)
+    report(error === null, `function: wrong-code attempt #${attemptNumber} (below the lockout threshold) did not error (${error ?? 'ok'})`)
+    report(confirmed === false, `function: wrong-code attempt #${attemptNumber} does not confirm (returned: ${confirmed})`)
+  }
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('failed_attempts, status')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(row?.failed_attempts === 5, `function: five wrong attempts left failed_attempts at exactly 5 (admin read: ${JSON.stringify(row)})`)
+  report(row?.status === 'pending', `function: the row is still 'pending' after five wrong attempts, not silently invalidated (admin read: ${JSON.stringify(row)})`)
+}
+
+// THE defense-in-depth case #189 itself calls out: once locked out, even a call carrying the
+// ACTUAL correct code (REISSUED_CODE, still the row's real otp_code_hash — nothing above ever
+// touched it, only failed_attempts) must be rejected, not silently confirmed. Proves the lockout
+// is a hard stop on the row, not merely a wrong-guess counter.
+async function assertLockoutRejectsEvenTheCorrectCode(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
+  const { confirmed, error, code_ } = await confirmAs(ownerClient, REISSUED_CODE)
+  report(error !== null, `negative: once locked out, even the CORRECT code is rejected outright (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'AL001', `negative: the lockout rejection round-trips through PostgREST as error.code === 'AL001' (code seen: ${code_ ?? 'none'})`)
+  report(confirmed === null, `negative: the locked-out call returns no data, even for the correct code (confirmed: ${confirmed})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('status, otp_code_hash, failed_attempts')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(
+    row?.status === 'pending' && row?.otp_code_hash === sha256Hex(REISSUED_CODE) && row?.failed_attempts === 5,
+    `negative: the locked-out call left the row untouched — still 'pending', still the real code's hash, failed_attempts still 5 (admin read: ${JSON.stringify(row)})`,
+  )
+}
+
+// THE other direction: a fresh issuance resets the counter, so a lockout doesn't outlive the code
+// it was counted against. Reuses forceIssuanceCooldownExpired the same way
+// assertCooldownAllowsReissueAfterWindow does, since the owner's row is still well inside #181's
+// own 60-second re-issuance cooldown from that same earlier call.
+async function assertReissueResetsFailedAttempts(ownerId: string): Promise<void> {
+  await forceIssuanceCooldownExpired(ownerId)
+
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, LOCKOUT_RESET_CODE)
+  report(error === null, `positive: re-issuing a fresh code after a lockout succeeded (error: ${error ?? 'none'}, code: ${code_ ?? 'n/a'})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('failed_attempts, otp_code_hash, status')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(row?.failed_attempts === 0, `positive: the fresh issuance reset failed_attempts back to 0 (admin read: ${JSON.stringify(row)})`)
+  report(row?.otp_code_hash === sha256Hex(LOCKOUT_RESET_CODE), `positive: the fresh issuance rotated the stored hash to the new code (admin read: ${JSON.stringify(row)})`)
+  report(row?.status === 'pending', `positive: the fresh issuance left the row 'pending', ready to confirm again (admin read: ${JSON.stringify(row)})`)
+}
+
+// Closes the loop: the previously-locked-out row can confirm normally once re-issued, proving the
+// lockout is scoped to the code it was counted against, not a permanent block on the user.
+async function assertReissuedCodeConfirmsAfterLockout(ownerClient: SupabaseClient): Promise<void> {
+  const { confirmed, error } = await confirmAs(ownerClient, LOCKOUT_RESET_CODE)
+  report(error === null, `function: confirming the freshly re-issued code after a prior lockout did not error (${error ?? 'ok'})`)
+  report(confirmed === true, `function: the freshly re-issued code confirms normally, proving the lockout did not outlive its code (returned: ${confirmed})`)
+}
+
 // THE negative case round 4's version could never distinguish from a bug: a target_user_id with
 // genuinely no linked profiles row must still raise P0001 ("no flightlog pilot id linked to the
 // target profile"), but now for the right reason (an actual failed lookup) rather than the
@@ -566,9 +669,12 @@ async function assertServiceRoleIssueWithoutLinkedPilotIdFails(): Promise<void> 
   report((rows ?? []).length === 0, `negative: no row was created for the unlinked target_user_id (rows seen: ${JSON.stringify(rows)})`)
 }
 
-async function confirmAs(client: SupabaseClient, code: string): Promise<{ confirmed: boolean | null; error: string | null }> {
+// code_ (round 8's own addition, mirrors callIssue's own `error: string | null; code_: string |
+// null` shape above) — every call site before round 8 only ever checked `error === null`/message,
+// so adding this field is additive, not a breaking change to any existing assertion.
+async function confirmAs(client: SupabaseClient, code: string): Promise<{ confirmed: boolean | null; error: string | null; code_: string | null }> {
   const { data, error } = await client.rpc('confirm_pilot_verification', { submitted_code: code })
-  return { confirmed: (data as boolean | null) ?? null, error: error?.message ?? null }
+  return { confirmed: (data as boolean | null) ?? null, error: error?.message ?? null, code_: error?.code ?? null }
 }
 
 async function assertWrongCodeDoesNotConfirm(ownerClient: SupabaseClient): Promise<void> {
@@ -738,8 +844,13 @@ try {
   await assertRelinkDoesNotResetCooldown(ownerId)
   await assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient, ownerId)
   await assertCooldownAllowsReissueAfterWindow(ownerId)
+
+  await assertLockoutAfterFiveWrongAttempts(ownerClient, ownerId)
+  await assertLockoutRejectsEvenTheCorrectCode(ownerClient, ownerId)
+  await assertReissueResetsFailedAttempts(ownerId)
+  await assertReissuedCodeConfirmsAfterLockout(ownerClient)
 } finally {
   await cleanupFixtures(ownerId, otherId)
 }
 
-finish('profile_verifications privilege lock-down, issue_pilot_verification, confirm_pilot_verification, and the pilot-id-change trigger verification')
+finish('profile_verifications privilege lock-down, issue_pilot_verification, confirm_pilot_verification (including its attempt lockout), and the pilot-id-change trigger verification')
