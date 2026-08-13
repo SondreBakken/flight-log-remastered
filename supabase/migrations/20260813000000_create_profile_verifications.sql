@@ -4,8 +4,8 @@
 -- 20260811000000_create_profiles.sql: checked in for version control and review only. Apply it
 -- by hand, e.g. `supabase db push` or pasting it into the Supabase Studio SQL editor.
 --
--- REWRITTEN TWICE after review rejected both prior versions (see issue #172's review comments in
--- full). Round 1 found the original "owner can read/write their own row" framing wrong for a
+-- REWRITTEN THREE TIMES after review rejected all three prior versions (see issue #172's review
+-- comments in full). Round 1 found the original "owner can read/write their own row" framing wrong for a
 -- challenge-response flow (the row's owner is the person being challenged, i.e. NOT trusted until
 -- they produce a code that only arrived at an address they don't control) and fixed three
 -- findings: a plaintext otp_code column readable by its own claimant, an owner-scoped UPDATE
@@ -41,6 +41,22 @@
 -- built-in Postgres function (core, not an extension) since PG11, taking `bytea` and returning
 -- `bytea` — `encode(sha256(convert_to(code, 'utf8')), 'hex')` needs no extension, no schema
 -- placement, and therefore has no equivalent failure mode on a real project.
+--
+-- ROUND 4 found round 3's SECURITY DEFINER redesign left one more door open, same invariant
+-- violated a third time on a different surface: `issue_pilot_verification` was granted EXECUTE to
+-- `authenticated`, and its `code text` parameter was caller-supplied. SECURITY DEFINER makes a
+-- function bypass RLS once it runs; it does not vet WHO is allowed to call it with WHAT
+-- arguments, and `code` being client-chosen made the function's own argument list the
+-- vulnerability, not anything inside its body. A user who has self-declared someone else's pilot
+-- id (a known, separate surface, #138) could call this function directly with a code of their own
+-- choosing, then immediately call confirm_pilot_verification with that same code — no email ever
+-- sent, repeatable without limit. Fixed by moving EXECUTE from `authenticated` to `service_role`
+-- only (see that function's own doc comment below for the full reasoning and what this means for
+-- #176's server action). Also closed this round: `anon` still held the table-level TRUNCATE grant
+-- (the round-3 revoke above only ever named `authenticated`, three rounds running), and the
+-- now-fully-unused `pilot_id` parameter was dropped from issue_pilot_verification's signature
+-- entirely (it was accepted only to be ignored — round 1's finding #3 — which just invited a
+-- future maintainer to "fix" it by wiring it back in).
 --
 -- Deliberately a SEPARATE table from profiles, not new columns on it. profiles' SELECT policy is
 -- unconditional (`using (true)`, see 20260811000000_create_profiles.sql) and
@@ -132,7 +148,16 @@ grant select (user_id, status, otp_expires_at, flightlog_pilot_id, email, create
 -- entirely before this line was added. That is strictly worse than any single-column finding
 -- earlier rounds found (a full-table DoS, not a self-certification bypass), so it gets closed
 -- here even though it falls outside the review's INSERT/UPDATE/DELETE framing.
-revoke insert, update, delete, truncate on public.profile_verifications from authenticated;
+--
+-- Revoked from BOTH client-facing roles, not just authenticated: round 3's review found `anon`
+-- still held the table-level TRUNCATE grant here, three rounds running where this line named
+-- only `authenticated` (Supabase grants TRUNCATE to PUBLIC by default, which anon inherits same
+-- as authenticated does — naming one role and not the other left the other with an unrevoked
+-- default). service_role is deliberately left untouched: it owns the table's write surface via
+-- issue_pilot_verification/confirm_pilot_verification's SECURITY DEFINER escalation, not via a
+-- direct TRUNCATE grant, but nothing here should also strip a service_role capability that isn't
+-- what any finding was ever about.
+revoke insert, update, delete, truncate on public.profile_verifications from authenticated, anon;
 
 -- Issues (or re-issues, while still pending) a verification code. Called by the future #176
 -- server action after it has already generated the plaintext code — this function's job is to
@@ -140,22 +165,42 @@ revoke insert, update, delete, truncate on public.profile_verifications from aut
 -- is computed here rather than trusted from a caller-supplied timestamp (a caller-supplied expiry
 -- would just be otp_expires_at's round-2 finding again, one layer up the stack).
 --
--- `pilot_id` is accepted as a parameter but never trusted as the value stored: SECURITY DEFINER
--- functions can read `profiles` regardless of RLS, so this looks up the CALLING user's own
--- profiles.flightlog_pilot_id instead and stores that, ignoring whatever the caller passed. A
--- client that spoofed a different pilot_id argument therefore cannot make this function record a
--- verification for a pilot id that doesn't match their actual linked profile — the same
--- protection round 1's finding #3 established for the trigger, applied here to the write path
--- that finding's own fix didn't yet cover (issuance didn't exist as a function yet in round 1).
+-- SERVICE_ROLE-ONLY (round 4's fix) — this is NOT authenticated-callable, unlike
+-- confirm_pilot_verification below (the only other function here meant to be called via RPC at
+-- all). `code` is caller-supplied by design (the future #176 server action
+-- generates the plaintext code and passes it in for hashing/storage here), which makes this
+-- function's ARGUMENTS themselves the trust boundary, not just its body: SECURITY DEFINER makes
+-- the function bypass RLS once it runs, but it does not vet who is allowed to call it with what
+-- arguments. Round 3 granted EXECUTE to `authenticated`, reasoning (wrongly) that deriving
+-- `actual_pilot_id` from the caller's own session closed the loop — it didn't, because `code`
+-- was never derived from anything: a signed-in user who has self-declared someone else's pilot id
+-- (#138) could call this function directly via Supabase's RPC endpoint using their own anon-key
+-- session, choose their own `code`, and immediately confirm it — no email ever sent, repeatable
+-- without limit. The fix is narrow: only `service_role` may call this function. #176's server
+-- action must call it through an admin/service-role Supabase client (this repo's own
+-- src/lib/supabase/admin.ts createAdminClient — never the user's session-scoped client),
+-- generating the plaintext code itself and emailing it out-of-band before this function ever
+-- runs. confirm_pilot_verification below stays authenticated-callable: it only accepts a code
+-- GUESS and returns true/false, it never lets the caller choose what gets stored, so there is no
+-- equivalent argument-trust problem there.
+--
+-- No `pilot_id` parameter, deliberately: earlier rounds had one, purely to be ignored (the
+-- function always looked up the CALLING user's own profiles.flightlog_pilot_id and discarded
+-- whatever was passed — round 1's finding #3, spoofed-pilot-id-is-ignored). An accepted-but-
+-- ignored parameter only invites a future maintainer to "fix" it by wiring it back in, silently
+-- reopening that hole. Dropped entirely instead: this function derives the pilot id, it does not
+-- and must never receive it.
+--
 -- No linked pilot id at all (profiles.flightlog_pilot_id is null) is a genuine error, not a
--- silent no-op: raised loudly so the caller (and #176's UI) can surface it instead of persisting
--- a verification for a null pilot id (blocked anyway by the NOT NULL constraint above, but a
--- clear exception is a better failure mode than a raw constraint-violation error bubbling up).
+-- silent no-op: raised loudly so the caller (#176's server action) can surface it instead of
+-- persisting a verification for a null pilot id (blocked anyway by the NOT NULL constraint above,
+-- but a clear exception is a better failure mode than a raw constraint-violation error bubbling
+-- up).
 --
 -- Upsert on user_id (the primary key): re-issuing while a row is already pending replaces the
 -- prior code/expiry/email/pilot id outright rather than erroring or leaving stale state behind —
 -- there is exactly one verification in flight per user at a time.
-create function public.issue_pilot_verification(pilot_id integer, scraped_email text, code text)
+create function public.issue_pilot_verification(scraped_email text, code text)
 returns void
 language plpgsql
 security definer
@@ -191,8 +236,8 @@ begin
 end;
 $$;
 
-revoke all on function public.issue_pilot_verification(integer, text, text) from public;
-grant execute on function public.issue_pilot_verification(integer, text, text) to authenticated;
+revoke all on function public.issue_pilot_verification(text, text) from public;
+grant execute on function public.issue_pilot_verification(text, text) to service_role;
 
 -- Confirming a code must not be a client-writable UPDATE — follows
 -- 20260810010000_add_comments_soft_delete_policy.sql's soft_delete_own_comment precedent exactly.
