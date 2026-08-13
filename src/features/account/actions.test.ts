@@ -135,7 +135,17 @@ describe('startPilotVerificationAction', () => {
 
   it('looks up the linked pilot id through the session-scoped client (never the admin client), with the session-derived user id as target_user_id', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    // Two entries, session id inserted second: if target_user_id (or the id passed to
+    // getFlightlogPilotIds) were ever read from the Map instead of the session — e.g. its first
+    // key, or its first entry's id — this would resolve to 'someone-else'/9999 instead of
+    // 'user-1'/4549, and the assertions below would catch it. A single-entry Map keyed 'user-1'
+    // can't distinguish "read from session" from "read from the Map" at all.
+    mockGetFlightlogPilotIds.mockResolvedValue(
+      new Map([
+        ['someone-else', 9999],
+        ['user-1', 4549],
+      ]),
+    )
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockResolvedValue(undefined)
@@ -145,6 +155,7 @@ describe('startPilotVerificationAction', () => {
     const sessionClient = await mockCreateClient.mock.results[0]!.value
     expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(sessionClient, ['user-1'])
     expect(mockGetFlightlogPilotIds.mock.calls[0]![0]).not.toEqual({ __brand: 'admin-client' })
+    expect(mockGetPilotEmail).toHaveBeenCalledWith(4549)
     expect(mockIssuePilotVerification.mock.calls[0]![1]).toBe('user-1')
   })
 

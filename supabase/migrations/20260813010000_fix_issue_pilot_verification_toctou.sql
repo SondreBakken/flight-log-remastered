@@ -1,7 +1,9 @@
 -- Fixes a pilot-id-swap TOCTOU in issue_pilot_verification (issue #176's own review, rejected).
 -- 20260813000000_create_profile_verifications.sql already merged to main, so this can't be
--- edited in place — this migration replaces the function in place instead (same name and
--- argument types, `create or replace function`, so it keeps the same object identity and grants).
+-- edited in place — this migration redefines the function instead, via `drop function` +
+-- `create function` (NOT `create or replace function` — see this file's own comment further down,
+-- right above the `drop function` line, for why that matters and why the trailing revoke/grant
+-- pair below is load-bearing, not redundant).
 --
 -- The race: #176's server action reads pilot id A from profiles (getFlightlogPilotIds), scrapes
 -- A's email off flightlog.org (a slow live HTTP call, hundreds of ms to seconds), then calls this

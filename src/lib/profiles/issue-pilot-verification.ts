@@ -74,5 +74,20 @@ export async function issuePilotVerification(
     })
   }
 
-  return { kind: 'issued', code, boundPilotId: data as number }
+  // This repo applies migrations by hand (20260813010000_fix_..._toctou.sql's own header says
+  // so), so "app code shipped ahead of the migration" is a real, expected state here, not
+  // hypothetical — mirrors get-flightlog-pilot-ids.ts's own 42703 branch, which guards the same
+  // kind of not-yet-migrated gap. If that migration hasn't landed yet, the RPC is still the old
+  // `returns void` version and `data` comes back `null`. Without this guard, `null as number`
+  // would compare unequal to every real pilot id at the call site, so EVERY verification attempt
+  // would silently report a pilot-id-changed mismatch, with nothing pointing at the actual cause
+  // (an unapplied migration, not a real TOCTOU race) — throwing loud and naming the migration
+  // turns that into a diagnosable failure instead.
+  if (typeof data !== 'number') {
+    throw new ProfilesQueryError(
+      `issue_pilot_verification returned ${JSON.stringify(data)} instead of the bound pilot id for user ${userId} — has migration 20260813010000_fix_issue_pilot_verification_toctou.sql been applied?`,
+    )
+  }
+
+  return { kind: 'issued', code, boundPilotId: data }
 }

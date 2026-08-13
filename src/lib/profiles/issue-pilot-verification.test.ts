@@ -68,4 +68,13 @@ describe('issuePilotVerification', () => {
 
     consoleError.mockRestore()
   })
+
+  it('throws a ProfilesQueryError naming the migration, rather than silently treating it as a pilot-id mismatch, when the RPC has no error but returns non-numeric data (the old `returns void` function still live because 20260813010000 hasn\'t been applied yet)', async () => {
+    const { client } = fakeSupabaseRpc({ data: null, error: null })
+
+    const error = await issuePilotVerification(client, 'user-1', 'pilot@example.com').catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(ProfilesQueryError)
+    expect((error as ProfilesQueryError).message).toContain('20260813010000_fix_issue_pilot_verification_toctou.sql')
+  })
 })
