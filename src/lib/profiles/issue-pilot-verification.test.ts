@@ -21,7 +21,7 @@ function fakeSupabaseRpc(result: { data: unknown; error: unknown }) {
 
 describe('issuePilotVerification', () => {
   it('generates a code, calls the RPC with the exact parameter names, and returns the same code', async () => {
-    const { client, rpc } = fakeSupabaseRpc({ data: null, error: null })
+    const { client, rpc } = fakeSupabaseRpc({ data: 4549, error: null })
 
     const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
 
@@ -34,6 +34,15 @@ describe('issuePilotVerification', () => {
       scraped_email: 'pilot@example.com',
       code: issuedCode,
     })
+  })
+
+  it('returns the RPC-reported bound pilot id alongside the code, not just success/failure', async () => {
+    const { client } = fakeSupabaseRpc({ data: 4549, error: null })
+
+    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
+
+    expect(result.kind).toBe('issued')
+    expect(result.kind === 'issued' ? result.boundPilotId : null).toBe(4549)
   })
 
   it('returns a distinguishable no-linked-pilot-id outcome, not a thrown error, when the RPC raises P0001', async () => {

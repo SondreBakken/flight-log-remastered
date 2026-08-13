@@ -118,7 +118,7 @@ describe('startPilotVerificationAction', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456' })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockResolvedValue(undefined)
 
     const state = await startPilotVerificationAction()
@@ -131,6 +131,39 @@ describe('startPilotVerificationAction', () => {
       'pilot@example.com',
     )
     expect(mockSendVerificationEmail).toHaveBeenCalledWith('pilot@example.com', '123456')
+  })
+
+  it('looks up the linked pilot id through the session-scoped client (never the admin client), with the session-derived user id as target_user_id', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockSendVerificationEmail.mockResolvedValue(undefined)
+
+    await startPilotVerificationAction()
+
+    const sessionClient = await mockCreateClient.mock.results[0]!.value
+    expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(sessionClient, ['user-1'])
+    expect(mockGetFlightlogPilotIds.mock.calls[0]![0]).not.toEqual({ __brand: 'admin-client' })
+    expect(mockIssuePilotVerification.mock.calls[0]![1]).toBe('user-1')
+  })
+
+  it('bails without sending, surfacing a distinguishable pilot-id-changed outcome, when the RPC-bound pilot id no longer matches the one scraped for (the TOCTOU the RPC now closes)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
+    // The profile got relinked to a different pilot id mid-scrape: issue_pilot_verification
+    // re-derives the pilot id from `profiles` at execution time, so it reports back 9999, not the
+    // 4549 this action scraped an email for.
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 9999 })
+
+    const state = await startPilotVerificationAction()
+
+    expect(state).toEqual({
+      status: 'error',
+      message: 'Your linked pilot id changed while we were verifying it. Try again.',
+    })
+    expect(mockSendVerificationEmail).not.toHaveBeenCalled()
   })
 
   it('falls back to the "link your pilot id first" outcome, without sending, when issuance hits the RPC\'s own no-linked-pilot-id rejection (a TOCTOU race)', async () => {
@@ -178,7 +211,7 @@ describe('startPilotVerificationAction', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456' })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockRejectedValue(new Error('resend down'))
 
     const state = await startPilotVerificationAction()
@@ -234,6 +267,10 @@ describe('startPilotVerificationStateFor', () => {
     expect(startPilotVerificationStateFor({ kind: 'no-email' })).toEqual({
       status: 'error',
       message: 'Your flightlog.org profile has no email address on file. Add one on flightlog.org and try again.',
+    })
+    expect(startPilotVerificationStateFor({ kind: 'pilot-id-changed' })).toEqual({
+      status: 'error',
+      message: 'Your linked pilot id changed while we were verifying it. Try again.',
     })
     expect(startPilotVerificationStateFor({ kind: 'send-failed' })).toEqual({
       status: 'error',

@@ -94,7 +94,22 @@ export async function saveFlightlogPilotId(_prevState: PilotIdFormState, formDat
 // getFlightlogPilotIds), before ever touching the scraper or the RPC, so a user who hasn't linked
 // a pilot id yet gets that answer immediately without spending a live flightlog.org request; and
 // again defensively via issuePilotVerification's own 'no-linked-pilot-id' result, for the narrow
-// TOCTOU window where the link is removed between this check and the RPC call landing.
+// TOCTOU window where the link is REMOVED between this check and the RPC call landing.
+//
+// A second, more damaging TOCTOU window — the link being REPLACED, not removed — was found by
+// #176's own review and closed by 20260813010000_fix_issue_pilot_verification_toctou.sql: between
+// this function reading `pilotId` above and getPilotEmail's slow live scrape completing for it,
+// the user can call saveFlightlogPilotId to relink their profile to a DIFFERENT pilot id.
+// issue_pilot_verification re-derives the pilot id from `profiles` at RPC-execution time rather
+// than trusting anything scraped for, so without a fix it would silently bind the verification to
+// the NEW pilot id while the email was sent to the OLD pilot id's address — the RPC's return value
+// (`issued.boundPilotId` below) is what makes that detectable at all, since this action is the
+// only place that has both "which pilot id did we scrape for" (`pilotId`) and "which pilot id did
+// the RPC actually bind" (`issued.boundPilotId`) in scope at once. On a mismatch, this bails
+// before ever calling sendVerificationEmail — the OTP row is already persisted for
+// `issued.boundPilotId` by that point (issue_pilot_verification always writes before returning,
+// there's no way to check first without a second round trip that just moves the race), but the
+// email never goes to the wrong address, which is the actual vulnerability that mattered.
 //
 // Orchestrated inline here, not behind a separate business-logic module: #173/#174/#175 (the
 // scrape/issue/send steps) are already each their own independently testable unit, so this
@@ -137,6 +152,7 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
 
     const issued = await issuePilotVerification(adminClient, user.id, emailOutcome.email)
     if (issued.kind === 'no-linked-pilot-id') return startPilotVerificationStateFor({ kind: 'no-linked-pilot-id' })
+    if (issued.boundPilotId !== pilotId) return startPilotVerificationStateFor({ kind: 'pilot-id-changed' })
 
     try {
       await sendVerificationEmail(emailOutcome.email, issued.code)

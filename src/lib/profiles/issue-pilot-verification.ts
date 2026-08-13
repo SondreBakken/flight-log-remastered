@@ -12,7 +12,18 @@ import { generateOtpCode } from './generate-otp-code'
 const RAISE_EXCEPTION_SQLSTATE = 'P0001'
 
 export type IssuePilotVerificationResult =
-  | { kind: 'issued'; code: string }
+  // boundPilotId is issue_pilot_verification's return value (20260813010000_fix_..._toctou.sql),
+  // i.e. whatever pilot id `profiles` actually said for this user AT THE MOMENT THE RPC RAN — not
+  // necessarily the pilot id the caller scraped an email for. Closes a TOCTOU: the caller
+  // (#176's server action) reads a pilot id, does a slow live scrape for that pilot id's email,
+  // then calls this function — if the user relinks their profile to a different pilot id during
+  // that scrape window, the function (which re-derives the pilot id from `profiles` itself, not
+  // from anything the caller scraped for) binds the verification to the NEW pilot id while the
+  // email went to the OLD pilot id's address. This module can't detect that mismatch itself (it
+  // never sees the pilot id the caller scraped for, only the scraped email string), so it hands
+  // boundPilotId back and leaves the comparison to the caller, which does have both values in
+  // scope.
+  | { kind: 'issued'; code: string; boundPilotId: number }
   // Not a ProfilesQueryError: the target user genuinely has no flightlog_pilot_id linked yet,
   // same "expected business-rule rejection, not a query failure" distinction PilotEmailOutcome
   // draws for 'no-email'/'not-found' (get-pilot-email.ts) — the SQL function raised this on
@@ -48,7 +59,7 @@ export async function issuePilotVerification(
 ): Promise<IssuePilotVerificationResult> {
   const code = generateOtpCode()
 
-  const { error } = await supabase.rpc('issue_pilot_verification', {
+  const { data, error } = await supabase.rpc('issue_pilot_verification', {
     target_user_id: userId,
     scraped_email: scrapedEmail,
     code,
@@ -63,5 +74,5 @@ export async function issuePilotVerification(
     })
   }
 
-  return { kind: 'issued', code }
+  return { kind: 'issued', code, boundPilotId: data as number }
 }
