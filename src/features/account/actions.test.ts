@@ -435,6 +435,10 @@ describe('confirmPilotVerificationStateFor', () => {
       status: 'error',
       message: 'That code is incorrect or has expired. Start verification again for a fresh code.',
     })
+    expect(confirmPilotVerificationStateFor({ kind: 'locked-out' })).toEqual({
+      status: 'error',
+      message: 'Too many incorrect attempts. Start verification again for a fresh code.',
+    })
     expect(confirmPilotVerificationStateFor({ kind: 'db-error' })).toEqual({
       status: 'error',
       message: 'Something went wrong confirming your pilot id verification. Try again.',
