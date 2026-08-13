@@ -234,4 +234,30 @@ describe('PilotVerification, pending', () => {
     await vi.waitFor(() => expect(mockStartPilotVerificationAction).toHaveBeenCalledTimes(1))
     expect(onStatusChanged).toHaveBeenCalledTimes(1)
   })
+
+  // #206: a 'pending' → 'none' transition changes PilotVerification's own root element type (a
+  // wrapping div around ConfirmPilotVerificationForm plus the "Send a new code" trigger → the
+  // "Verify your pilot id" trigger directly), unmounting the "Send a new code"
+  // StartVerificationTrigger instance and mounting a fresh one. Reachable when a sibling
+  // PilotIdForm save lands mid-flight: the DB trigger deletes the profile_verifications row,
+  // flipping status to 'none' while the original startPilotVerificationAction call is still
+  // outstanding. Without lifting `phase` into PilotVerification, the fresh instance starts at
+  // 'idle' and hands the user a clickable button while the original request (a live
+  // flightlog.org scrape + real email send) is still in flight.
+  it('keeps the trigger disabled across a "pending" to "none" transition while the original request is still in flight', async () => {
+    mockStartPilotVerificationAction.mockReturnValue(new Promise(() => {}))
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={pendingStatus} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Send a new code' }))
+
+    expect(screen.getByRole('button', { name: 'Starting…' })).toHaveProperty('disabled', true)
+
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    // Still the same lifted `phase`, so the remounted instance (rendering the "Verify your pilot
+    // id" trigger's position) still shows "Starting…" rather than resetting to an enabled, fresh
+    // "Verify your pilot id" button — a local phase would have reset to 'idle' here instead.
+    expect(screen.getByRole('button')).toHaveProperty('disabled', true)
+    expect(screen.getByText('Starting…')).toBeTruthy()
+  })
 })
