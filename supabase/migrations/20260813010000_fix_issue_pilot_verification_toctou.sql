@@ -41,8 +41,11 @@
 -- name+argument-types identity, so the existing `service_role` EXECUTE grant does NOT carry over
 -- automatically the way it would across a same-return-type `create or replace`. The revoke/grant
 -- pair below is therefore load-bearing, not defensive restatement: without it, this migration
--- would silently leave issue_pilot_verification with NO execute grant for anyone, including
--- service_role, breaking #176's action outright. Confirmed live by querying
+-- would silently leave issue_pilot_verification with Postgres's DEFAULT function privilege in
+-- place (proacl NULL, i.e. EXECUTE granted to PUBLIC) — meaning `anon` and `authenticated` would
+-- gain the ability to call the function directly, reopening #172 round 4's self-certification
+-- bypass (client calls with a self-chosen code, then confirms it), not that nobody could call it.
+-- Confirmed live by querying
 -- profile_verifications_privilege_grants()-equivalent pg_proc.proacl before and after this
 -- migration in the verification run this migration's own PR describes.
 drop function if exists public.issue_pilot_verification(uuid, text, text);
