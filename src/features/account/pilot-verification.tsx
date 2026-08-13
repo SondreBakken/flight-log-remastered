@@ -19,6 +19,11 @@ type PilotVerificationProps = {
 // why this lives one level up instead of inside StartVerificationTrigger itself.
 type TriggerMessage = { kind: 'error' | 'info'; text: string } | null
 
+// 'requesting': startPilotVerificationAction is actually in flight. 'awaiting-refresh': the request
+// has settled and the refresh it triggered is still outstanding. See PilotVerification's own
+// `phase` state below for why this lives one level up instead of inside StartVerificationTrigger.
+type TriggerPhase = 'idle' | 'requesting' | 'awaiting-refresh'
+
 // Third sibling alongside AccountForm/PilotIdForm in index.tsx. Only rendered there once a pilot
 // id is actually linked (see SignedInAccountForm's own doc comment) — startPilotVerificationAction
 // already rejects a missing link server-side too, so this is a UX gate, not the only one.
@@ -30,8 +35,8 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   // transition would be discarded along with the unmounted instance that held it (#190).
   const [message, setMessage] = useState<TriggerMessage>(null)
 
-  // Same "adjust state during render" idiom as StartVerificationTrigger's own prevStatus check
-  // below (see its doc comment for the pattern itself). 'none' and 'verified' both render
+  // Same "adjust state during render" idiom as the `prevStatus` check below `phase` (see its doc
+  // comment for the pattern itself). 'none' and 'verified' both render
   // StartVerificationTrigger at that same root position, so React treats a transition between them
   // as reusing the same instance rather than remounting it — without this, a stale message from a
   // failed 'Re-verify' attempt could leak into an unrelated later 'none' render (#190), e.g. after
@@ -43,6 +48,40 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   if (status.kind !== prevKind) {
     setPrevKind(status.kind)
     if (status.kind !== 'pending') setMessage(null)
+  }
+
+  // 'requesting': startPilotVerificationAction is actually in flight. 'awaiting-refresh': the
+  // request has settled and the refresh it triggered is still outstanding. Both disable the
+  // button; only 'requesting' changes its label — see StartVerificationTrigger's own render for
+  // that. Lives here, not inside StartVerificationTrigger, for the same reason `message` does
+  // above: the 'pending' branch below renders StartVerificationTrigger inside a wrapping div while
+  // 'none'/'verified' render it directly at the root, so a transition into or out of 'pending'
+  // remounts the instance — a local phase would reset to 'idle' on that remount and re-enable a
+  // button whose underlying request is still in flight (#206).
+  const [phase, setPhase] = useState<TriggerPhase>('idle')
+
+  // React's "adjusting state when a prop changes" pattern
+  // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes), not
+  // a useEffect: setState during render, gated on comparing `status` against what it was on the
+  // previous render, rather than in a post-commit effect — this is the pattern React's own docs
+  // recommend for this exact "reset local state once a prop changes" shape, and avoids both the
+  // extra render pass and react-hooks/set-state-in-effect's own lint warning a useEffect version
+  // would trigger here. Same idiom as the `prevKind` check above, but answering a different
+  // question: `prevKind` asks whether status.kind changed at all; this asks whether a fresh
+  // `status` object arrived from a refetch, regardless of whether its kind also changed.
+  //
+  // useOwnPilotVerificationStatus holds its PREVIOUS state during a refetch rather than
+  // transitioning through 'loading' (see that hook's own doc comment) — so without this, the
+  // button would re-enable the instant the request promise resolves, well before the refresh it
+  // triggered has actually landed. A user could then click again in that window and re-run a live
+  // flightlog.org scrape + re-send a real email. Since the hook only ever calls setState with a
+  // brand-new object (stateFromRow always returns a fresh literal), any change to `status`'s
+  // identity — regardless of whether its VALUE also changed — is proof a fetch actually resolved,
+  // which is exactly the signal needed to leave 'awaiting-refresh'.
+  const [prevStatus, setPrevStatus] = useState(status)
+  if (status !== prevStatus) {
+    setPrevStatus(status)
+    if (phase === 'awaiting-refresh') setPhase('idle')
   }
 
   if (status.kind === 'loading') return null
@@ -65,8 +104,9 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
         label="Verify your pilot id"
         message={message}
         onMessageChange={setMessage}
+        onPhaseChange={setPhase}
         onSettled={onStatusChanged}
-        status={status}
+        phase={phase}
       />
     )
   }
@@ -77,8 +117,9 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
         label="Re-verify"
         message={message}
         onMessageChange={setMessage}
+        onPhaseChange={setPhase}
         onSettled={onStatusChanged}
-        status={status}
+        phase={phase}
         // Per #184's resolution: starting verification unconditionally resets an already-verified
         // profile to pending until a fresh code is confirmed. Safe (self-service, fully
         // recoverable) but surprising without this warning, since the button looks identical to
@@ -105,8 +146,9 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
         label="Send a new code"
         message={message}
         onMessageChange={setMessage}
+        onPhaseChange={setPhase}
         onSettled={onStatusChanged}
-        status={status}
+        phase={phase}
       />
     </div>
   )
@@ -119,69 +161,36 @@ function formatExpiry(otpExpiresAt: string): string {
 // startPilotVerificationAction takes no arguments — like followPilotAction/unfollowPilotAction
 // (see follow-button/index.tsx's own handleClick), it's called directly from a click handler
 // rather than bound through useActionState, which needs a form and at least one field to bind.
-// Local pending state lives here, same shape as FollowButton's own useState pair — the result
-// `message` itself lives one level up in PilotVerification instead, controlled through props; see
-// that component's own doc comment on why.
-//
-// `status` is threaded through purely as a "did the refetch actually land yet" signal (see the
-// render-time check below), not read for its own value here — pilot-verification.tsx's own three
-// call sites already know which status they're rendering for.
+// Both `message` and `phase` live one level up in PilotVerification instead, controlled through
+// props; see that component's own doc comments on why.
 function StartVerificationTrigger({
   label,
   warning,
-  status,
   message,
   onMessageChange,
   onSettled,
+  phase,
+  onPhaseChange,
 }: {
   label: string
   warning?: string
-  status: OwnPilotVerificationStatusState
   message: TriggerMessage
   onMessageChange: (message: TriggerMessage) => void
   onSettled: () => void
+  phase: TriggerPhase
+  onPhaseChange: (phase: TriggerPhase) => void
 }) {
-  // 'requesting': startPilotVerificationAction is actually in flight. 'awaiting-refresh': the
-  // request has settled and the refresh it triggered is still outstanding. Both disable the
-  // button; only 'requesting' changes its label — see the render-time check below for why
-  // 'awaiting-refresh' exists as its own phase rather than folding straight back to 'idle'. Kept
-  // local (unlike `message`): the guard is per-instance and does not survive a remount — see #206
-  // for the reachable gap this leaves (a sibling save landing mid-flight).
-  const [phase, setPhase] = useState<'idle' | 'requesting' | 'awaiting-refresh'>('idle')
-
-  // React's "adjusting state when a prop changes" pattern
-  // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes), not
-  // a useEffect: setState during render, gated on comparing `status` against what it was on the
-  // previous render, rather than in a post-commit effect — this is the pattern React's own docs
-  // recommend for this exact "reset local state once a prop changes" shape, and avoids both the
-  // extra render pass and react-hooks/set-state-in-effect's own lint warning a useEffect version
-  // would trigger here.
-  //
-  // useOwnPilotVerificationStatus holds its PREVIOUS state during a refetch rather than
-  // transitioning through 'loading' (see that hook's own doc comment) — so without this, the
-  // button would re-enable the instant the request promise resolves, well before the refresh it
-  // triggered has actually landed. A user could then click again in that window and re-run a live
-  // flightlog.org scrape + re-send a real email. Since the hook only ever calls setState with a
-  // brand-new object (stateFromRow always returns a fresh literal), any change to `status`'s
-  // identity — regardless of whether its VALUE also changed — is proof a fetch actually resolved,
-  // which is exactly the signal needed to leave 'awaiting-refresh'.
-  const [prevStatus, setPrevStatus] = useState(status)
-  if (status !== prevStatus) {
-    setPrevStatus(status)
-    if (phase === 'awaiting-refresh') setPhase('idle')
-  }
-
   async function handleClick() {
-    setPhase('requesting')
+    onPhaseChange('requesting')
     onMessageChange(null)
     const result: StartPilotVerificationState = await startPilotVerificationAction()
     // Always refresh, regardless of outcome, and hold the button disabled until that refresh
-    // actually lands (via the render-time check above) for every outcome, not only success: 'error'
-    // collapses several sub-cases (see start-pilot-verification-state.ts), and some of them
-    // (send-failed) still persist a pending row despite reporting an error. The client can't tell
-    // which sub-case from this type alone, so treating every settled outcome the same way is the
-    // only choice that's safe regardless of which one actually happened.
-    setPhase('awaiting-refresh')
+    // actually lands (via PilotVerification's own render-time check) for every outcome, not only
+    // success: 'error' collapses several sub-cases (see start-pilot-verification-state.ts), and
+    // some of them (send-failed) still persist a pending row despite reporting an error. The
+    // client can't tell which sub-case from this type alone, so treating every settled outcome
+    // the same way is the only choice that's safe regardless of which one actually happened.
+    onPhaseChange('awaiting-refresh')
     onSettled()
     if (result.status === 'error') {
       onMessageChange({ kind: 'error', text: result.message })
