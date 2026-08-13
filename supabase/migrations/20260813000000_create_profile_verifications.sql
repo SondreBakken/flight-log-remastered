@@ -58,6 +58,25 @@
 -- entirely (it was accepted only to be ignored — round 1's finding #3 — which just invited a
 -- future maintainer to "fix" it by wiring it back in).
 --
+-- ROUND 5 found round 4's fix left the function unreachable by ANY caller, a functional dead
+-- end rather than a vulnerability: issue_pilot_verification still derived its subject via
+-- `caller_id uuid := auth.uid()`, but a service_role key is a bare bearer JWT with no `sub`
+-- claim, so auth.uid() resolves to null under it — and a JWT that DOES carry a `sub` claim has
+-- role `authenticated`, which round 4 just revoked EXECUTE from. Measured live: seeding a real,
+-- correctly-linked profiles row and calling the function as service_role still raised the "no
+-- linked pilot id" P0001 every time, not because there was no linked profile, but because
+-- auth.uid() never resolves to anything under service_role regardless of what's actually linked
+-- in the database. Fixed by adding an explicit `target_user_id uuid` parameter and trusting it
+-- inside the function body in place of auth.uid() — safe specifically because only service_role
+-- can call this function at all (see the function's own doc comment below for the full
+-- reasoning, and why this does NOT reopen round 4's finding). Also widened this migration's
+-- earlier column-level SELECT revoke to include `anon` alongside `authenticated` (previously
+-- named only `authenticated`, the same one-role-at-a-time gap round 4 already fixed once for the
+-- INSERT/UPDATE/DELETE/TRUNCATE revoke below) and closed a coverage gap in this migration's own
+-- verify script: TRUNCATE has no PostgREST verb, so nothing was actually asserting the round-4
+-- TRUNCATE revoke stayed in place, and the service_role "positive control" only ever proved a
+-- call raised SOME error, which stayed green even under round 4's dead end for the wrong reason.
+--
 -- Deliberately a SEPARATE table from profiles, not new columns on it. profiles' SELECT policy is
 -- unconditional (`using (true)`, see 20260811000000_create_profiles.sql) and
 -- 20260812000000_add_follows_select_for_own_pilot.sql depends on that staying unconditional (it
@@ -123,7 +142,13 @@ create policy "users can read their own profile verification"
 -- `select *` expands to every column at parse time and this role no longer has privilege on
 -- otp_code_hash. Any call site must name columns explicitly instead, e.g.
 -- `select('user_id, status, otp_expires_at, flightlog_pilot_id, email, created_at')`.
-revoke select on public.profile_verifications from authenticated;
+--
+-- Named alongside `anon` (round 5 fix — this line previously named only `authenticated`, three
+-- rounds after the same one-role-at-a-time gap was found and fixed for the INSERT/UPDATE/DELETE/
+-- TRUNCATE revoke below). Not a live leak either way: the row-level policy above is `to
+-- authenticated` only, so `anon` already saw 0 rows regardless of what table-level SELECT
+-- privilege it held. Pinned anyway so nothing here still depends on that policy never changing.
+revoke select on public.profile_verifications from authenticated, anon;
 
 grant select (user_id, status, otp_expires_at, flightlog_pilot_id, email, created_at)
   on public.profile_verifications to authenticated;
@@ -159,6 +184,39 @@ grant select (user_id, status, otp_expires_at, flightlog_pilot_id, email, create
 -- what any finding was ever about.
 revoke insert, update, delete, truncate on public.profile_verifications from authenticated, anon;
 
+-- Test-support only (round 5): exposes this table's own role-level grants (both table-level,
+-- e.g. TRUNCATE, and column-level, e.g. the otp_code_hash SELECT exclusion above) back to
+-- scripts/verify-profile-verifications-select-policy.mts. Exists because PostgREST does not
+-- expose information_schema (or any system/catalog schema) over REST at all, for any role,
+-- regardless of privilege — there is no `.schema('information_schema')` call this script could
+-- make that would ever reach it directly. Wrapping the introspection query in a SECURITY DEFINER
+-- function sidesteps that: the function itself runs as its owner (with enough visibility to see
+-- every grant regardless of which role is asking), and the RESULT comes back through the normal,
+-- already-exposed `public` schema RPC mechanism like any other function here. Needed specifically
+-- for TRUNCATE: PostgREST has no TRUNCATE verb at all, so unlike INSERT/UPDATE/DELETE (which the
+-- verify script probes by attempting them directly and checking for a privilege-denied error),
+-- there is no live request the script could ever send to prove TRUNCATE is closed — reading the
+-- grant catalog directly is the only way to pin it in either direction. service_role-only, same
+-- as issue_pilot_verification above: nothing here should be reachable by a client session.
+create function public.profile_verifications_privilege_grants()
+returns table(source text, grantee text, privilege_type text, column_name text)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select 'table'::text as source, grantee, privilege_type, null::text as column_name
+  from information_schema.role_table_grants
+  where table_schema = 'public' and table_name = 'profile_verifications'
+  union all
+  select 'column'::text as source, grantee, privilege_type, column_name
+  from information_schema.role_column_grants
+  where table_schema = 'public' and table_name = 'profile_verifications';
+$$;
+
+revoke all on function public.profile_verifications_privilege_grants() from public;
+grant execute on function public.profile_verifications_privilege_grants() to service_role;
+
 -- Issues (or re-issues, while still pending) a verification code. Called by the future #176
 -- server action after it has already generated the plaintext code — this function's job is to
 -- persist that code (hashed) and its expiry, never to invent them, except for the expiry, which
@@ -184,43 +242,62 @@ revoke insert, update, delete, truncate on public.profile_verifications from aut
 -- GUESS and returns true/false, it never lets the caller choose what gets stored, so there is no
 -- equivalent argument-trust problem there.
 --
--- No `pilot_id` parameter, deliberately: earlier rounds had one, purely to be ignored (the
--- function always looked up the CALLING user's own profiles.flightlog_pilot_id and discarded
--- whatever was passed — round 1's finding #3, spoofed-pilot-id-is-ignored). An accepted-but-
--- ignored parameter only invites a future maintainer to "fix" it by wiring it back in, silently
--- reopening that hole. Dropped entirely instead: this function derives the pilot id, it does not
--- and must never receive it.
+-- `target_user_id uuid` parameter (round 5) replaces round 4's `caller_id uuid := auth.uid()`:
+-- a service_role key is a bare bearer JWT with no `sub` claim, so auth.uid() is unconditionally
+-- null under it, while a JWT that DOES carry a `sub` claim has role `authenticated` — which has
+-- no EXECUTE grant on this function at all. Those two requirements are mutually exclusive, so
+-- round 4's version could never be successfully called by anyone: measured live, seeding a real,
+-- correctly-linked profiles row and calling as service_role still raised "no flightlog pilot id
+-- linked" every time, for the wrong reason (auth.uid() being null) rather than the right one (no
+-- linked profile). Trusting a caller-supplied `target_user_id` here is safe FOR THE SAME REASON
+-- IT WAS UNSAFE FOR `code` above: this function is service_role-gated, and a privileged caller
+-- supplying the subject is exactly what that privilege buys — unlike `code`, `target_user_id`
+-- was never something an `authenticated` caller could reach in to influence, because
+-- `authenticated` cannot call this function at all. This function no longer authenticates
+-- anyone; it trusts. The caller (the future #176 server action, using an admin/service-role
+-- client, never the user's session-scoped client) is responsible for having already
+-- authenticated `target_user_id` through Supabase's own normal session mechanism (e.g. reading
+-- it off a verified session/cookie) before ever calling this function — by the time this
+-- function runs, "which user is this for" is assumed already answered, not re-derived here.
 --
--- No linked pilot id at all (profiles.flightlog_pilot_id is null) is a genuine error, not a
--- silent no-op: raised loudly so the caller (#176's server action) can surface it instead of
--- persisting a verification for a null pilot id (blocked anyway by the NOT NULL constraint above,
--- but a clear exception is a better failure mode than a raw constraint-violation error bubbling
--- up).
+-- Still no `pilot_id`-shaped parameter, unchanged from round 4's reasoning: earlier rounds had
+-- one, purely to be ignored (the function always looked up the subject's own
+-- profiles.flightlog_pilot_id and discarded whatever pilot id was passed — round 1's finding #3,
+-- spoofed-pilot-id-is-ignored). An accepted-but-ignored parameter only invites a future
+-- maintainer to "fix" it by wiring it back in, silently reopening that hole. `target_user_id` is
+-- a different kind of parameter entirely (WHO this is for, not WHICH pilot id to trust) and does
+-- not revive that finding: the pilot id itself is still always derived by looking `target_user_id`
+-- up in profiles, never accepted directly.
+--
+-- No linked pilot id at all (profiles.flightlog_pilot_id is null for target_user_id) is a
+-- genuine error, not a silent no-op: raised loudly so the caller (#176's server action) can
+-- surface it instead of persisting a verification for a null pilot id (blocked anyway by the NOT
+-- NULL constraint above, but a clear exception is a better failure mode than a raw
+-- constraint-violation error bubbling up).
 --
 -- Upsert on user_id (the primary key): re-issuing while a row is already pending replaces the
 -- prior code/expiry/email/pilot id outright rather than erroring or leaving stale state behind —
 -- there is exactly one verification in flight per user at a time.
-create function public.issue_pilot_verification(scraped_email text, code text)
+create function public.issue_pilot_verification(target_user_id uuid, scraped_email text, code text)
 returns void
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  caller_id uuid := auth.uid();
   actual_pilot_id integer;
 begin
   select flightlog_pilot_id into actual_pilot_id
   from public.profiles
-  where user_id = caller_id;
+  where user_id = target_user_id;
 
   if actual_pilot_id is null then
-    raise exception 'no flightlog pilot id linked to the calling profile';
+    raise exception 'no flightlog pilot id linked to the target profile';
   end if;
 
   insert into public.profile_verifications (user_id, status, otp_code_hash, otp_expires_at, flightlog_pilot_id, email)
   values (
-    caller_id,
+    target_user_id,
     'pending',
     encode(sha256(convert_to(code, 'utf8')), 'hex'),
     now() + interval '10 minutes',
@@ -236,8 +313,8 @@ begin
 end;
 $$;
 
-revoke all on function public.issue_pilot_verification(text, text) from public;
-grant execute on function public.issue_pilot_verification(text, text) to service_role;
+revoke all on function public.issue_pilot_verification(uuid, text, text) from public;
+grant execute on function public.issue_pilot_verification(uuid, text, text) to service_role;
 
 -- Confirming a code must not be a client-writable UPDATE — follows
 -- 20260810010000_add_comments_soft_delete_policy.sql's soft_delete_own_comment precedent exactly.

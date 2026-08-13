@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { checkProfileVerificationsTableExists } from './lib/check-profile-verifications-table'
 import { createReporter } from './lib/verify-report'
@@ -71,30 +71,49 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 //         `authenticated` to exploit, so scenario-by-scenario coverage of that surface has nothing
 //         left to distinguish. The spoofed-pilot-id scenario specifically no longer has an
 //         argument to spoof at all (the parameter is gone).
-//       - assertServiceRoleReachesIssueVerificationBody is the "fix itself is exercised, not just
-//         the vulnerability's absence" positive control: proves service_role's EXECUTE grant
-//         actually works (the call is not blocked by the SAME 42501 the owner's call above hits),
-//         by asserting the resulting error code is specifically the function's OWN raised
-//         exception (P0001, "no flightlog pilot id linked to the calling profile") rather than a
-//         privilege denial. This is genuinely equivalent coverage to round 3's
-//         assertIssueWithoutLinkedPilotIdFails, not a downgrade: this script's adminClient (a bare
-//         service_role key, via src/lib/supabase/admin.ts's createAdminClient) carries no JWT
-//         `sub` claim, so auth.uid() resolves to null for it exactly the way it would for a caller
-//         with no linked profiles row — the "unlinked caller" business path and the "service-role
-//         call with no forwarded identity" path are the same code path. A KNOWN GAP this
-//         surfaces: neither this script nor #176 yet has a way to make a service_role-privileged
-//         call ALSO carry a specific user's identity (that needs either a signed JWT with a `sub`
-//         claim, which requires the project's JWT secret — not available to this script — or a
-//         deliberate design decision in #176 for how to pass identity to a trusted-server-only
-//         call). Full end-to-end proof that issue_pilot_verification's own body (hashing, expiry,
-//         upsert, pilot-id derivation) is correct when it DOES have an identity to work with comes
-//         from this migration's own review trail (a real Postgres cluster, hand-driving `role` and
-//         the `request.jwt.claim.sub` GUC together) — see the migration's own doc comment history.
-//       - seedPendingVerification replaces issue_pilot_verification-via-ownerClient as this
-//         script's own way of getting a `pending` row with a KNOWN plaintext code in place before
-//         the confirm_pilot_verification assertions below run: a direct admin-client table write
-//         (the same technique seedExpiredCode already used pre-round-4 for the expired-code case),
-//         not a call through the now-locked-down RPC.
+//       - assertServiceRoleReachesIssueVerificationBody was the "fix itself is exercised, not
+//         just the vulnerability's absence" positive control for round 4: it could only ever
+//         prove service_role's EXECUTE grant existed, not that a call through it could actually
+//         SUCCEED — round 4's version had no way to give a service_role call a specific identity
+//         (auth.uid() was always null under it), so this assertion's "positive" case and its
+//         negative case (an unlinked caller) were accidentally the same code path for the wrong
+//         reason. SUPERSEDED by round 5's assertServiceRoleIssuesVerificationForLinkedUser /
+//         assertServiceRoleIssueWithoutLinkedPilotIdFails below, once `target_user_id` gave the
+//         function a way to receive an identity that isn't tied to auth.uid() at all.
+//       - seedPendingVerification (round 4) got replaced again in round 5, see below.
+//   - ROUND 5 (this version) fixes a functional dead end round 4 left behind, plus two coverage
+//     gaps the same round's own review flagged:
+//       - issue_pilot_verification gained an explicit `target_user_id uuid` parameter, because
+//         round 4's `auth.uid()`-derived version could never be called successfully by anyone
+//         (service_role has no `sub` claim, so auth.uid() was always null under it; a JWT WITH a
+//         `sub` has role `authenticated`, which has no EXECUTE grant — the two requirements were
+//         mutually exclusive). callIssue now takes a target user id as its first RPC argument.
+//       - assertServiceRoleReachesIssueVerificationBody is REPLACED by two assertions that are
+//         actually meaningful now that a real identity can be passed through:
+//         assertServiceRoleIssuesVerificationForLinkedUser is the genuine positive control round
+//         4's version was missing — a real target_user_id WITH a linked profiles row, called via
+//         service_role, must actually succeed and persist the right hash/expiry/pilot_id/email.
+//         It doubles as this script's own way of seeding the `pending` row the
+//         confirm_pilot_verification assertions below need (replacing round 4's
+//         seedPendingVerification direct-table-write workaround — now that the RPC can succeed,
+//         seeding through it is both more realistic and less code).
+//         assertServiceRoleIssueWithoutLinkedPilotIdFails is the negative case, now for the RIGHT
+//         reason: a target_user_id with no profiles row raises P0001 because there's genuinely no
+//         linked pilot id, not because auth.uid() happened to be null regardless of what's
+//         linked (round 4's version couldn't distinguish those two causes; this one can, because
+//         the "who" is no longer derived from a session that never carries one under
+//         service_role).
+//       - assertTruncateIsClosedForClientRoles / assertAnonHasNoSelectGrantAtAll: PostgREST has
+//         no TRUNCATE verb, so nothing previously asserted the round-3/round-4 TRUNCATE revoke
+//         actually stuck (unlike INSERT/UPDATE/DELETE above, which get probed directly). Both
+//         read supabase/migrations/20260813000000_create_profile_verifications.sql's own new
+//         profile_verifications_privilege_grants() RPC (service_role-only, see that function's
+//         doc comment for why a dedicated RPC instead of information_schema — PostgREST doesn't
+//         expose that schema at all) and check the grant catalog directly: neither `anon` nor
+//         `authenticated` holds TRUNCATE, and `anon` holds no column-level SELECT grant on this
+//         table at all (this migration's SELECT revoke was previously scoped to `authenticated`
+//         only, an inconsistency with zero live effect given the row-level policy but pinned
+//         here anyway).
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -127,12 +146,11 @@ const EXPIRED_CODE = 'PV172EXPIRED'
 
 // Must match the migration's own hashing exactly (encode(sha256(convert_to(code, 'utf8')),
 // 'hex')) — same algorithm, same lowercase-hex encoding, so a hash computed here and one computed
-// by Postgres for the same plaintext are byte-for-byte identical. Used to seed both the
-// known-plaintext pending row the confirm_pilot_verification assertions need (seedPendingVerification)
-// and the EXPIRED code case (seedExpiredCode) — both go straight through the admin client's table
-// access rather than through issue_pilot_verification, which round 4 locked down to service_role
-// only (see this file's own module comment for why that RPC can no longer be this script's way of
-// seeding a row).
+// by Postgres for the same plaintext are byte-for-byte identical. Used to independently check the
+// hash issue_pilot_verification actually persisted (assertServiceRoleIssuesVerificationForLinkedUser)
+// and to seed the EXPIRED code case directly via the admin client (seedExpiredCode, which needs an
+// already-expired otp_expires_at — a timestamp issue_pilot_verification itself always computes as
+// in the future, so there is no RPC path that produces one).
 function sha256Hex(code: string): string {
   return createHash('sha256').update(code, 'utf8').digest('hex')
 }
@@ -185,9 +203,12 @@ async function cleanupFixtures(ownerId: string, otherId: string): Promise<void> 
 
 // OWNER and OTHER both need a profiles row with a linked pilot id: OWNER's backs
 // issue_pilot_verification/the trigger test, OTHER's backs assertOtherCannotSelectOwnersRow
-// needing a real session. No UNLINKED fixture (round 3 had one, solely for
-// assertIssueWithoutLinkedPilotIdFails): round 4 covers that same "no linked profile" business
-// path a different way — see assertServiceRoleReachesIssueVerificationBody's own doc comment.
+// needing a real session. Still no UNLINKED fixture user needed: round 5's
+// assertServiceRoleIssueWithoutLinkedPilotIdFails covers the "no linked profile" business path
+// with a bare random uuid instead (see that function's own doc comment) — the function under
+// test only ever looks up target_user_id in profiles, it never needs target_user_id to be a real
+// auth.users row to hit that lookup's "not found" branch, so provisioning a whole extra fixture
+// user (sign-in, cleanup) for it would be pure overhead.
 // Seeded via the admin client — profiles' own RLS isn't what this script is testing, same
 // reasoning verify-follows-select-policy.mts's seedFixtures uses for its profiles rows.
 async function seedProfiles(ownerId: string, otherId: string): Promise<void> {
@@ -212,6 +233,42 @@ async function signInAsUser(email: string, emailOtp: string): Promise<SupabaseCl
     throw new Error(`sign-in failed for ${email}: ${error ? error.message : 'verifyOtp returned no session'}`)
   }
   return sessionClient
+}
+
+type PrivilegeGrantRow = { source: 'table' | 'column'; grantee: string; privilege_type: string; column_name: string | null }
+
+// Reads supabase/migrations/20260813000000_create_profile_verifications.sql's own
+// profile_verifications_privilege_grants() RPC (service_role-only) — the only way this script
+// can see this table's actual grant catalog at all: PostgREST does not expose information_schema
+// (or any system/catalog schema) over REST, for any role, so there is no `.schema(...)` call that
+// would ever reach it directly. See that function's own doc comment for the full reasoning.
+async function fetchPrivilegeGrants(): Promise<PrivilegeGrantRow[]> {
+  const { data, error } = await adminClient.rpc('profile_verifications_privilege_grants')
+  if (error) throw new Error(`failed to read profile_verifications' own privilege grants via the service_role-only RPC: ${error.message}`)
+  return (data ?? []) as PrivilegeGrantRow[]
+}
+
+// PostgREST has no TRUNCATE verb, so unlike INSERT/UPDATE/DELETE below (each probed by actually
+// attempting them and checking for a privilege-denied error), there is no live request this
+// script could ever send to prove TRUNCATE is closed — this migration's own round-3/round-4
+// revoke had zero assertion coverage in either direction until now. Reads the grant catalog
+// directly instead via fetchPrivilegeGrants.
+function assertTruncateIsClosedForClientRoles(grants: PrivilegeGrantRow[]): void {
+  const truncateGrantees = grants.filter((g) => g.privilege_type === 'TRUNCATE').map((g) => g.grantee)
+  report(!truncateGrantees.includes('anon'), `negative: anon holds no TRUNCATE grant on profile_verifications (grantees seen with TRUNCATE: ${JSON.stringify(truncateGrantees)})`)
+  report(!truncateGrantees.includes('authenticated'), `negative: authenticated holds no TRUNCATE grant on profile_verifications (grantees seen with TRUNCATE: ${JSON.stringify(truncateGrantees)})`)
+}
+
+// Round 5 pin: this migration's column-level SELECT revoke previously named only
+// `authenticated`, an inconsistency with the INSERT/UPDATE/DELETE/TRUNCATE revoke just above it
+// (which round 4 already widened to both roles for the same reason). Not a live leak either way —
+// the row-level policy is `to authenticated` only, so anon already saw 0 rows regardless of what
+// column-level SELECT privilege it held — but nothing previously pinned that, so a future change
+// to the row-level policy could have quietly turned it into one. Checks anon holds NO
+// column-level SELECT grant at all here, not just that otp_code_hash specifically is excluded.
+function assertAnonHasNoSelectGrantAtAll(grants: PrivilegeGrantRow[]): void {
+  const anonSelectColumns = grants.filter((g) => g.grantee === 'anon' && g.privilege_type === 'SELECT').map((g) => g.column_name)
+  report(anonSelectColumns.length === 0, `negative: anon holds no column-level SELECT grant on profile_verifications at all, including otp_code_hash (columns seen: ${JSON.stringify(anonSelectColumns)})`)
 }
 
 // Round 3's headline property: there is no INSERT grant left at all, so this must fail outright.
@@ -290,75 +347,90 @@ async function assertOtherCannotSelectOwnersRow(otherClient: SupabaseClient, own
   report(error === null && rows.length === 0, `negative: the owner's row is NOT visible to a different authenticated user (rows seen: ${JSON.stringify(rows)})`)
 }
 
-async function callIssue(client: SupabaseClient, scrapedEmail: string, code: string): Promise<{ error: string | null; code_: string | null }> {
-  const { error } = await client.rpc('issue_pilot_verification', { scraped_email: scrapedEmail, code })
+async function callIssue(
+  client: SupabaseClient,
+  targetUserId: string,
+  scrapedEmail: string,
+  code: string,
+): Promise<{ error: string | null; code_: string | null }> {
+  const { error } = await client.rpc('issue_pilot_verification', { target_user_id: targetUserId, scraped_email: scrapedEmail, code })
   return { error: error?.message ?? null, code_: error?.code ?? null }
 }
 
-// THE critical fix this round proves closed: round 3 granted issue_pilot_verification's EXECUTE
-// to `authenticated`, which let any signed-in user call it directly with a code of their own
-// choosing (then immediately confirm that same code) — no email ever sent. Round 4 revokes that
-// grant entirely. The owner's own real, correctly-linked session must now be denied outright, at
-// the privilege layer, before the function body (and its `code` argument) is ever reached —
-// exactly the same 42501-before-RLS shape assertDirectInsertIsPrivilegeDenied et al. already
-// establish for the table's own INSERT/UPDATE/DELETE grants above.
+// THE critical fix round 4 proves closed, re-verified unaffected by round 5's signature change:
+// round 3 granted issue_pilot_verification's EXECUTE to `authenticated`, which let any signed-in
+// user call it directly with a code of their own choosing (then immediately confirm that same
+// code) — no email ever sent. Round 4 revokes that grant entirely. The owner's own real,
+// correctly-linked session must be denied outright, at the privilege layer, before the function
+// body (and its `code`/`target_user_id` arguments) is ever reached — exactly the same
+// 42501-before-RLS shape assertDirectInsertIsPrivilegeDenied et al. already establish for the
+// table's own INSERT/UPDATE/DELETE grants above. Passing ownerId as target_user_id here (rather
+// than some other, arbitrary uuid) deliberately proves the denial isn't merely "this specific
+// argument value is rejected" — even a caller targeting THEMSELVES is denied, because the grant
+// check happens before any argument, including target_user_id, is ever inspected.
 async function assertOwnerCannotIssueVerificationDirectly(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
-  const { error, code_ } = await callIssue(ownerClient, OWNER_SCRAPED_EMAIL, 'ATTACKER-CHOSEN-CODE')
+  const { error, code_ } = await callIssue(ownerClient, ownerId, OWNER_SCRAPED_EMAIL, 'ATTACKER-CHOSEN-CODE')
   report(error !== null, `negative: the owner's own authenticated session calling issue_pilot_verification directly was rejected (error: ${error ?? 'none — BUG'})`)
-  report(code_ === '42501', `negative: the rejection is a table-level privilege denial (42501), raised before the function body (and its caller-supplied code) is ever reached (code seen: ${code_ ?? 'none'})`)
+  report(code_ === '42501', `negative: the rejection is a table-level privilege denial (42501), raised before the function body (and its caller-supplied arguments) is ever reached (code seen: ${code_ ?? 'none'})`)
 
   const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('user_id').eq('user_id', ownerId)
   if (readError) throw new Error(`failed to read back owner rows via admin client: ${readError.message}`)
   report((rows ?? []).length === 0, `negative: no row was created by the denied direct call (rows seen: ${JSON.stringify(rows)})`)
 }
 
-// Positive control mirroring the negative one above: service_role's EXECUTE grant must actually
-// work, not just exist on paper — "the fix itself is exercised, not just the vulnerability's
-// absence". adminClient (src/lib/supabase/admin.ts's createAdminClient, a bare service_role key)
-// carries no JWT `sub` claim, so auth.uid() resolves to null for it — the SAME condition a caller
-// with no linked profiles row hits, which is exactly what round 3's now-removed
-// assertIssueWithoutLinkedPilotIdFails tested via a dedicated UNLINKED fixture user. That
-// coverage is preserved here, not lost: the assertion below distinguishes "blocked by the grant"
-// (42501, would mean this round's fix is broken) from "reached the function body and hit its own
-// business-rule exception" (P0001, "no flightlog pilot id linked to the calling profile" — proves
-// service_role passed the grant AND the function's own validation still runs correctly).
+// THE genuine positive control round 4's assertServiceRoleReachesIssueVerificationBody was
+// missing: round 4's version could only ever prove service_role's call reached the function
+// body, never that a call could actually SUCCEED, because auth.uid() was always null under
+// service_role — every call hit the "no linked pilot id" exception regardless of whether a real
+// linked profile existed, so this "positive control" would have stayed green even under round
+// 4's dead end (see the migration's own doc comment history for how that was measured). Now that
+// `target_user_id` gives the function an identity that doesn't come from auth.uid() at all, this
+// asserts a REAL end-to-end success: service_role, a target_user_id with an actual linked
+// profiles.flightlog_pilot_id (OWNER_PILOT_ID, seeded by seedProfiles), and the correct resulting
+// row — hash, expiry, pilot_id, and email all read back and checked, not just "no error".
 //
-// What this does NOT cover: a full round-trip where service_role's call is also scoped to a
-// SPECIFIC user's identity (so the function derives and stores a real flightlog_pilot_id). Doing
-// that requires a JWT carrying both role=service_role and a sub claim, which requires signing a
-// custom token with the project's JWT secret — not available to this script (only the anon key
-// and service role key are configured; see src/lib/supabase/env.ts / admin.ts). #176's server
-// action will need to settle how a service_role-privileged call carries a specific user's
-// identity; this script proves the GRANT itself is correct and the function is reachable, which
-// is what round 4 changed. issue_pilot_verification's own body (hashing, expiry, upsert,
-// pilot-id-from-profiles derivation) was independently proven correct end-to-end against a real
-// Postgres cluster with `role` and `request.jwt.claim.sub` both under direct control — see this
-// migration's own doc comment / review trail for that evidence.
-async function assertServiceRoleReachesIssueVerificationBody(): Promise<void> {
-  const { error, code_ } = await callIssue(adminClient, 'service-role-probe@example.test', 'IRRELEVANT-CODE')
-  report(error !== null, `function: service_role's call was not silently accepted with no linked identity to work from (error: ${error ?? 'none'})`)
-  report(code_ !== '42501', `positive: service_role's call was NOT blocked by a privilege denial, unlike the owner's direct call above (code seen: ${code_ ?? 'none'})`)
-  report(code_ === 'P0001', `positive: service_role passed the grant and reached the function body, which correctly raised its own "no linked pilot id" exception for a caller with no forwarded identity (code seen: ${code_ ?? 'none'})`)
+// Doubles as this script's own way of seeding the `pending` row the confirm_pilot_verification
+// assertions below need: round 4 had to bypass the RPC entirely for that (seedPendingVerification,
+// a direct admin-client table write) because the RPC could never succeed. Now that it can, seeding
+// through the real path is both more realistic coverage and less code to maintain.
+async function assertServiceRoleIssuesVerificationForLinkedUser(ownerId: string, code: string): Promise<void> {
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, code)
+  report(error === null, `positive: service_role issuing a verification for a target_user_id WITH a linked pilot id succeeded (error: ${error ?? 'none'}, code: ${code_ ?? 'n/a'})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('status, otp_code_hash, otp_expires_at, flightlog_pilot_id, email')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back the issued row via admin client: ${readError.message}`)
+
+  report(row?.status === 'pending', `positive: the issued row's status is 'pending' (admin read: ${JSON.stringify(row)})`)
+  report(row?.otp_code_hash === sha256Hex(code), `positive: the issued row's otp_code_hash matches sha256(code), computed the same way the migration does (admin read: ${JSON.stringify(row)})`)
+  const expiresAtMs = row?.otp_expires_at ? new Date(row.otp_expires_at as string).getTime() : null
+  report(
+    expiresAtMs !== null && expiresAtMs > Date.now() && expiresAtMs <= Date.now() + 10 * 60 * 1000 + 5_000,
+    `positive: the issued row's otp_expires_at is ~10 minutes from now, computed server-side rather than trusted from a caller-supplied timestamp (admin read: ${JSON.stringify(row)})`,
+  )
+  report(row?.flightlog_pilot_id === OWNER_PILOT_ID, `positive: the issued row's flightlog_pilot_id was derived from the target user's own profiles row, not caller-supplied (admin read: ${JSON.stringify(row)})`)
+  report(row?.email === OWNER_SCRAPED_EMAIL, `positive: the issued row's email matches what was passed in (admin read: ${JSON.stringify(row)})`)
 }
 
-// This round's write-surface lock-down means issue_pilot_verification can no longer be this
-// script's own way of seeding a `pending` row with a known plaintext code before the
-// confirm_pilot_verification assertions below run (see assertServiceRoleReachesIssueVerificationBody's
-// own doc comment for why). Seeds the same shape directly via the admin client instead — the same
-// technique seedExpiredCode already used for the expired-code case.
-async function seedPendingVerification(ownerId: string, code: string): Promise<void> {
-  const { error } = await adminClient.from('profile_verifications').upsert(
-    {
-      user_id: ownerId,
-      status: 'pending',
-      otp_code_hash: sha256Hex(code),
-      otp_expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-      flightlog_pilot_id: OWNER_PILOT_ID,
-      email: OWNER_SCRAPED_EMAIL,
-    },
-    { onConflict: 'user_id' },
-  )
-  if (error) throw new Error(`failed to seed a pending profile_verifications row via admin client: ${error.message}`)
+// THE negative case round 4's version could never distinguish from a bug: a target_user_id with
+// genuinely no linked profiles row must still raise P0001 ("no flightlog pilot id linked to the
+// target profile"), but now for the right reason (an actual failed lookup) rather than the
+// accidental one (auth.uid() being null no matter what). A bare random uuid is enough — the
+// function only ever looks target_user_id up in profiles, it never needs target_user_id to
+// reference a real auth.users row to hit that lookup's "not found" branch, so this needs no
+// fixture user (sign-in, cleanup) of its own.
+async function assertServiceRoleIssueWithoutLinkedPilotIdFails(): Promise<void> {
+  const unlinkedUserId = randomUUID()
+  const { error, code_ } = await callIssue(adminClient, unlinkedUserId, 'unlinked-probe@example.test', 'IRRELEVANT-CODE')
+  report(error !== null, `negative: service_role issuing a verification for a target_user_id with NO linked pilot id was rejected (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'P0001', `negative: the rejection is the function's own raised exception (P0001), for a target user id that genuinely has no profiles row, not a privilege denial (code seen: ${code_ ?? 'none'})`)
+
+  const { data: rows, error: readError } = await adminClient.from('profile_verifications').select('user_id').eq('user_id', unlinkedUserId)
+  if (readError) throw new Error(`failed to read back rows for the unlinked probe id via admin client: ${readError.message}`)
+  report((rows ?? []).length === 0, `negative: no row was created for the unlinked target_user_id (rows seen: ${JSON.stringify(rows)})`)
 }
 
 async function confirmAs(client: SupabaseClient, code: string): Promise<{ confirmed: boolean | null; error: string | null }> {
@@ -484,13 +556,17 @@ try {
   const ownerClient = await signInAsUser(OWNER_EMAIL, ownerEmailOtp)
   const otherClient = await signInAsUser(OTHER_EMAIL, otherEmailOtp)
 
+  const privilegeGrants = await fetchPrivilegeGrants()
+  assertTruncateIsClosedForClientRoles(privilegeGrants)
+  assertAnonHasNoSelectGrantAtAll(privilegeGrants)
+
   await assertDirectInsertIsPrivilegeDenied(ownerClient, ownerId)
   await assertDirectUpdateIsPrivilegeDenied(ownerClient, ownerId)
   await assertDirectDeleteIsPrivilegeDenied(ownerClient, ownerId)
 
   await assertOwnerCannotIssueVerificationDirectly(ownerClient, ownerId)
-  await assertServiceRoleReachesIssueVerificationBody()
-  await seedPendingVerification(ownerId, CORRECT_CODE)
+  await assertServiceRoleIssueWithoutLinkedPilotIdFails()
+  await assertServiceRoleIssuesVerificationForLinkedUser(ownerId, CORRECT_CODE)
 
   await assertOwnerCanReadOwnRow(ownerClient, ownerId)
   await assertOwnerCannotSelectOtpCodeHash(ownerClient, ownerId)
