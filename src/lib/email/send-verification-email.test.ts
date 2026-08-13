@@ -29,6 +29,19 @@ describe('sendVerificationEmail', () => {
     expect(consoleLog).not.toHaveBeenCalled()
   })
 
+  it('sends from the FLIGHTLOG_VERIFICATION_FROM_ADDRESS env var when set, instead of the hardcoded fallback', async () => {
+    vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', 'true')
+    vi.stubEnv('FLIGHTLOG_VERIFICATION_FROM_ADDRESS', 'Custom Sender <custom@example.com>')
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const send = vi.fn().mockResolvedValue({ data: { id: 'email-1' }, error: null })
+
+    await sendVerificationEmail('pilot@example.com', '123456', { send })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'Custom Sender <custom@example.com>' }),
+    )
+  })
+
   it('does not call Resend, and logs the code server-side instead, when the flag is off', async () => {
     vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', '')
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -54,11 +67,16 @@ describe('sendVerificationEmail', () => {
     },
   )
 
-  it('throws when Resend resolves with an error instead of rejecting, so a failed send is never silently swallowed', async () => {
+  it('throws when Resend resolves with an error instead of rejecting, so a failed send is never silently swallowed, preserving the original error as cause', async () => {
     vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', 'true')
     vi.spyOn(console, 'log').mockImplementation(() => {})
-    const send = vi.fn().mockResolvedValue({ data: null, error: { message: 'some failure' } })
+    const resendError = { message: 'some failure' }
+    const send = vi.fn().mockResolvedValue({ data: null, error: resendError })
 
-    await expect(sendVerificationEmail('pilot@example.com', '123456', { send })).rejects.toThrow('some failure')
+    const error = await sendVerificationEmail('pilot@example.com', '123456', { send }).catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toContain('some failure')
+    expect((error as Error).cause).toBe(resendError)
   })
 })

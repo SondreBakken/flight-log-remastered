@@ -11,10 +11,12 @@ import { Resend } from 'resend'
 // production and a fake one in tests, so a send can be asserted without a real network call.
 export type VerificationEmailClient = { send: Resend['emails']['send'] }
 
-// Placeholder until a real send domain is provisioned (#175's owner decision) — the flag-gated
-// path below means this is never exercised until FLIGHTLOG_VERIFICATION_EMAIL_ENABLED is turned
-// on for real.
-const FROM_ADDRESS = process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flight Log <verify@flightlog.app>'
+// Read lazily, inside a function call, never at module top level — see admin.ts's doc comment
+// for why the env read has to stay behind a function call (also lets tests reach it via
+// vi.stubEnv, which a module-load-time const never would).
+function verificationFromAddress(): string {
+  return process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flight Log <verify@flightlog.app>'
+}
 
 function isVerificationEmailEnabled(): boolean {
   return process.env.FLIGHTLOG_VERIFICATION_EMAIL_ENABLED === 'true'
@@ -39,13 +41,13 @@ export async function sendVerificationEmail(email: string, code: string, resendC
 
   const client = resendClient ?? createResendClient()
   const { error } = await client.send({
-    from: FROM_ADDRESS,
+    from: verificationFromAddress(),
     to: email,
     subject: 'Your Flight Log verification code',
     text: `Your verification code is ${code}`,
   })
 
   if (error) {
-    throw new Error(`Failed to send verification email: ${error.message}`)
+    throw new Error(`Failed to send verification email: ${error.message}`, { cause: error })
   }
 }
