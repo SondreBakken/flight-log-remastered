@@ -40,4 +40,25 @@ describe('sendVerificationEmail', () => {
     expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('pilot@example.com'))
     expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining('123456'))
   })
+
+  it.each(['false', '0'])(
+    'does not call Resend when the flag is the string %j, since env vars are strings and Boolean(...) would treat any non-empty value as on',
+    async (value) => {
+      vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', value)
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      const send = vi.fn()
+
+      await sendVerificationEmail('pilot@example.com', '123456', { send })
+
+      expect(send).not.toHaveBeenCalled()
+    },
+  )
+
+  it('throws when Resend resolves with an error instead of rejecting, so a failed send is never silently swallowed', async () => {
+    vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', 'true')
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const send = vi.fn().mockResolvedValue({ data: null, error: { message: 'some failure' } })
+
+    await expect(sendVerificationEmail('pilot@example.com', '123456', { send })).rejects.toThrow('some failure')
+  })
 })

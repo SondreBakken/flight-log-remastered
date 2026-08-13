@@ -14,10 +14,10 @@ export type VerificationEmailClient = { send: Resend['emails']['send'] }
 // Placeholder until a real send domain is provisioned (#175's owner decision) — the flag-gated
 // path below means this is never exercised until FLIGHTLOG_VERIFICATION_EMAIL_ENABLED is turned
 // on for real.
-const FROM_ADDRESS = 'Flight Log <verify@flightlog.app>'
+const FROM_ADDRESS = process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flight Log <verify@flightlog.app>'
 
 function isVerificationEmailEnabled(): boolean {
-  return Boolean(process.env.FLIGHTLOG_VERIFICATION_EMAIL_ENABLED)
+  return process.env.FLIGHTLOG_VERIFICATION_EMAIL_ENABLED === 'true'
 }
 
 // Constructed lazily from RESEND_API_KEY, only on the flag-on path — mirrors createAdminClient's
@@ -38,10 +38,14 @@ export async function sendVerificationEmail(email: string, code: string, resendC
   }
 
   const client = resendClient ?? createResendClient()
-  await client.send({
+  const { error } = await client.send({
     from: FROM_ADDRESS,
     to: email,
     subject: 'Your Flight Log verification code',
     text: `Your verification code is ${code}`,
   })
+
+  if (error) {
+    throw new Error(`Failed to send verification email: ${error.message}`)
+  }
 }
