@@ -1,0 +1,41 @@
+export type StartPilotVerificationState = { status: 'success' } | { status: 'error'; message: string }
+
+// Unlike account-form-state.ts/pilot-id-form-state.ts, no single lib call produces this result —
+// actions.ts assembles it itself while orchestrating #173 (scrape email) -> #174 (issue OTP) ->
+// #175 (send/log) in sequence (see startPilotVerificationAction's own doc comment for why that
+// orchestration stays inline in the action rather than behind its own business-logic module).
+// This type exists purely so that assembly has something typed to hand to the mapper below,
+// mirroring the "business result -> UI state" split those two sibling state files already use.
+export type StartPilotVerificationResult =
+  | { kind: 'started' }
+  | { kind: 'no-linked-pilot-id' }
+  | { kind: 'pilot-not-found' }
+  | { kind: 'no-email' }
+  | { kind: 'send-failed' }
+  | { kind: 'error' }
+
+const NO_LINKED_PILOT_ID_MESSAGE = 'Link your flightlog.org pilot id first, then try verifying again.'
+const PILOT_NOT_FOUND_MESSAGE = "We couldn't find that pilot on flightlog.org anymore. Check your linked pilot id."
+const NO_EMAIL_MESSAGE = 'Your flightlog.org profile has no email address on file. Add one on flightlog.org and try again.'
+const SEND_FAILED_MESSAGE = 'Your verification code was generated, but we could not email it. Try again in a moment.'
+const GENERIC_ERROR_MESSAGE = 'Something went wrong starting pilot id verification. Try again.'
+
+// A pure mapping from the assembled business result to what the UI shows, same split-out-of-
+// actions.ts reasoning as account-form-state.ts's own doc comment ('use server' files may only
+// export async Server Functions).
+export function startPilotVerificationStateFor(result: StartPilotVerificationResult): StartPilotVerificationState {
+  switch (result.kind) {
+    case 'started':
+      return { status: 'success' }
+    case 'no-linked-pilot-id':
+      return { status: 'error', message: NO_LINKED_PILOT_ID_MESSAGE }
+    case 'pilot-not-found':
+      return { status: 'error', message: PILOT_NOT_FOUND_MESSAGE }
+    case 'no-email':
+      return { status: 'error', message: NO_EMAIL_MESSAGE }
+    case 'send-failed':
+      return { status: 'error', message: SEND_FAILED_MESSAGE }
+    case 'error':
+      return { status: 'error', message: GENERIC_ERROR_MESSAGE }
+  }
+}
