@@ -114,6 +114,17 @@ import { requireSupabaseEnv } from '../src/lib/supabase/env'
 //         table at all (this migration's SELECT revoke was previously scoped to `authenticated`
 //         only, an inconsistency with zero live effect given the row-level policy but pinned
 //         here anyway).
+//   - ROUND 6 (this version) adds coverage for issue #181's re-issuance cooldown
+//     (20260813030000_rate_limit_issue_pilot_verification.sql, rewritten after review against a
+//     real Postgres cluster found the first version bypassable via a pilot-id relink and
+//     vulnerable to a check-then-act TOCTOU — see that migration's own doc comment for both
+//     defects and their fixes). assertServiceRoleIssueWithinCooldownIsRateLimited is the
+//     PostgREST-level round-trip proof that RL001 actually reaches a caller as `error.code`, not
+//     just something reasoned about from the plpgsql source: it reuses
+//     assertServiceRoleIssuesVerificationForLinkedUser's own just-completed issuance as call #1,
+//     immediately re-issues for the SAME target_user_id, and asserts the second call is rejected
+//     with error.code === 'RL001' — well inside the 60-second cooldown window, and confirms the
+//     rejected call left the prior code's hash untouched.
 //
 // Run with:
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-profile-verifications-select-policy.mts
@@ -172,8 +183,19 @@ async function resolveTestUser(email: string): Promise<{ userId: string; emailOt
 }
 
 // Scoped to only the two fixture user ids, safe to call before AND after the run.
+//
+// Also clears profile_verification_issuance, not just profile_verifications/profiles: that table
+// has `on delete cascade` off auth.users, so a clean run's own cleanupFixtures (which deletes the
+// fixture auth users) already clears it — but deleteFixtureUsers logs and swallows a failed
+// deleteUser rather than throwing (see its own doc comment), so a prior run that hit that path
+// could leave the fixture auth user, and its issuance row, behind. Without this explicit clear, a
+// leftover last_issued_at from a previous run's own assertServiceRoleIssuesVerificationForLinkedUser
+// could make THIS run's first issuance call spuriously hit RL001 if re-run within 60 seconds.
 async function clearFixtureRows(ownerId: string, otherId: string): Promise<void> {
   const ids = [ownerId, otherId]
+  const { error: issuanceError } = await adminClient.from('profile_verification_issuance').delete().in('user_id', ids)
+  if (issuanceError) throw new Error(`failed to clear fixture profile_verification_issuance rows: ${issuanceError.message}`)
+
   const { error: verificationsError } = await adminClient.from('profile_verifications').delete().in('user_id', ids)
   if (verificationsError) throw new Error(`failed to clear fixture profile_verifications rows: ${verificationsError.message}`)
 
@@ -415,6 +437,32 @@ async function assertServiceRoleIssuesVerificationForLinkedUser(ownerId: string,
   report(row?.email === OWNER_SCRAPED_EMAIL, `positive: the issued row's email matches what was passed in (admin read: ${JSON.stringify(row)})`)
 }
 
+// Issue #181's cooldown, round-tripped through PostgREST for real:
+// 20260813030000_rate_limit_issue_pilot_verification.sql gates re-issuance with an atomic
+// `insert ... on conflict do update ... where` against a dedicated profile_verification_issuance
+// table, raising RL001 when the WHERE clause finds no row affected. Called immediately after
+// assertServiceRoleIssuesVerificationForLinkedUser's own successful issuance for `ownerId`
+// (reused as call #1, well inside the 60-second window), so this only needs to make call #2 and
+// check it's rejected — plus that the rejection didn't silently overwrite the first call's row,
+// proving the whole second transaction (including the profile_verifications write further down
+// the function body) rolled back, not just the cooldown table's own upsert.
+async function assertServiceRoleIssueWithinCooldownIsRateLimited(ownerId: string): Promise<void> {
+  const { error, code_ } = await callIssue(adminClient, ownerId, OWNER_SCRAPED_EMAIL, 'SHOULD-NOT-PERSIST')
+  report(error !== null, `negative: re-issuing for the same user inside the 60-second cooldown was rejected (error: ${error ?? 'none — BUG'})`)
+  report(code_ === 'RL001', `negative: the cooldown rejection round-trips through PostgREST as error.code === 'RL001' (code seen: ${code_ ?? 'none'})`)
+
+  const { data: row, error: readError } = await adminClient
+    .from('profile_verifications')
+    .select('otp_code_hash')
+    .eq('user_id', ownerId)
+    .single()
+  if (readError) throw new Error(`failed to read back owner row via admin client: ${readError.message}`)
+  report(
+    row?.otp_code_hash === sha256Hex(CORRECT_CODE),
+    `negative: the rate-limited re-issuance did not overwrite the prior call's persisted code hash (admin read: ${JSON.stringify(row)})`,
+  )
+}
+
 // THE negative case round 4's version could never distinguish from a bug: a target_user_id with
 // genuinely no linked profiles row must still raise P0001 ("no flightlog pilot id linked to the
 // target profile"), but now for the right reason (an actual failed lookup) rather than the
@@ -567,6 +615,7 @@ try {
   await assertOwnerCannotIssueVerificationDirectly(ownerClient, ownerId)
   await assertServiceRoleIssueWithoutLinkedPilotIdFails()
   await assertServiceRoleIssuesVerificationForLinkedUser(ownerId, CORRECT_CODE)
+  await assertServiceRoleIssueWithinCooldownIsRateLimited(ownerId)
 
   await assertOwnerCanReadOwnRow(ownerClient, ownerId)
   await assertOwnerCannotSelectOtpCodeHash(ownerClient, ownerId)
