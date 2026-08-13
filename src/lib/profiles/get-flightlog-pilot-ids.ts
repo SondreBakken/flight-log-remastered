@@ -36,7 +36,10 @@ export async function getFlightlogPilotIds(supabase: SupabaseClient, userIds: st
     // each caller (account-activity/index.tsx, use-own-flightlog-pilot-id.ts) for how this throw
     // is handled or converted per call site.
     console.error('[profiles] failed to load flightlog pilot ids:', error)
-    throw new ProfilesQueryError(`Failed to load flightlog pilot ids for ${userIds.length} user ${userIds.length === 1 ? 'id' : 'ids'}: ${error.message}`)
+    throw new ProfilesQueryError(
+      `Failed to load flightlog pilot ids for ${userIds.length} user ${userIds.length === 1 ? 'id' : 'ids'}: ${error.message}`,
+      { cause: error },
+    )
   }
 
   return new Map((data as ProfileRow[]).map((row) => [row.user_id, row.flightlog_pilot_id]))

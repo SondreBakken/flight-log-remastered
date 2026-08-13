@@ -31,12 +31,15 @@ describe('getFlightlogPilotIds', () => {
     expect(client.from).not.toHaveBeenCalled()
   })
 
-  it('throws a ProfilesQueryError, distinguishably from an empty Map, on a generic query error', async () => {
+  it('throws a ProfilesQueryError, distinguishably from an empty Map, on a generic query error, preserving the original error as cause', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table profiles' } })
+    const queryError = { message: 'permission denied for table profiles' }
+    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
 
-    const rejection = expect(getFlightlogPilotIds(client, ['user-1'])).rejects
-    await rejection.toBeInstanceOf(ProfilesQueryError)
+    const error = await getFlightlogPilotIds(client, ['user-1']).catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(ProfilesQueryError)
+    expect((error as ProfilesQueryError).cause).toBe(queryError)
 
     consoleError.mockRestore()
   })
