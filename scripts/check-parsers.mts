@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { parseFlights, parsePilot } from '../src/lib/flightlog/parse-flights'
+import { parsePilotEmail } from '../src/lib/flightlog/parse-pilot-email'
 import { parseTrack } from '../src/lib/flightlog/parse-track'
 import { parseCountries } from '../src/lib/flightlog/parse-countries'
 import { parseClubs } from '../src/lib/flightlog/parse-clubs'
@@ -90,6 +91,15 @@ for (const [file, userId] of pilotFixtures) {
   assert(pilot.name.trim() !== '', `${file}: pilot name is non-empty`)
   assert(flights.length > 0, `${file}: parses at least one flight`)
 }
+
+// #173: pilot-12677.html (the owner's own account) carries a real mailto anchor; pilot-4549.html
+// carries the identical info-cell shape with no mailto anchor at all — the live-confirmed "no
+// email on file" case, not a hypothetical.
+const email12677 = parsePilotEmail(readFileSync('fixtures/pilot-12677.html', 'utf8'))
+const email4549 = parsePilotEmail(readFileSync('fixtures/pilot-4549.html', 'utf8'))
+console.log(`pilot-12677.html: email=${email12677}, pilot-4549.html: email=${email4549 ?? 'null'}`)
+assert(email12677 === 'sondrebakken@gmail.com', `pilot-12677.html: resolves the expected email (got ${email12677})`)
+assert(email4549 === null, `pilot-4549.html: resolves to null — no mailto anchor on this profile (got ${email4549})`)
 
 const track = parseTrack(readFileSync('fixtures/track-1001428.kml', 'utf8'), 1001428)
 const stats1001428 = track.stats
