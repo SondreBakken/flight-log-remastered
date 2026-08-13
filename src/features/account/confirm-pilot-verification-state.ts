@@ -2,18 +2,17 @@ import type { ConfirmPilotVerificationResult } from '@/lib/profiles/confirm-pilo
 
 export type ConfirmPilotVerificationState = { status: 'idle' } | { status: 'error'; message: string } | { status: 'success' }
 
-// 'db-error' is a UI-layer-only outcome (not something confirmPilotVerification itself returns) —
-// the caller in actions.ts folds thrown errors into it before calling confirmPilotVerificationStateFor
-// below. Defined as an explicit superset of the lib-level result rather than its own duplicate
-// union so the relationship between the two is visible here rather than only by naming
-// convention.
+// Defined as an explicit superset of the lib-level result (rather than its own duplicate union) so
+// the relationship between the two is visible here rather than only by naming convention.
 export type ConfirmPilotVerificationOutcome =
   | ConfirmPilotVerificationResult
-  // A DB/RPC call failing outright (thrown ProfilesQueryError, network error, etc.), as opposed to
-  // the lib-level 'locked-out'/'incorrect-or-expired' outcomes the RPC itself returns for expected
-  // business-rule rejections. The same "expected rejection gets its own typed outcome, unexpected
-  // failure gets its own generic one" split start-pilot-verification-state.ts draws between
-  // 'rate-limited' and its own generic 'error'.
+  // 'db-error' is a UI-layer-only outcome (not something confirmPilotVerification itself returns) —
+  // the caller in actions.ts folds thrown errors into it before calling confirmPilotVerificationStateFor
+  // below, e.g. a thrown ProfilesQueryError or network error, as opposed to the lib-level
+  // 'locked-out'/'incorrect-or-expired' outcomes the RPC itself returns for expected business-rule
+  // rejections. The same "expected rejection gets its own typed outcome, unexpected failure gets its
+  // own generic one" split start-pilot-verification-state.ts draws between 'rate-limited' and its own
+  // generic 'error'.
   | { kind: 'db-error' }
 
 const INCORRECT_OR_EXPIRED_MESSAGE = 'That code is incorrect or has expired. Start verification again for a fresh code.'
