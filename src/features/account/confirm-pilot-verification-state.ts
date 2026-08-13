@@ -1,16 +1,18 @@
+import type { ConfirmPilotVerificationResult } from '@/lib/profiles/confirm-pilot-verification'
+
 export type ConfirmPilotVerificationState = { status: 'idle' } | { status: 'error'; message: string } | { status: 'success' }
 
-export type ConfirmPilotVerificationResult =
-  | { kind: 'confirmed' }
-  | { kind: 'incorrect-or-expired' }
-  // confirm_pilot_verification's attempt lockout (#189,
-  // 20260813040000_lockout_confirm_pilot_verification_attempts.sql) rejected this call: the row
-  // already hit its failed-attempt threshold, so no further guesses are accepted — not even a
-  // correct one — until a fresh code is issued. Distinct from 'incorrect-or-expired' so the user
-  // is told to request a new code rather than just "try again", the same "expected business-rule
-  // rejection gets its own outcome" distinction start-pilot-verification-state.ts draws for
-  // 'rate-limited'.
-  | { kind: 'locked-out' }
+// Defined as an explicit superset of the lib-level result (rather than its own duplicate union) so
+// the relationship between the two is visible here rather than only by naming convention.
+export type ConfirmPilotVerificationOutcome =
+  | ConfirmPilotVerificationResult
+  // 'db-error' is a UI-layer-only outcome (not something confirmPilotVerification itself returns) —
+  // the caller in actions.ts folds thrown errors into it before calling confirmPilotVerificationStateFor
+  // below, e.g. a thrown ProfilesQueryError or network error, as opposed to the lib-level
+  // 'locked-out'/'incorrect-or-expired' outcomes the RPC itself returns for expected business-rule
+  // rejections. The same "expected rejection gets its own typed outcome, unexpected failure gets its
+  // own generic one" split start-pilot-verification-state.ts draws between 'rate-limited' and its own
+  // generic 'error'.
   | { kind: 'db-error' }
 
 const INCORRECT_OR_EXPIRED_MESSAGE = 'That code is incorrect or has expired. Start verification again for a fresh code.'
@@ -29,7 +31,7 @@ const GENERIC_ERROR_MESSAGE = 'Something went wrong confirming your pilot id ver
 // 'invalid-pilot-id' precedent (there, malformed vs well-formed-but-unrecognised; here, wrong vs
 // expired) — collapsed because neither distinction is this app's business to guess at from a
 // plain boolean, and "request a fresh code" is the same remedy either way.
-export function confirmPilotVerificationStateFor(result: ConfirmPilotVerificationResult): ConfirmPilotVerificationState {
+export function confirmPilotVerificationStateFor(result: ConfirmPilotVerificationOutcome): ConfirmPilotVerificationState {
   switch (result.kind) {
     case 'confirmed':
       return { status: 'success' }

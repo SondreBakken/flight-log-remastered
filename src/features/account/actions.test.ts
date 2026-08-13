@@ -429,7 +429,7 @@ describe('confirmPilotVerificationAction', () => {
 })
 
 describe('confirmPilotVerificationStateFor', () => {
-  it('maps every ConfirmPilotVerificationResult kind to a UI state', () => {
+  it('maps every ConfirmPilotVerificationOutcome kind to a UI state', () => {
     expect(confirmPilotVerificationStateFor({ kind: 'confirmed' })).toEqual({ status: 'success' })
     expect(confirmPilotVerificationStateFor({ kind: 'incorrect-or-expired' })).toEqual({
       status: 'error',
