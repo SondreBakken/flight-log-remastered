@@ -275,6 +275,10 @@ UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, l
 mkdir -p fixtures && curl -s -c /tmp/fl.txt -A "$UA" https://flightlog.org/ -o /dev/null
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=12677" -o fixtures/pilot-12677.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=4549" -o fixtures/pilot-4549.html
+# 999999999, this repo's established "nonexistent" convention (see a22/a26/a42/rqtid1's own
+# nonexistent fixtures below) — confirmed unallocated live, same as every other pilot id sampled
+# in this range (see get-pilot-email.ts's own doc comment for why this shape matters).
+curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?l=1&a=28&user_id=999999999" -o fixtures/pilot-nonexistent.html
 curl -s -b /tmp/fl.txt -A "$UA" "https://flightlog.org/fl.html?rqtid=19&trip_id=1001428" -o fixtures/track-1001428.kml
 # The rest of these track-*.kml fixtures back check:scoring's scoring-overlay assertions (#15,
 # extended by #58). requiredFixtures in check-scoring.mts gates the WHOLE script on all of them
