@@ -17,27 +17,33 @@ const MAILTO_PREFIX = /^mailto:/i
 
 // Simple single-address check, not full RFC 5322 — this repo has no existing email-validation
 // helper to reuse, and the exhaustive grammar is unnecessary for what this guards against below.
-const SINGLE_EMAIL_PATTERN = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/
+// Excludes `< > ? ; : " \`` alongside whitespace/`@`/`,` as defense in depth: none of those belong
+// in a bare address, and closing them off here means even a decoded string that slipped past the
+// `?`/`,` split (see readMailtoAddress's own doc comment) still gets rejected by the pattern.
+const SINGLE_EMAIL_PATTERN = /^[^\s@,<>?;:"`]+@[^\s@,<>?;:"`]+\.[^\s@,<>?;:"`]+$/
 
 // A `mailto:` href can carry more than a bare address: `?subject=...` query params, a
 // comma-separated list of multiple recipients, and percent-encoding. Any of those passed through
 // verbatim would reach an outbound email (Resend's `to` field, via the OTP flow #176 wires up)
-// as garbage or as an unintended fan-out. Strips the query string, keeps only the first address
-// off a comma-separated list, decodes percent-encoding, then validates the result actually looks
-// like one email address — anything that fails any of those steps is treated the same as no
-// mailto anchor at all (returns null), never surfaced as a 'found' email.
+// as garbage or as an unintended fan-out. Decodes percent-encoding FIRST, then strips the query
+// string and keeps only the first address off a comma-separated list — decoding before splitting
+// matters because a percent-encoded `%3F`/`%2C` is a real `?`/`,` once decoded, and splitting on
+// the still-encoded string would let it straight through (e.g. `bob@x.com%3Fsubject=Hei` would
+// resolve to `bob@x.com?subject=Hei` if split before decode). Finally validates the result
+// actually looks like one email address — anything that fails any of those steps is treated the
+// same as no mailto anchor at all (returns null), never surfaced as a 'found' email.
 function readMailtoAddress(hrefWithoutPrefix: string): string | null {
-  const [addressList = ''] = hrefWithoutPrefix.split('?')
-  const [firstAddress = ''] = addressList.split(',')
-
   let decoded: string
   try {
-    decoded = decodeURIComponent(firstAddress)
+    decoded = decodeURIComponent(hrefWithoutPrefix)
   } catch {
     return null
   }
 
-  const candidate = decoded.trim()
+  const [addressList = ''] = decoded.split('?')
+  const [firstAddress = ''] = addressList.split(',')
+
+  const candidate = firstAddress.trim()
   return SINGLE_EMAIL_PATTERN.test(candidate) ? candidate : null
 }
 

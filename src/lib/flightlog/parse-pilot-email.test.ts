@@ -81,4 +81,18 @@ describe('parsePilotEmail', () => {
   it('treats a mailto href with malformed percent-encoding as no-email rather than throwing', () => {
     expect(parsePilotEmail(htmlWithMailtoHref('mailto:pilot%zzexample.com'))).toBeNull()
   })
+
+  // Re-review finding: splitting on a literal `?`/`,` BEFORE decoding let a percent-encoded
+  // delimiter straight through — `%3F` only becomes a real `?` once decoded, so decode has to run
+  // first for the query-string strip to actually catch it.
+  it('drops a percent-encoded ?subject= off the mailto href, not just a literal one', () => {
+    expect(parsePilotEmail(htmlWithMailtoHref('mailto:bob@x.com%3Fsubject=Hei'))).toBe('bob@x.com')
+  })
+
+  // Same reordering bug, different shape: percent-encoded angle brackets around the address.
+  // Closed two ways — decode-then-split no longer treats the encoded brackets as inert address
+  // text past a delimiter, and SINGLE_EMAIL_PATTERN itself now rejects `<`/`>` in an address.
+  it('treats a mailto href with percent-encoded angle brackets as no-email rather than surfacing them', () => {
+    expect(parsePilotEmail(htmlWithMailtoHref('mailto:%3Cbob@x.com%3E'))).toBeNull()
+  })
 })

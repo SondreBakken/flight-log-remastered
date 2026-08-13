@@ -78,6 +78,13 @@ describe('hasProfileCell / isPilotNotFoundPage (#173 follow-up)', () => {
   // why this, and not a present-but-empty cell, is what a genuinely unallocated pilot id renders.
   const NOT_FOUND_HTML = `<html><body><div style='padding:0px 10px'>not found</div></body></html>`
   const UNRECOGNISED_HTML = `<html><body><p>some other page entirely, no profile cell and no not-found marker</p></body></html>`
+  // Unlike NOT_FOUND_HTML/UNRECOGNISED_HTML above, this one actually contains `<div>` elements —
+  // shaped like a WAF/Cloudflare interstitial, the exact real-world drift isPilotNotFoundPage
+  // exists to not misclassify as "not found". Without a `<div>`-bearing negative case, a mutant
+  // that replaces the predicate's whole body with `.some(() => true)` still passes every assertion
+  // below (both other fixtures have zero `<div>` elements, so `$('div').toArray().some(...)`
+  // returns false regardless of the callback) — see #173's re-review.
+  const DIV_BEARING_UNRECOGNISED_HTML = `<html><body><div class="cf-wrapper"><div id="challenge">Checking your browser</div></div></body></html>`
 
   it('hasProfileCell is true when the profile cell is present', () => {
     expect(hasProfileCell(PROFILE_HTML)).toBe(true)
@@ -92,5 +99,9 @@ describe('hasProfileCell / isPilotNotFoundPage (#173 follow-up)', () => {
     expect(isPilotNotFoundPage(NOT_FOUND_HTML)).toBe(true)
     expect(isPilotNotFoundPage(PROFILE_HTML)).toBe(false)
     expect(isPilotNotFoundPage(UNRECOGNISED_HTML)).toBe(false)
+  })
+
+  it('isPilotNotFoundPage is false for div-bearing markup whose divs never contain the exact "not found" text', () => {
+    expect(isPilotNotFoundPage(DIV_BEARING_UNRECOGNISED_HTML)).toBe(false)
   })
 })
