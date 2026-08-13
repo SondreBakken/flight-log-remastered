@@ -724,8 +724,14 @@ async function assertReplayedCodeDoesNotConfirm(ownerClient: SupabaseClient): Pr
 async function seedExpiredCode(ownerId: string, code: string): Promise<void> {
   const { error } = await adminClient
     .from('profile_verifications')
-    .update({ status: 'pending', otp_code_hash: sha256Hex(code), otp_expires_at: new Date(Date.now() - 60 * 1000).toISOString() })
-    .eq('user_id', ownerId)
+    .upsert({
+      user_id: ownerId,
+      status: 'pending',
+      flightlog_pilot_id: OWNER_PILOT_ID,
+      email: OWNER_SCRAPED_EMAIL,
+      otp_code_hash: sha256Hex(code),
+      otp_expires_at: new Date(Date.now() - 60 * 1000).toISOString(),
+    })
   if (error) throw new Error(`failed to seed an expired otp_code_hash via admin client: ${error.message}`)
 }
 
@@ -740,16 +746,15 @@ async function assertExpiredCodeDoesNotConfirm(ownerClient: SupabaseClient, owne
 }
 
 // Round 1's finding #3: binds a verification to the exact pilot id it verified. Resets the
-// owner's row to 'verified' bound to OWNER_PILOT_ID via the admin client first (independent of
-// whatever state the confirm-function assertions above left it in), then changes the OWNER's own
-// declared pilot id through their own session — the same write path a real profile edit uses —
-// and asserts the trigger deleted the now-stale verification. Unaffected by round 3's changes,
-// re-run here to confirm that's still true.
+// owner's row to 'verified' bound to OWNER_PILOT_ID via the admin client first — an upsert, so the
+// row is fully specified whether or not the confirm-function assertions above left one behind — then
+// changes the OWNER's own declared pilot id through their own session — the same write path a real
+// profile edit uses — and asserts the trigger deleted the now-stale verification. Unaffected by
+// round 3's changes, re-run here to confirm that's still true.
 async function assertPilotIdChangeInvalidatesVerification(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { error: seedError } = await adminClient
     .from('profile_verifications')
-    .update({ status: 'verified', flightlog_pilot_id: OWNER_PILOT_ID, otp_code_hash: null, otp_expires_at: null })
-    .eq('user_id', ownerId)
+    .upsert({ user_id: ownerId, status: 'verified', flightlog_pilot_id: OWNER_PILOT_ID, email: OWNER_SCRAPED_EMAIL, otp_code_hash: null, otp_expires_at: null })
   if (seedError) throw new Error(`failed to seed a verified row for the trigger test: ${seedError.message}`)
 
   const { error: updateError } = await ownerClient.from('profiles').update({ flightlog_pilot_id: OWNER_NEW_PILOT_ID }).eq('user_id', ownerId)
