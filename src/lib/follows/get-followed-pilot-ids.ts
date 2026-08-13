@@ -34,7 +34,9 @@ export async function getFollowedPilotIds(
 
   if (error) {
     console.error('[follows] failed to load followed pilot ids:', error)
-    throw new FollowsQueryError(`Failed to load followed pilot ids for user ${userId}: ${error.message}`)
+    throw new FollowsQueryError(`Failed to load followed pilot ids for user ${userId}: ${error.message}`, {
+      cause: error,
+    })
   }
 
   return new Set((data as FollowRow[]).map((row) => row.pilot_id))

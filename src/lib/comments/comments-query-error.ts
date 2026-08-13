@@ -5,8 +5,8 @@
 // specifically and let any other kind of throw (e.g. a mapping bug elsewhere in the same async
 // function) propagate instead of being misread as "no comments".
 export class CommentsQueryError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'CommentsQueryError'
   }
 }

@@ -27,12 +27,15 @@ describe('getComments', () => {
     ])
   })
 
-  it('throws, distinguishably from an empty list, when the query errors', async () => {
+  it('throws, distinguishably from an empty list, when the query errors, preserving the original error as cause', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table comments' } })
+    const queryError = { message: 'permission denied for table comments' }
+    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
 
-    await expect(getComments(client, 4549)).rejects.toThrow(CommentsQueryError)
+    const error = await getComments(client, 4549).catch((thrown: unknown) => thrown)
 
+    expect(error).toBeInstanceOf(CommentsQueryError)
+    expect((error as CommentsQueryError).cause).toBe(queryError)
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
   })
@@ -41,12 +44,16 @@ describe('getComments', () => {
   // comments read) must still resolve to a CommentsQueryError here, not propagate as-is: this
   // function's one caller, loadCommentsForFlight, only catches CommentsQueryError by type, so an
   // uncaught ProfilesQueryError would crash the whole flight page instead of degrading it.
-  it('recasts a ProfilesQueryError from attachDisplayNames into a CommentsQueryError', async () => {
+  it('recasts a ProfilesQueryError from attachDisplayNames into a CommentsQueryError, preserving it as cause', async () => {
     const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
     const { client } = fakeSupabaseQuery({ data: rows, error: null })
-    mockAttachDisplayNames.mockRejectedValue(new ProfilesQueryError('Failed to load display names for 1 user id: boom'))
+    const profilesError = new ProfilesQueryError('Failed to load display names for 1 user id: boom')
+    mockAttachDisplayNames.mockRejectedValue(profilesError)
 
-    await expect(getComments(client, 4549)).rejects.toThrow(CommentsQueryError)
+    const error = await getComments(client, 4549).catch((thrown: unknown) => thrown)
+
+    expect(error).toBeInstanceOf(CommentsQueryError)
+    expect((error as CommentsQueryError).cause).toBe(profilesError)
   })
 
   it('lets a non-ProfilesQueryError throw from attachDisplayNames propagate unchanged', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
+import { FollowsQueryError } from './follows-query-error'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 const mockAttachDisplayNames = vi.fn()
@@ -24,12 +25,16 @@ describe('getFollowersForPilot', () => {
     expect(result).toEqual([{ userId: 'user-1', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' }])
   })
 
-  it('throws, distinguishably from an empty list, when the query errors', async () => {
+  it('throws, distinguishably from an empty list, when the query errors, preserving the original error as cause', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseQuery({ data: null, error: { message: 'permission denied for table follows' } })
+    const queryError = { message: 'permission denied for table follows' }
+    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
 
-    await expect(getFollowersForPilot(client, 4549)).rejects.toThrow(/4549/)
+    const error = await getFollowersForPilot(client, 4549).catch((thrown: unknown) => thrown)
 
+    expect(error).toBeInstanceOf(FollowsQueryError)
+    expect((error as FollowsQueryError).message).toMatch(/4549/)
+    expect((error as FollowsQueryError).cause).toBe(queryError)
     expect(mockAttachDisplayNames).not.toHaveBeenCalled()
     consoleError.mockRestore()
   })
