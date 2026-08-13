@@ -162,29 +162,37 @@ describe('useOwnPilotVerificationStatus', () => {
   // change is the only signal that component has that a refetch actually landed. A future
   // value-equality optimization here (e.g. returning the previous state object when the row is
   // unchanged) would make this test fail instead of silently disabling every
-  // "Verify"/"Re-verify"/"Send a new code" button in the app.
-  it('returns a new object identity per fetch even when the underlying row is unchanged', async () => {
-    mockMaybeSingle.mockResolvedValue({
-      data: {
-        status: 'pending',
-        otp_expires_at: '2026-08-13T10:32:00.000Z',
-        email: 'pilot@example.com',
-        flightlog_pilot_id: 4549,
-        created_at: '2026-08-13T10:22:00.000Z',
-      },
-      error: null,
+  // "Verify"/"Re-verify"/"Send a new code" button in the app. Parametrized over all three reachable
+  // stateFromRow branches: a constant hoisted for the 'none' or 'verified' branch (rather than
+  // returning a fresh object literal each call) would satisfy the 'pending' case alone, since that
+  // branch's row shape is the only one less tempting to hoist.
+  const rows = {
+    none: null,
+    verified: { status: 'verified', otp_expires_at: null, email: 'p@example.com', flightlog_pilot_id: 4549, created_at: 'x' },
+    pending: {
+      status: 'pending',
+      otp_expires_at: '2026-08-13T10:32:00.000Z',
+      email: 'p@example.com',
+      flightlog_pilot_id: 4549,
+      created_at: 'x',
+    },
+  } as const
+
+  for (const kind of ['none', 'verified', 'pending'] as const) {
+    it(`returns a new object identity per fetch for an unchanged ${kind} row`, async () => {
+      mockMaybeSingle.mockResolvedValue({ data: rows[kind], error: null })
+
+      const { result, rerender } = renderHook(({ refreshKey }) => useOwnPilotVerificationStatus('user-1', refreshKey), {
+        initialProps: { refreshKey: 0 },
+      })
+
+      await waitFor(() => expect(result.current.kind).toBe(kind))
+      const first = result.current
+
+      rerender({ refreshKey: 1 })
+
+      await waitFor(() => expect(result.current).not.toBe(first))
+      expect(result.current).toEqual(first)
     })
-
-    const { result, rerender } = renderHook(({ refreshKey }) => useOwnPilotVerificationStatus('user-1', refreshKey), {
-      initialProps: { refreshKey: 0 },
-    })
-
-    await waitFor(() => expect(result.current.kind).toBe('pending'))
-    const first = result.current
-
-    rerender({ refreshKey: 1 })
-
-    await waitFor(() => expect(result.current).not.toBe(first))
-    expect(result.current).toEqual(first)
-  })
+  }
 })
