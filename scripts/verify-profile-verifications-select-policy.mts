@@ -543,16 +543,16 @@ async function assertServiceRoleIssueWithinCooldownIsRateLimited(ownerId: string
 // Round 2's should-fix, round 3's coverage: the OTHER direction of the cooldown, that a re-issue
 // past the 60-second window succeeds and rotates the stored code, not just that a re-issue WITHIN
 // the window is rejected (assertServiceRoleIssueWithinCooldownIsRateLimited above only proves the
-// latter). Simulates the window passing via a direct admin-client UPDATE of
+// latter). Simulates the window passing via a direct admin-client upsert of
 // profile_verification_issuance.last_issued_at to 61 seconds in the past, rather than actually
 // sleeping 60+ seconds in a test run — adminClient has no RLS/grant restriction on this table to
 // route around (see this table's own zero-client-grants posture), so this is a legitimate
-// fixture-seeding move, not a workaround for something the app itself could ever do.
+// fixture-seeding move, not a workaround for something the app itself could ever do. Upsert (not
+// update) so the seed succeeds whether or not a row already exists for ownerId, matching #194/#201.
 async function forceIssuanceCooldownExpired(ownerId: string): Promise<void> {
   const { error } = await adminClient
     .from('profile_verification_issuance')
-    .update({ last_issued_at: new Date(Date.now() - 61_000).toISOString() })
-    .eq('user_id', ownerId)
+    .upsert({ user_id: ownerId, last_issued_at: new Date(Date.now() - 61_000).toISOString() })
   if (error) throw new Error(`failed to force-expire the fixture cooldown window: ${error.message}`)
 }
 
