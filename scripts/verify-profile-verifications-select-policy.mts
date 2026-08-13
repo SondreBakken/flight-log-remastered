@@ -679,8 +679,7 @@ async function assertRelinkDoesNotResetCooldown(ownerId: string): Promise<void> 
 async function assertUnrelatedProfileUpdateDoesNotInvalidate(ownerClient: SupabaseClient, ownerId: string): Promise<void> {
   const { error: seedError } = await adminClient
     .from('profile_verifications')
-    .update({ status: 'verified', flightlog_pilot_id: OWNER_NEW_PILOT_ID, otp_code_hash: null, otp_expires_at: null })
-    .eq('user_id', ownerId)
+    .upsert({ user_id: ownerId, status: 'verified', flightlog_pilot_id: OWNER_NEW_PILOT_ID, email: OWNER_SCRAPED_EMAIL, otp_code_hash: null, otp_expires_at: null })
   if (seedError) throw new Error(`failed to re-seed a verified row: ${seedError.message}`)
 
   const { error: updateError } = await ownerClient.from('profiles').update({ display_name: 'Verify Profile Verifications Owner' }).eq('user_id', ownerId)
