@@ -341,7 +341,7 @@ describe('confirmPilotVerificationAction', () => {
     expect(mockGetUser).not.toHaveBeenCalled()
   })
 
-  it('confirms on a correct, unexpired code — the RPC resolves true', async () => {
+  it('confirms on a correct, unexpired code — the RPC resolves true, via the session-scoped client, never the admin client', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
     mockRpc.mockResolvedValue({ data: true, error: null })
 
@@ -349,6 +349,14 @@ describe('confirmPilotVerificationAction', () => {
 
     expect(state).toEqual({ status: 'success' })
     expect(mockRpc).toHaveBeenCalledWith('confirm_pilot_verification', { submitted_code: '123456' })
+    // This is the single most-reviewed property of the whole #172-#177 feature (see
+    // 20260813000000_create_profile_verifications.sql's own doc comment on why
+    // confirm_pilot_verification is authenticated-callable, unlike issue_pilot_verification):
+    // pinned explicitly rather than left implicit, since an accidental createAdminClient() call
+    // here would throw a TypeError against this test's mocks (mockCreateAdminClient is never
+    // configured to return an rpc-capable client) rather than fail a named assertion — a
+    // regression would still be caught, just with a confusing, indirect failure instead of this.
+    expect(mockCreateAdminClient).not.toHaveBeenCalled()
   })
 
   it('surfaces a combined incorrect-or-expired message when the RPC resolves false (wrong or expired code — indistinguishable from a plain boolean)', async () => {

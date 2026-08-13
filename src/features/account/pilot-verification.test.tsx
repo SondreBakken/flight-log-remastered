@@ -19,12 +19,12 @@ beforeEach(() => {
 
 describe('PilotVerification, loading/error', () => {
   it('renders nothing while status is loading', () => {
-    const { container } = render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'loading' }} />)
+    const { container } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'loading' }} />)
     expect(container.textContent).toBe('')
   })
 
   it('shows a distinct failure notice, not a blank or "none" render, when status is error', () => {
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'error' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'error' }} />)
     expect(screen.getByText(/Couldn't load your pilot id verification status/)).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
   })
@@ -32,47 +32,76 @@ describe('PilotVerification, loading/error', () => {
 
 describe('PilotVerification, none', () => {
   it('renders a "Verify your pilot id" trigger with no warning', () => {
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'none' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     expect(screen.getByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
   })
 
   it('calls startPilotVerificationAction on click and notifies the parent once it settles', async () => {
-    const onVerificationStarted = vi.fn()
+    const onStatusChanged = vi.fn()
     mockStartPilotVerificationAction.mockResolvedValue({ status: 'success' })
 
-    render(<PilotVerification onVerificationStarted={onVerificationStarted} status={{ kind: 'none' }} />)
+    render(<PilotVerification onStatusChanged={onStatusChanged} status={{ kind: 'none' }} />)
     fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
 
-    await vi.waitFor(() => expect(onVerificationStarted).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalledTimes(1))
     expect(mockStartPilotVerificationAction).toHaveBeenCalledTimes(1)
   })
 
-  it('disables the button and shows a starting label while the action is pending', async () => {
+  it('disables the button and shows a starting label while the request itself is in flight', async () => {
     let resolveAction!: (result: { status: 'success' }) => void
     mockStartPilotVerificationAction.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
 
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'none' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     fireEvent.click(screen.getByRole('button'))
 
     expect(screen.getByRole('button')).toHaveProperty('disabled', true)
     expect(screen.getByText('Starting…')).toBeTruthy()
 
     resolveAction({ status: 'success' })
-    await screen.findByRole('button', { name: 'Verify your pilot id' })
+    // The label reverts once the request itself resolves (no longer "Starting…"), but the button
+    // stays disabled — see the next test — because the refresh it triggered hasn't landed yet.
+    await screen.findByText('Verify your pilot id')
   })
 
-  it('shows the inline error message returned by the action, still calling onVerificationStarted (send-failed still writes a pending row)', async () => {
-    const onVerificationStarted = vi.fn()
+  // Pins the double-start race fix: useOwnPilotVerificationStatus holds its previous state during
+  // a refetch (no intermediate 'loading'), so re-enabling the button the instant the request
+  // promise resolves — before the refresh it triggered has actually landed — would let a second
+  // click re-run a live flightlog.org scrape and re-send a real email. The button must stay
+  // disabled until the parent actually passes a new `status` object (simulated here by rerendering
+  // with one), not merely until the request settles.
+  it('keeps the button disabled after the request settles, only re-enabling once a new status object lands', async () => {
+    mockStartPilotVerificationAction.mockResolvedValue({ status: 'success' })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await vi.waitFor(() => expect(mockStartPilotVerificationAction).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button')).toHaveProperty('disabled', true)
+
+    // Still the same 'none' status object shape, but a genuinely new object — simulating the
+    // parent's refetch landing (the hook always calls setState with a fresh literal, see its own
+    // doc comment) rather than a stale re-render with the same reference.
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    expect(screen.getByRole('button')).toHaveProperty('disabled', false)
+  })
+
+  it('shows the inline error message returned by the action, staying disabled until a refresh lands (send-failed still writes a pending row despite reporting an error)', async () => {
+    const onStatusChanged = vi.fn()
     mockStartPilotVerificationAction.mockResolvedValue({
       status: 'error',
       message: 'Your verification code was generated, but we could not email it. Try again in a moment.',
     })
 
-    render(<PilotVerification onVerificationStarted={onVerificationStarted} status={{ kind: 'none' }} />)
+    const { rerender } = render(<PilotVerification onStatusChanged={onStatusChanged} status={{ kind: 'none' }} />)
     fireEvent.click(screen.getByRole('button'))
 
     await screen.findByText('Your verification code was generated, but we could not email it. Try again in a moment.')
-    expect(onVerificationStarted).toHaveBeenCalledTimes(1)
+    expect(onStatusChanged).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button')).toHaveProperty('disabled', true)
+
+    rerender(<PilotVerification onStatusChanged={onStatusChanged} status={{ kind: 'none' }} />)
+    expect(screen.getByRole('button')).toHaveProperty('disabled', false)
   })
 
   it('shows the started-logged info message distinctly from an error', async () => {
@@ -81,23 +110,24 @@ describe('PilotVerification, none', () => {
       message: 'Verification started. Check the server log for your code.',
     })
 
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'none' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     fireEvent.click(screen.getByRole('button'))
 
     const info = await screen.findByText('Verification started. Check the server log for your code.')
     expect(info.className).not.toContain('text-red-600')
+    expect(info.getAttribute('aria-live')).toBe('polite')
   })
 })
 
 describe('PilotVerification, verified', () => {
   it('renders a "Re-verify" trigger with a warning about the temporary reset (#184)', () => {
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'verified' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'verified' }} />)
     expect(screen.getByRole('button', { name: 'Re-verify' })).toBeTruthy()
     expect(screen.getByText(/temporarily un-verifies your pilot id/)).toBeTruthy()
   })
 
   it('does not render the "verified" warning under the "none" status, pinning the two branches are distinct', () => {
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={{ kind: 'none' }} />)
+    render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
     expect(screen.queryByText(/temporarily un-verifies your pilot id/)).toBeNull()
   })
 })
@@ -109,12 +139,27 @@ describe('PilotVerification, pending', () => {
     email: 'pilot@example.com',
   }
 
-  it('shows the email the code was sent to and renders the confirm-code form, not the start trigger', () => {
-    render(<PilotVerification onVerificationStarted={vi.fn()} status={pendingStatus} />)
+  it('shows the email the code was sent to and renders the confirm-code form, not the start/re-verify trigger', () => {
+    render(<PilotVerification onStatusChanged={vi.fn()} status={pendingStatus} />)
 
     expect(screen.getByText(/pilot@example.com/)).toBeTruthy()
     expect(screen.getByLabelText('Verification code')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Verify your pilot id' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Re-verify' })).toBeNull()
+  })
+
+  // The escape hatch this branch exists for: a pending row whose code never arrived (most
+  // notably startPilotVerificationAction's own 'send-failed' outcome) previously had no way out
+  // short of relinking the pilot id and back. "Send a new code" reuses the same trigger the
+  // 'none'/'verified' branches already use.
+  it('also renders a "Send a new code" trigger, calling startPilotVerificationAction on click', async () => {
+    const onStatusChanged = vi.fn()
+    mockStartPilotVerificationAction.mockResolvedValue({ status: 'success' })
+
+    render(<PilotVerification onStatusChanged={onStatusChanged} status={pendingStatus} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Send a new code' }))
+
+    await vi.waitFor(() => expect(mockStartPilotVerificationAction).toHaveBeenCalledTimes(1))
+    expect(onStatusChanged).toHaveBeenCalledTimes(1)
   })
 })

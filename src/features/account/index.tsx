@@ -49,11 +49,14 @@ export default function AccountSettings() {
 function SignedInAccountForm({ userId }: { userId: string }) {
   const ownDisplayName = useOwnDisplayName(userId)
   const ownFlightlogPilotId = useOwnFlightlogPilotId(userId)
-  // Bumped after every startPilotVerificationAction call settles, so useOwnPilotVerificationStatus
-  // re-runs its effect and picks up the row that call just wrote (or left unchanged) — see that
-  // hook's own doc comment on why it has no other way to learn about a write from a plain
-  // client-side action call with nothing bound to useActionState.
+  // Bumped whenever anything could have changed the caller's profile_verifications row from
+  // outside useOwnPilotVerificationStatus's own control — starting verification, confirming a
+  // code, or relinking the pilot id (invalidate_verification_on_pilot_id_change deletes the row
+  // server-side on that trigger). See that hook's own doc comment on why it has no other way to
+  // learn about any of those writes from a plain client-side action call, or from a sibling
+  // form's own useActionState, with nothing bound to its own re-render.
   const [verificationRefreshKey, setVerificationRefreshKey] = useState(0)
+  const refreshVerificationStatus = () => setVerificationRefreshKey((key) => key + 1)
   const ownVerificationStatus = useOwnPilotVerificationStatus(userId, verificationRefreshKey)
 
   return (
@@ -64,13 +67,11 @@ function SignedInAccountForm({ userId }: { userId: string }) {
       />
       <PilotIdForm
         initialPilotId={ownFlightlogPilotId.kind === 'loaded' ? ownFlightlogPilotId.pilotId : undefined}
+        onSaved={refreshVerificationStatus}
         pilotIdLoadFailed={ownFlightlogPilotId.kind === 'error'}
       />
       {ownFlightlogPilotId.kind === 'loaded' && ownFlightlogPilotId.pilotId != null && (
-        <PilotVerification
-          onVerificationStarted={() => setVerificationRefreshKey((key) => key + 1)}
-          status={ownVerificationStatus}
-        />
+        <PilotVerification onStatusChanged={refreshVerificationStatus} status={ownVerificationStatus} />
       )}
     </div>
   )

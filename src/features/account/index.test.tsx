@@ -8,6 +8,8 @@ const mockGetDisplayNames = vi.fn()
 const mockGetFlightlogPilotIds = vi.fn()
 const mockMaybeSingle = vi.fn()
 const mockStartPilotVerificationAction = vi.fn()
+const mockConfirmPilotVerificationAction = vi.fn()
+const mockSaveFlightlogPilotId = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -36,9 +38,9 @@ vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
 
 vi.mock('./actions', () => ({
   saveDisplayName: vi.fn(),
-  saveFlightlogPilotId: vi.fn(),
+  saveFlightlogPilotId: (...args: unknown[]) => mockSaveFlightlogPilotId(...args),
   startPilotVerificationAction: (...args: unknown[]) => mockStartPilotVerificationAction(...args),
-  confirmPilotVerificationAction: vi.fn(),
+  confirmPilotVerificationAction: (...args: unknown[]) => mockConfirmPilotVerificationAction(...args),
 }))
 
 // Same seam as comment-on-flight/comment-composer.test.tsx (use-signed-in-user.ts mirrors
@@ -63,6 +65,8 @@ beforeEach(() => {
   mockGetFlightlogPilotIds.mockResolvedValue(new Map())
   mockMaybeSingle.mockResolvedValue({ data: null, error: null })
   mockStartPilotVerificationAction.mockReset()
+  mockConfirmPilotVerificationAction.mockReset()
+  mockSaveFlightlogPilotId.mockReset()
 })
 
 describe('AccountSettings', () => {
@@ -275,6 +279,67 @@ describe('AccountSettings', () => {
     fireEvent.click(trigger)
 
     expect(await screen.findByText(/pilot@example.com/)).toBeTruthy()
+    expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
+  })
+
+  // Pins the confirm-path half of the same refreshKey wiring: without ConfirmPilotVerificationForm's
+  // own onConfirmed callback (threaded through PilotVerification's onStatusChanged), a successful
+  // confirm would leave the pending view — expiry copy and the live code input — on screen forever.
+  it('re-fetches pilot verification status after a successful confirm, leaving the pending view', async () => {
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
+    mockMaybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          status: 'pending',
+          otp_expires_at: '2026-08-13T10:32:00.000Z',
+          email: 'pilot@example.com',
+          flightlog_pilot_id: 12677,
+          created_at: '2026-08-13T10:22:00.000Z',
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { status: 'verified', otp_expires_at: null, email: 'pilot@example.com', flightlog_pilot_id: 12677, created_at: '2026-08-13T10:22:00.000Z' },
+        error: null,
+      })
+    mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(await screen.findByRole('button', { name: 'Re-verify' })).toBeTruthy()
+    expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
+  })
+
+  // Pins #177's third fix: invalidate_verification_on_pilot_id_change deletes the verification
+  // row server-side whenever the linked pilot id actually changes, but nothing client-side knew
+  // to refetch on that write until PilotIdForm's own onSaved callback (threaded to the same
+  // refreshKey bump) was added — without it, a user who relinks still sees "Re-verify" for a
+  // verification that no longer exists.
+  it('re-fetches pilot verification status after successfully relinking the pilot id', async () => {
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
+    mockMaybeSingle
+      .mockResolvedValueOnce({
+        data: { status: 'verified', otp_expires_at: null, email: 'pilot@example.com', flightlog_pilot_id: 12677, created_at: '2026-08-13T10:22:00.000Z' },
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: null })
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
+    stubAuthStateChange()
+
+    render(<AccountSettings />)
+    emitAuthStateChange({ user: { id: 'user-abc' } })
+
+    await screen.findByRole('button', { name: 'Re-verify' })
+    fireEvent.change(screen.getByLabelText('flightlog.org pilot id'), { target: { value: '99999' } })
+    fireEvent.click(within(screen.getByLabelText('flightlog.org pilot id').closest('form') as HTMLFormElement).getByRole('button', { name: 'Save' }))
+
+    await screen.findByText('Saved.')
+    expect(await screen.findByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
     expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
   })
 })
