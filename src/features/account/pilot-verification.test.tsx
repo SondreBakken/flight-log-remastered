@@ -104,6 +104,31 @@ describe('PilotVerification, none', () => {
     expect(screen.getByRole('button')).toHaveProperty('disabled', false)
   })
 
+  // handleClick's onMessageChange(null) at the top, clearing any message left over from a prior
+  // attempt the instant a new one starts (rather than leaving stale text on screen for the
+  // duration of the new request) — deleting that line leaves every other test in this file green.
+  it('clears a previous error message the instant a new attempt starts, before the new request settles', async () => {
+    mockStartPilotVerificationAction.mockResolvedValueOnce({
+      status: 'error',
+      message: 'Something went wrong starting verification.',
+    })
+
+    const { rerender } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+    await screen.findByText('Something went wrong starting verification.')
+
+    // Re-enable the button, simulating the refresh the first attempt triggered having landed.
+    rerender(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    let resolveSecond!: (result: { status: 'success' }) => void
+    mockStartPilotVerificationAction.mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
+
+    expect(screen.queryByText('Something went wrong starting verification.')).toBeNull()
+
+    resolveSecond({ status: 'success' })
+  })
+
   it('shows the started-logged info message distinctly from an error', async () => {
     mockStartPilotVerificationAction.mockResolvedValue({
       status: 'started-logged',

@@ -145,8 +145,8 @@ function StartVerificationTrigger({
   // request has settled and the refresh it triggered is still outstanding. Both disable the
   // button; only 'requesting' changes its label — see the render-time check below for why
   // 'awaiting-refresh' exists as its own phase rather than folding straight back to 'idle'. Kept
-  // local (unlike `message`) is fine: a remount always starts a fresh button the user hasn't
-  // clicked yet, so there's no in-flight click to lose track of.
+  // local (unlike `message`): the guard is per-instance and does not survive a remount — see #206
+  // for the reachable gap this leaves (a sibling save landing mid-flight).
   const [phase, setPhase] = useState<'idle' | 'requesting' | 'awaiting-refresh'>('idle')
 
   // React's "adjusting state when a prop changes" pattern
