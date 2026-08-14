@@ -1,7 +1,14 @@
-import { describe, it } from 'vitest'
+import { describe, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import PilotLogbook from './index'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
+
+// FlightRow (rendered per row below) is a client component that calls useRouter for its
+// whole-row click navigation (#213) — outside a real app router tree that throws, so it's
+// stubbed the same way sign-in/index.test.tsx stubs next/navigation for its own hook use.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
 
 const PILOT: Pilot = {
   userId: 12677,
