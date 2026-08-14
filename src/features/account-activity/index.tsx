@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
+import { getVerifiedPilotIds } from '@/lib/profiles/get-verified-pilot-ids'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
@@ -54,9 +55,11 @@ export default async function AccountActivity() {
 
   if (pilotId == null) return <LinkPilotPrompt />
 
+  const isPilotVerified = await isPilotIdVerified(supabase, pilotId)
+
   return (
     <div className="flex flex-col gap-8">
-      <UnverifiedLinkNote />
+      {!isPilotVerified && <UnverifiedLinkNote />}
       <SectionErrorBoundary fallback="Couldn't load followers right now.">
         <Suspense fallback={<FollowersSkeleton />}>
           <Followers supabase={supabase} pilotId={pilotId} />
@@ -76,6 +79,22 @@ export default async function AccountActivity() {
       </SectionErrorBoundary>
     </div>
   )
+}
+
+// Fail-safe, not fail-closed-to-an-error-page: a verification-status lookup failure here isn't
+// treated as page-breaking the way a failed pilotId lookup above is (see AccountActivity's own
+// catch around getFlightlogPilotIds) — it only ever gates one note's visibility, not which of
+// this component's four branches renders. Defaulting to false on failure keeps that note visible
+// rather than risking the opposite: a broken query silently hiding a real "this link is
+// unverified" disclaimer.
+async function isPilotIdVerified(supabase: SupabaseClient, pilotId: PilotId): Promise<boolean> {
+  try {
+    const verifiedPilotIds = await getVerifiedPilotIds(supabase, [pilotId])
+    return verifiedPilotIds.has(pilotId)
+  } catch (error) {
+    if (!(error instanceof ProfilesQueryError)) throw error
+    return false
+  }
 }
 
 type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
