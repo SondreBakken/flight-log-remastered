@@ -1,4 +1,7 @@
-import Link from 'next/link'
+'use client'
+
+import type { KeyboardEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Flight } from '@/lib/flightlog/types'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 
@@ -7,9 +10,33 @@ type FlightRowProps = {
   hasTrack: boolean
 }
 
+// The whole row is the navigation target (#213), not just the Track cell — most flights have
+// no track, so a link confined to that cell left most rows with no way to reach their flight
+// page (and its comments) at all. A `<tr>` can't be an `<a>`, so this is onClick + a keyboard
+// handler rather than a real link; no cell below carries its own link/button, which is what
+// keeps this from becoming an interactive element nested inside a clickable row.
 export function FlightRow({ flight, hasTrack }: FlightRowProps) {
+  const router = useRouter()
+  const href = `/flights/${flight.tripId}`
+
+  function navigateToFlight() {
+    router.push(href)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    navigateToFlight()
+  }
+
   return (
-    <tr className="border-b border-black/5 dark:border-white/10">
+    <tr
+      className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      onClick={navigateToFlight}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+    >
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.date}</td>
       {/* data-testid: scripts/verify-flown-sites.mts (F5) cross-checks the flown-sites
           section's own matched+unmatched count against the DISTINCT takeoff names this table
@@ -24,16 +51,7 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
         {formatFlightDistance(flight)}
       </td>
       <td className="py-2">
-        {hasTrack ? (
-          <Link
-            className="underline underline-offset-2"
-            href={`/flights/${flight.tripId}`}
-          >
-            View track
-          </Link>
-        ) : (
-          <span className="opacity-40">none</span>
-        )}
+        {hasTrack ? <span>View track</span> : <span className="opacity-40">none</span>}
       </td>
     </tr>
   )
