@@ -13,6 +13,13 @@ vi.mock('@/components/takeoffs-map', () => ({
   ),
 }))
 
+// TakeoffFlightRow (#219) is a client component whose whole row navigates via useRouter, rather
+// than a plain <Link> the way its own Track cell used to be — this renders it outside a mounted
+// Next.js app router, same fix #218 needed for its own index.test.tsx.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 // config.ts carries 'server-only', which throws on a plain import outside a react-server
 // bundling context (see takeoff-detail.test.ts's own fetcher mocks for the same reasoning) —
 // this component only reads flightlogTakeoffUrl's return value, never the real implementation.
@@ -77,7 +84,7 @@ describe('TakeoffDetailView', () => {
     screen.getByText(/Mikael Benjamin Ulstrup/)
   })
 
-  it('links every flight row\'s pilot with a follow button, and links the trip to /flights/[tripId], without a second fetch', () => {
+  it('links every flight row\'s pilot with a follow button; the row itself (not a Track link) is now the /flights/[tripId] navigation target', () => {
     render(
       <TakeoffDetailView
         countryId={160}
@@ -92,12 +99,16 @@ describe('TakeoffDetailView', () => {
     )
 
     expect(screen.getByRole('link', { name: 'Jarl Christian Kind' }).getAttribute('href')).toBe('/pilots/3365')
-    // getByRole throws if not found, so its return alone is the assertion.
-    screen.getByRole('button', { name: /follow/i })
-    // Two "View track" links exist here (DETAIL also carries one site record) — the flight
-    // row's own must point at the FLIGHT's tripId, not the site record's.
+    // getByRole throws if not found, so its return alone is the assertion. Exact name match, not
+    // /follow/i — #219 gave the row itself role="button" too, and its own accessible name
+    // includes "Follow" as part of the whole row's text, so a loose regex would match both.
+    screen.getByRole('button', { name: 'Follow' })
+    // #219: the flight row's own Track cell is plain text now that the whole row navigates
+    // (see flight-row.test.tsx for the row-click/keydown coverage) — only the site record's
+    // "View track" link remains a real link.
     const trackLinks = screen.getAllByRole('link', { name: 'View track' }).map((link) => link.getAttribute('href'))
-    expect(trackLinks).toContain('/flights/1000946')
+    expect(trackLinks).not.toContain('/flights/1000946')
+    expect(trackLinks).toContain('/flights/803981')
   })
 
   it('marks a flight row\'s follow button as already-followed when its pilot id is in followedPilotIds', () => {
@@ -131,7 +142,9 @@ describe('TakeoffDetailView', () => {
       />,
     )
 
-    expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
+    // Exact name match, not /follow/i — the row itself also carries role="button" (#219), and
+    // its own accessible name includes "Sign in to follow" as part of the whole row's text.
+    expect(screen.queryByRole('button', { name: 'Follow' })).toBeNull()
     screen.getByRole('link', { name: /sign in to follow/i })
   })
 

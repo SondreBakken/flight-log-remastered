@@ -9,6 +9,7 @@ import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '@/lib/comments/get-comments-for-trip-ids'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
+import { CommentRow } from './comment-row'
 import { SectionErrorBoundary } from './section-error-boundary'
 import { WHO_FOLLOWS_AND_COMMENTED } from './copy'
 import type { Follower } from '@/lib/follows/get-followers-for-pilot'
@@ -218,15 +219,7 @@ function CommentsSection({ comments }: { comments: CommentWithTripId[] }) {
       ) : (
         <ul className="flex flex-col gap-3">
           {comments.map((comment) => (
-            <li key={comment.id} className="flex flex-col gap-1 text-sm">
-              <span className="opacity-70">
-                {comment.displayName ?? 'Anonymous'} on{' '}
-                <Link className="underline underline-offset-2" href={`/flights/${comment.tripId}`}>
-                  flight {comment.tripId}
-                </Link>
-              </span>
-              <p>{comment.body}</p>
-            </li>
+            <CommentRow key={comment.id} comment={comment} />
           ))}
         </ul>
       )}
