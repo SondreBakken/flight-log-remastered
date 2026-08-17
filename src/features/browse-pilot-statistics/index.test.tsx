@@ -3,6 +3,15 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import PilotStatistics from './index'
 import type { Flight } from '@/lib/flightlog/types'
 
+// LongestFlightsList (#218) calls useRouter() — PilotStatistics is a server component, but this
+// client child still needs an App Router context provided by every test in this file, not just
+// the navigation-specific ones below.
+const mockPush = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
+
 let nextTripId = 1
 function flight(overrides: Partial<Flight> = {}): Flight {
   return {
@@ -30,6 +39,7 @@ describe('PilotStatistics', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'))
+    mockPush.mockClear()
   })
 
   afterEach(() => {
