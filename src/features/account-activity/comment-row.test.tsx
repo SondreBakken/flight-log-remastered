@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { CommentRow } from '@/features/account-activity/comment-row'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
 
@@ -74,5 +74,17 @@ describe('CommentRow', () => {
     fireEvent.keyDown(row, { key: 'Tab' })
 
     expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // A role="button" element gets no native activation from the browser, but Space still
+  // triggers its default action for a role="button" — scrolling the page — unless
+  // preventDefault() is called.
+  it('prevents the default Space action (page scroll) when Space is pressed', () => {
+    const row = remountRow(BASE_COMMENT)
+
+    const keyDownEvent = createEvent.keyDown(row, { key: ' ' })
+    fireEvent(row, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(true)
   })
 })

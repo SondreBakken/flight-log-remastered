@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, createEvent } from '@testing-library/react'
 import type { Flight } from '@/lib/flightlog/types'
 import { FlightRow } from './flight-row'
 
@@ -76,5 +76,19 @@ describe('FlightRow', () => {
     fireEvent.keyDown(row, { key: 'Tab' })
 
     expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // A role="button" element gets no native activation from the browser, but Space still
+  // triggers its default action for a role="button" — scrolling the page — unless
+  // preventDefault() is called. createEvent (rather than fireEvent) is used so the event
+  // object survives dispatch and its defaultPrevented flag can be inspected afterwards.
+  it('prevents the default Space action (page scroll) when Space is pressed', () => {
+    renderRow(false)
+    const row = screen.getByRole('button')
+
+    const keyDownEvent = createEvent.keyDown(row, { key: ' ' })
+    fireEvent(row, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(true)
   })
 })
