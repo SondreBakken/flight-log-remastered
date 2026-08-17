@@ -15,7 +15,10 @@ type FeedEntryRowProps = {
 // their flight page at all. Unlike flight-row.tsx's sibling, this row does have a nested
 // interactive element (the pilot link below), so both its click and keydown handling must be
 // kept from also triggering row navigation — see stopRowNavigation and the target check in
-// handleKeyDown below.
+// handleKeyDown below. No role="button" here (#221): ARIA prohibits interactive content nested
+// inside a button-role element, which the nested pilot link would violate. aria-label gives
+// screen-reader users the same "this row is actionable" signal without asserting a role the
+// markup can't validly hold.
 export function FeedEntryRow({ entry }: FeedEntryRowProps) {
   const { pilot, flight, hasTrack, newness } = entry
   const router = useRouter()
@@ -42,10 +45,10 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
 
   return (
     <tr
+      aria-label="View flight details"
       className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
-      role="button"
       tabIndex={0}
     >
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
