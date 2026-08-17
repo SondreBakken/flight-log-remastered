@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { TakeoffFlightRow } from '@/features/browse-takeoff-detail/components/flight-row'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
 
@@ -81,14 +81,23 @@ describe('TakeoffFlightRow', () => {
     expect(mockPush).not.toHaveBeenCalled()
   })
 
+  // createEvent (rather than fireEvent) is used so the event objects survive dispatch and their
+  // defaultPrevented flag can be inspected afterwards — mockPush not being called alone wouldn't
+  // catch a preventDefault() hoisted above handleKeyDown's target-check guard, which would cancel
+  // the pilot link's own native activation while still bailing before navigateToFlight() (see
+  // feed-entry-row.test.tsx's sibling assertion for the same gap, #217).
   it('does not navigate to the flight page when Enter or Space is pressed on the nested pilot link', () => {
     remountRow(BASE_FLIGHT)
     const pilotLink = screen.getByRole('link', { name: 'Jarl Christian Kind' })
 
-    fireEvent.keyDown(pilotLink, { key: 'Enter' })
-    fireEvent.keyDown(pilotLink, { key: ' ' })
+    const enterEvent = createEvent.keyDown(pilotLink, { key: 'Enter' })
+    fireEvent(pilotLink, enterEvent)
+    const spaceEvent = createEvent.keyDown(pilotLink, { key: ' ' })
+    fireEvent(pilotLink, spaceEvent)
 
     expect(mockPush).not.toHaveBeenCalled()
+    expect(enterEvent.defaultPrevented).toBe(false)
+    expect(spaceEvent.defaultPrevented).toBe(false)
   })
 
   // FollowButton has no onClick prop of its own to hook stopPropagation into — propagation is
@@ -108,5 +117,17 @@ describe('TakeoffFlightRow', () => {
 
     expect(screen.getByText('View track').tagName).not.toBe('A')
     expect(screen.queryByRole('link', { name: 'View track' })).toBeNull()
+  })
+
+  // A role="button" element gets no native activation from the browser, but Space still
+  // triggers its default action for a role="button" — scrolling the page — unless
+  // preventDefault() is called.
+  it('prevents the default Space action (page scroll) when Space is pressed on the row', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    const keyDownEvent = createEvent.keyDown(row, { key: ' ' })
+    fireEvent(row, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(true)
   })
 })

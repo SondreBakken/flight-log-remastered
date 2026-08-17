@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen } from '@testing-library/react'
 import type { Flight } from '@/lib/flightlog/types'
 import { LongestFlightsList } from './longest-flights'
 
@@ -77,5 +77,18 @@ describe('LongestFlightsList', () => {
     render(<LongestFlightsList byDuration={BY_DURATION} byDistance={null} />)
 
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  // A role="button" element gets no native activation from the browser, but Space still
+  // triggers its default action for a role="button" — scrolling the page — unless
+  // preventDefault() is called.
+  it('prevents the default Space action (page scroll) when Space is pressed', () => {
+    render(<LongestFlightsList byDuration={BY_DURATION} byDistance={null} />)
+    const row = screen.getByRole('button')
+
+    const keyDownEvent = createEvent.keyDown(row, { key: ' ' })
+    fireEvent(row, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(true)
   })
 })

@@ -190,4 +190,17 @@ describe('FeedEntryRow', () => {
 
     expect(keyDownEvent.defaultPrevented).toBe(false)
   })
+
+  // A role="button" element gets no native activation from the browser, but Space still
+  // triggers its default action for a role="button" — scrolling the page — unless
+  // preventDefault() is called on the row's own handler.
+  it('prevents the default Space action (page scroll) when Space is pressed on the row', () => {
+    remountRow(baseEntry)
+    const row = screen.getByRole('button')
+
+    const keyDownEvent = createEvent.keyDown(row, { key: ' ' })
+    fireEvent(row, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(true)
+  })
 })
