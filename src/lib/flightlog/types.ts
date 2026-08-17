@@ -320,6 +320,30 @@ export type TakeoffDetail = {
   siteRecords: SiteRecord[]
 }
 
+// #215's flight detail page, from `a=34&trip_id=N` — flightlog.org's own plain data table for a
+// flight, tracked or not (unlike `TrackStats`, this carries no dependency on a GPS track ever
+// having been uploaded). `takeoffRef`/`glider`/`duration`/`distanceKm` reuse the exact field
+// names/types `Flight` (below) already uses for the same concepts — same meaning, so same name
+// — but `date` is NOT `Flight.date`'s bare-date shape: this page's own `Date` row carries a
+// `YYYY-MM-DD HH:MM` timestamp when a track's own start time was logged, or a bare `YYYY-MM-DD`
+// otherwise (see parse-flight-detail.ts), a different format from a different `a=` page, kept
+// as its own field rather than silently coerced to match. `maxAltitude` stays free text (e.g.
+// `2608 meters above sea-level`), mirroring `TakeoffDetail.altitude`'s own convention, rather
+// than parsed into a bare number this app has no other use for yet.
+export type FlightDetail = {
+  tripId: number
+  date: string | null
+  country: string | null
+  takeoff: string | null
+  takeoffRef: TakeoffRef | null
+  glider: string | null
+  duration: string | null
+  distanceKm: number | null
+  maxAltitude: string | null
+  description: string | null
+  takeoffType: string | null
+}
+
 // A single row from a=42 (flights at a takeoff), current year only — see takeoff-flights.ts
 // for why this app never chases `a=42`'s own year/offset pagination further. `date` and
 // `timeOfDay` are both carried even though #11's own field list only calls out "time of day":

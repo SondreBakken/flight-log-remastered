@@ -744,6 +744,48 @@ the ambiguous 302), just not a detail page — this app never fetches it.
 - **`a=93`** (a flight-stats tab both `a=22` and `a=42`'s breadcrumbs link to) — not
   investigated.
 
+### Flight detail (`a=34`) — #215
+
+```
+GET /fl.html?l=1&a=34&trip_id=803981
+```
+
+- **Results table.** `a=34`'s own label/value fields live in `table[cellspacing='1'
+  cellpadding='5' bgcolor='black']` — `cellpadding='5'`, distinguishing it from `a=22`'s own
+  `cellpadding='3'` table using the otherwise identical `cellspacing='1' bgcolor='black'` shape.
+- **Rows, in document order, tracked or not:** `Date` (`YYYY-MM-DD HH:MM` when a track's own
+  start time was logged, bare `YYYY-MM-DD` otherwise — confirmed both live), `Country`,
+  `Takeoff` (an anchor carrying the exact `country_id`/`start_id` pair `a=22`'s own detail page
+  uses), `Glider brand and model`, `Duration`, `Distance (km)`, `Max altitude` (free text, e.g.
+  `2608 meters above sea-level`, not a bare number — same convention as `a=22`'s own `Altitude`
+  row), `Description` (free HTML, `<br>`-separated, no leading wind-compass image the way
+  `a=22`'s own Description cell has one), `Takeoff type` (e.g. `mountain`).
+- **Tracked-only extras, interleaved between `Description` and `Takeoff type` — not
+  requested by this app's own scraper, which only ever runs for a trip `hasTrack` already
+  reported false for.** A tracked flight's `Description` cell has flightlog.org's own
+  auto-generated `Flight statistics` block appended (`<pre>…</pre>`) after the pilot's own free
+  text, and a `View trip`, `Open distance` and `Best distance over 5 points` row each appear
+  between `Description` and `Takeoff type`. The `Open distance` row is genuinely malformed live
+  markup — `<td bgcolor='white'>Open distance</td><td bgcolor='white'>…</tr>` with no opening
+  `<tr>` at all (real, not a transcription error, the same family of defect
+  `parse-clubs.ts`/`parse-takeoff-detail.ts` already document elsewhere on this site) — an
+  ordinary HTML parser still recovers a normal 2-`<td>` row from it, but only label-keyed
+  extraction (not a fixed row index) survives this reliably, since these extra rows' PRESENCE,
+  COUNT and POSITION all vary with the flight's own track/scoring data.
+- **Untracked flight (`fixtures/a34-1001964-detail.html`, this app's own pilot account, which
+  has no GPS tracks at all — see #215's own background).** Every row above is still present,
+  but `Distance (km)` and `Max altitude` render with a BLANK value, not an absent row — the same
+  "row present, value empty" shape `a=22`'s own sparse-takeoff case already documents. No `View
+  trip`/scoring rows, no `Flight statistics` block.
+- **Nonexistent `trip_id`.** NOT the same "identical shell, blank values" shape `a=22`'s own
+  nonexistent-id case uses. The page's shared content container
+  (`div[style='padding:0px 10px']`, the same `<div>` a real trip's own results table sits
+  inside) instead renders the literal text `not found` in place of any table at all —
+  confirmed live (`fixtures/a34-nonexistent-detail.html`). The breadcrumb also degrades to
+  literal placeholder text (`… -> user -> Flights -> Trips in year -> trip`, no real pilot name
+  or date) rather than the identity-bearing 404 signal `a=22`'s own breadcrumb gives — not used
+  here since the content container's own text is the more direct signal.
+
 Param vocabulary: `l` (1=en,2=no,3=sv,4=is,5=fr,6=fi,7=de), `a`, `rqtid`, `user_id`, `trip_id`,
 `country_id`, `region_id`, `subregion_id`, `start_id`, `club_id`, `comp_id`, `year`, `offset`,
 `last_days`, `ts`, `xc`, `gm`, `thumb`.
