@@ -142,4 +142,19 @@ describe('FeedEntryRow', () => {
 
     expect(mockPush).not.toHaveBeenCalled()
   })
+
+  // keydown bubbles from the pilot link up to the row's handler, unlike click (which the
+  // pilot link's own onClick stops from propagating). Without a target check in handleKeyDown,
+  // Enter on the focused pilot link would preventDefault() the link's native activation and
+  // navigate to the flight page instead of /pilots/{userId} — the review gap #217 was reopened
+  // for.
+  it('does not navigate to the flight page when Enter or Space is pressed on the nested pilot link', () => {
+    const [, pilotCell] = remountRow(baseEntry)
+    const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
+
+    fireEvent.keyDown(pilotLink, { key: 'Enter' })
+    fireEvent.keyDown(pilotLink, { key: ' ' })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
 })

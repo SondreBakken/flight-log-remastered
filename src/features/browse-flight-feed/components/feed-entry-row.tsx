@@ -13,8 +13,9 @@ type FeedEntryRowProps = {
 // The whole row is the navigation target (#213, ported by #217), not just a Track cell — most
 // flights have no track, so a link confined to that cell left most rows with no way to reach
 // their flight page at all. Unlike flight-row.tsx's sibling, this row does have a nested
-// interactive element (the pilot link below), so its click must stop propagation to avoid also
-// triggering row navigation.
+// interactive element (the pilot link below), so both its click and keydown handling must be
+// kept from also triggering row navigation — see stopRowNavigation and the target check in
+// handleKeyDown below.
 export function FeedEntryRow({ entry }: FeedEntryRowProps) {
   const { pilot, flight, hasTrack, newness } = entry
   const router = useRouter()
@@ -25,6 +26,11 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
+    // keydown bubbles from the nested pilot link up to this handler, so without this guard
+    // Enter on the focused pilot link would preventDefault() its native activation and send
+    // the user to the flight page instead of /pilots/{userId} (#217 review gap). Bailing when
+    // the event didn't originate on the row itself lets the link handle its own activation.
+    if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     navigateToFlight()
