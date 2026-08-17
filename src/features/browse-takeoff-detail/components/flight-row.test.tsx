@@ -130,4 +130,14 @@ describe('TakeoffFlightRow', () => {
 
     expect(keyDownEvent.defaultPrevented).toBe(true)
   })
+
+  // #231: role="button" was removed from the row since it can't validly hold that role while
+  // nesting the interactive pilot link and FollowButton. aria-label carries the "this row is
+  // actionable" signal instead, without asserting a role the markup can't validly hold.
+  it('exposes an aria-label on the row instead of an invalid role="button"', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    expect(row.getAttribute('role')).toBeNull()
+    expect(row.getAttribute('aria-label')).toBe('View flight details')
+  })
 })

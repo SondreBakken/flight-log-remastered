@@ -21,6 +21,10 @@ type TakeoffFlightRowProps = {
 // feed-entry-row.tsx's single nested Link, FollowButton has no onClick prop to hook
 // stopPropagation into individually, so propagation is stopped on the wrapping div around both
 // instead. The target check in handleKeyDown generalizes the same way feed-entry-row.tsx's does.
+// No role="button" here (#231, same fix as #221 on feed-entry-row.tsx): ARIA prohibits
+// interactive content nested inside a button-role element, which the nested pilot link and
+// FollowButton would violate. aria-label gives screen-reader users the same "this row is
+// actionable" signal without asserting a role the markup can't validly hold.
 export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlightRowProps) {
   const router = useRouter()
   const href = `/flights/${flight.tripId}`
@@ -42,10 +46,10 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
 
   return (
     <tr
+      aria-label="View flight details"
       className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
-      role="button"
       tabIndex={0}
     >
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.date ?? '—'}</td>
