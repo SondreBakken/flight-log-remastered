@@ -1,7 +1,7 @@
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
-import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 import type { Flight } from '@/lib/flightlog/types'
 import { FlyingDaysCalendar } from './flying-days-calendar'
+import { LongestFlightsList } from './longest-flights'
 import {
   breakdownByGlider,
   breakdownBySite,
@@ -156,20 +156,7 @@ function LongestFlights({ flights }: { flights: Flight[] }) {
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-sm font-medium opacity-70">Longest flights</h3>
-      <ul className="flex flex-col gap-1 text-sm">
-        {byDuration && (
-          <li>
-            By duration (single-flight rows only): {formatFlightDuration(byDuration)} ({byDuration.date}
-            {byDuration.takeoff && ` at ${byDuration.takeoff}`})
-          </li>
-        )}
-        {byDistance && (
-          <li>
-            By distance: {formatFlightDistance(byDistance)} ({byDistance.date}
-            {byDistance.takeoff && ` at ${byDistance.takeoff}`})
-          </li>
-        )}
-      </ul>
+      <LongestFlightsList byDuration={byDuration} byDistance={byDistance} />
     </div>
   )
 }
