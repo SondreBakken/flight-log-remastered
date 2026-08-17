@@ -50,6 +50,17 @@ describe('CommentRow', () => {
     screen.getByText(/Anonymous.*flight 501/)
   })
 
+  // #223: role="button" must live on an inner wrapper, not the <li> itself — an <li> with its
+  // implicit listitem role overridden stops the <ul> from being exposed as a list to assistive
+  // tech (screen reader announces "button" instead of "list, 1 item").
+  it('keeps the li a plain list item, exposing the ul as a list', () => {
+    remountRow(BASE_COMMENT)
+
+    const list = screen.getByRole('list')
+    expect(list.querySelectorAll('li[role]')).toHaveLength(0)
+    screen.getByRole('listitem')
+  })
+
   it('navigates to the flight page when clicked anywhere', () => {
     const row = remountRow(BASE_COMMENT)
 

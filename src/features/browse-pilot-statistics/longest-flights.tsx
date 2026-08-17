@@ -44,21 +44,23 @@ function LongestFlightRow({ flight, children }: { flight: Flight; children: Reac
     router.push(href)
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLLIElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     navigateToFlight()
   }
 
   return (
-    <li
-      className="cursor-pointer rounded hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
-      onClick={navigateToFlight}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
-    >
-      {children}
+    <li>
+      <div
+        className="cursor-pointer rounded hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
+        onClick={navigateToFlight}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+      >
+        {children}
+      </div>
     </li>
   )
 }

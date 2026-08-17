@@ -23,24 +23,26 @@ export function CommentRow({ comment }: CommentRowProps) {
     router.push(href)
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLLIElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     navigateToFlight()
   }
 
   return (
-    <li
-      className="flex cursor-pointer flex-col gap-1 rounded text-sm hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
-      onClick={navigateToFlight}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
-    >
-      <span className="opacity-70">
-        {comment.displayName ?? 'Anonymous'} on flight {comment.tripId}
-      </span>
-      <p>{comment.body}</p>
+    <li>
+      <div
+        className="flex cursor-pointer flex-col gap-1 rounded text-sm hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
+        onClick={navigateToFlight}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+      >
+        <span className="opacity-70">
+          {comment.displayName ?? 'Anonymous'} on flight {comment.tripId}
+        </span>
+        <p>{comment.body}</p>
+      </div>
     </li>
   )
 }

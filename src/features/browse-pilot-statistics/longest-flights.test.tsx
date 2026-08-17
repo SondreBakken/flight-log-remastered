@@ -79,6 +79,17 @@ describe('LongestFlightsList', () => {
     expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 
+  // #223: role="button" must live on an inner wrapper, not the <li> itself — an <li> with its
+  // implicit listitem role overridden stops the <ul> from being exposed as a list to assistive
+  // tech (screen reader announces "button, button" instead of "list, 2 items").
+  it('keeps the li a plain list item, exposing the ul as a list', () => {
+    render(<LongestFlightsList byDuration={BY_DURATION} byDistance={BY_DISTANCE} />)
+
+    const list = screen.getByRole('list')
+    expect(list.querySelectorAll('li[role]')).toHaveLength(0)
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+  })
+
   // A role="button" element gets no native activation from the browser, but Space still
   // triggers its default action for a role="button" — scrolling the page — unless
   // preventDefault() is called.
