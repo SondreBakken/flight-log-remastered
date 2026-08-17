@@ -61,6 +61,12 @@ describe('CommentRow', () => {
     screen.getByRole('listitem')
   })
 
+  it('keeps the row focusable via tabIndex on the inner div wrapper', () => {
+    const row = remountRow(BASE_COMMENT)
+
+    expect(row.getAttribute('tabindex')).toBe('0')
+  })
+
   it('navigates to the flight page when clicked anywhere', () => {
     const row = remountRow(BASE_COMMENT)
 

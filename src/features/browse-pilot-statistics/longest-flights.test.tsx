@@ -90,6 +90,12 @@ describe('LongestFlightsList', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(2)
   })
 
+  it('keeps the row focusable via tabIndex on the inner div wrapper', () => {
+    render(<LongestFlightsList byDuration={BY_DURATION} byDistance={null} />)
+
+    expect(screen.getByRole('button').getAttribute('tabindex')).toBe('0')
+  })
+
   // A role="button" element gets no native activation from the browser, but Space still
   // triggers its default action for a role="button" — scrolling the page — unless
   // preventDefault() is called.

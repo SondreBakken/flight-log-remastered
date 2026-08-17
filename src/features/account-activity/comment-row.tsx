@@ -11,7 +11,7 @@ type CommentRowProps = {
 // The whole row is the navigation target to /flights/{tripId} (#219), following #213's FlightRow
 // pattern — this row nests no link or button of its own (the "flight {tripId}" text is now
 // plain, not a Link, since nothing else here needs to be independently interactive), so onClick
-// + a keyboard handler on the <li> itself is enough, no target-check guard needed. Split out as
+// + a keyboard handler on the inner div wrapper is enough, no target-check guard needed. Split out as
 // a client component for the same reason longest-flights.tsx was (#218): index.tsx's own
 // AccountActivity stays a server component, computing `comments` as the only serializable input
 // this needs.
