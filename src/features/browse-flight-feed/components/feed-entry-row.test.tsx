@@ -177,18 +177,22 @@ describe('FeedEntryRow', () => {
   // pins that mockPush isn't called, which a mutation that hoists handleKeyDown's
   // preventDefault() above the `event.target !== event.currentTarget` guard would still pass
   // (it still bails before navigateToFlight(), but has already called preventDefault() on the
-  // bubbled event by then). That hoisted preventDefault() cancels the pilot link's native Enter
-  // activation, making /pilots/{userId} unreachable by keyboard with no test catching it.
-  // createEvent (rather than fireEvent) is used so the event object survives dispatch and its
-  // defaultPrevented flag can be inspected afterwards.
-  it('does not prevent the pilot link\'s own native activation when Enter is pressed on it', () => {
+  // bubbled event by then). That hoisted preventDefault() cancels the pilot link's native
+  // Enter/Space activation, making /pilots/{userId} unreachable by keyboard with no test catching
+  // it — including a mutant that only hoists preventDefault() for the Space key, which the
+  // Enter-only assertion alone would miss (#227). createEvent (rather than fireEvent) is used so
+  // the event objects survive dispatch and their defaultPrevented flag can be inspected afterwards.
+  it('does not prevent the pilot link\'s own native activation when Enter or Space is pressed on it', () => {
     const [, pilotCell] = remountRow(baseEntry)
     const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
 
     const keyDownEvent = createEvent.keyDown(pilotLink, { key: 'Enter' })
     fireEvent(pilotLink, keyDownEvent)
+    const spaceEvent = createEvent.keyDown(pilotLink, { key: ' ' })
+    fireEvent(pilotLink, spaceEvent)
 
     expect(keyDownEvent.defaultPrevented).toBe(false)
+    expect(spaceEvent.defaultPrevented).toBe(false)
   })
 
   // A role="button" element gets no native activation from the browser, but Space still
