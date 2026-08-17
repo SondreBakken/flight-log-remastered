@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { FeedEntryRow } from '@/features/browse-flight-feed/components/feed-entry-row'
 import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 
@@ -121,6 +121,21 @@ describe('FeedEntryRow', () => {
     expect(mockPush).toHaveBeenCalledWith('/flights/501')
   })
 
+  // Mirrors the tracked-row case above for an untracked entry (hasTrack: false) — most flights
+  // are untracked (#217's actual motivating case), and onKeyDown is attached to the row
+  // unconditionally, but nothing previously proved keyboard navigation actually reaches an
+  // untracked row too.
+  it('navigates on Enter and Space for an untracked row, for keyboard users who cannot click', () => {
+    remountRow({ ...baseEntry, hasTrack: false, newness: 'not-new', trackedAt: null })
+    const row = screen.getByRole('button')
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+
+    expect(mockPush).toHaveBeenCalledTimes(2)
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
   it('does not navigate on an unrelated keypress', () => {
     remountRow(baseEntry)
     const row = screen.getByRole('button')
@@ -156,5 +171,23 @@ describe('FeedEntryRow', () => {
     fireEvent.keyDown(pilotLink, { key: ' ' })
 
     expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // Proves the RIGHT thing, not just the absence of the wrong thing: the previous test only
+  // pins that mockPush isn't called, which a mutation that hoists handleKeyDown's
+  // preventDefault() above the `event.target !== event.currentTarget` guard would still pass
+  // (it still bails before navigateToFlight(), but has already called preventDefault() on the
+  // bubbled event by then). That hoisted preventDefault() cancels the pilot link's native Enter
+  // activation, making /pilots/{userId} unreachable by keyboard with no test catching it.
+  // createEvent (rather than fireEvent) is used so the event object survives dispatch and its
+  // defaultPrevented flag can be inspected afterwards.
+  it('does not prevent the pilot link\'s own native activation when Enter is pressed on it', () => {
+    const [, pilotCell] = remountRow(baseEntry)
+    const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
+
+    const keyDownEvent = createEvent.keyDown(pilotLink, { key: 'Enter' })
+    fireEvent(pilotLink, keyDownEvent)
+
+    expect(keyDownEvent.defaultPrevented).toBe(false)
   })
 })
