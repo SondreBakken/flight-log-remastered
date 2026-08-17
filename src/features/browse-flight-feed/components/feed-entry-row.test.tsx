@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { FeedEntryRow } from '@/features/browse-flight-feed/components/feed-entry-row'
 import type { FeedEntry } from '@/features/browse-flight-feed/feed'
+
+const mockPush = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
 
 // Cell-scoped, not document-scoped: getByText anywhere in the document would still pass
 // if two field values swapped table cells. Indexing into row cells makes column order
@@ -10,8 +16,9 @@ import type { FeedEntry } from '@/features/browse-flight-feed/feed'
 // Named for BOTH things it does, not just the render: it also unmounts whatever a PRIOR call
 // in the same test left behind — without that, the badge test below (which calls this three
 // times to compare newness states) would accumulate multiple <table> rows in the document, and
-// screen.getByRole('row') would throw "multiple elements found" instead of returning the row
-// just rendered.
+// screen.getByRole('button') would throw "multiple elements found" instead of returning the row
+// just rendered (the row carries role="button", not the implicit "row", since it's now the
+// click/keydown navigation target — see FeedEntryRow).
 function remountRow(entry: FeedEntry) {
   cleanup()
   render(
@@ -21,7 +28,7 @@ function remountRow(entry: FeedEntry) {
       </tbody>
     </table>,
   )
-  return within(screen.getByRole('row')).getAllByRole('cell')
+  return within(screen.getByRole('button')).getAllByRole('cell')
 }
 
 const baseEntry: FeedEntry = {
@@ -45,8 +52,12 @@ const baseEntry: FeedEntry = {
   trackedAt: '20260501000000',
 }
 
+beforeEach(() => {
+  mockPush.mockClear()
+})
+
 describe('FeedEntryRow', () => {
-  it('renders the date, pilot link, and formatted flight fields in column order, plus a track link when a track exists', () => {
+  it('renders the date, pilot link, and formatted flight fields in column order, plus "View track" text when a track exists', () => {
     const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = remountRow(baseEntry)
 
     expect(dateCell.textContent).toBe('2026-05-01')
@@ -57,16 +68,13 @@ describe('FeedEntryRow', () => {
     expect(takeoffCell.textContent).toBe('Voss')
     expect(durationCell.textContent).toBe('2:15')
     expect(distanceCell.textContent).toBe('38.4 km')
-
-    const trackLink = within(trackCell).getByRole('link', { name: 'View track' })
-    expect(trackLink.getAttribute('href')).toBe('/flights/501')
+    expect(trackCell.textContent).toBe('View track')
   })
 
-  it('renders "none" instead of a track link when the flight has no track', () => {
+  it('renders "none" instead of "View track" when the flight has no track', () => {
     const cells = remountRow({ ...baseEntry, hasTrack: false, newness: 'not-new', trackedAt: null })
     const trackCell = cells[5]
 
-    expect(within(trackCell).queryByRole('link', { name: 'View track' })).toBeNull()
     expect(trackCell.textContent).toBe('none')
   })
 
@@ -82,5 +90,56 @@ describe('FeedEntryRow', () => {
 
     const [untrackedNewDateCell] = remountRow({ ...baseEntry, hasTrack: false, newness: 'new', trackedAt: null })
     expect(within(untrackedNewDateCell).queryByText('New')).not.toBeNull()
+  })
+
+  // #217, porting #213/#214's row-navigation pattern: the whole row is the click target now,
+  // not just a Track cell link, so untracked rows (the majority) can reach their flight page too.
+  it('navigates to the flight page when an untracked row is clicked anywhere', () => {
+    remountRow({ ...baseEntry, hasTrack: false, newness: 'not-new', trackedAt: null })
+
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
+  it('navigates to the flight page when a tracked row is clicked anywhere', () => {
+    remountRow(baseEntry)
+
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
+  it('navigates on Enter and Space, for keyboard users who cannot click', () => {
+    remountRow(baseEntry)
+    const row = screen.getByRole('button')
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+
+    expect(mockPush).toHaveBeenCalledTimes(2)
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
+  it('does not navigate on an unrelated keypress', () => {
+    remountRow(baseEntry)
+    const row = screen.getByRole('button')
+
+    fireEvent.keyDown(row, { key: 'Tab' })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  // The whole-row click handler and the nested pilot link both sit on the same row; without
+  // stopping propagation on the link's click, clicking the pilot name would ALSO push to the
+  // flight page — the one behavior genuinely new to this port vs. flight-row.tsx, which has no
+  // nested interactive elements at all.
+  it('does not navigate to the flight page when the nested pilot link is clicked', () => {
+    const [, pilotCell] = remountRow(baseEntry)
+    const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
+
+    fireEvent.click(pilotLink)
+
+    expect(mockPush).not.toHaveBeenCalled()
   })
 })
