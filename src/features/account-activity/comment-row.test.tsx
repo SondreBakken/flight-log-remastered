@@ -1,0 +1,78 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { CommentRow } from '@/features/account-activity/comment-row'
+import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
+
+const mockPush = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}))
+
+// index.test.tsx cannot exercise this component at all: CommentsOnMyFlights is an async Server
+// Component rendered under Suspense, which never resolves under that suite's plain client-side
+// render (see index.test.tsx's own doc comment on renderActivity) — so this row's coverage lives
+// here instead, same split #218 used for longest-flights.test.tsx.
+function remountRow(comment: CommentWithTripId) {
+  cleanup()
+  render(
+    <ul>
+      <CommentRow comment={comment} />
+    </ul>,
+  )
+  return screen.getByRole('button')
+}
+
+const BASE_COMMENT: CommentWithTripId = {
+  id: 'comment-1',
+  tripId: 501,
+  userId: 'user-abc',
+  body: 'Great flight!',
+  createdAt: '2026-05-01T12:00:00Z',
+  displayName: 'Ada Lovelace',
+}
+
+beforeEach(() => {
+  mockPush.mockClear()
+})
+
+describe('CommentRow', () => {
+  it('renders the commenter name, trip id, and comment body', () => {
+    remountRow(BASE_COMMENT)
+
+    screen.getByText(/Ada Lovelace.*flight 501/)
+    screen.getByText('Great flight!')
+  })
+
+  it('falls back to "Anonymous" when displayName is null', () => {
+    remountRow({ ...BASE_COMMENT, displayName: null })
+
+    screen.getByText(/Anonymous.*flight 501/)
+  })
+
+  it('navigates to the flight page when clicked anywhere', () => {
+    const row = remountRow(BASE_COMMENT)
+
+    fireEvent.click(row)
+
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
+  it('navigates on Enter and Space, for keyboard users who cannot click', () => {
+    const row = remountRow(BASE_COMMENT)
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+
+    expect(mockPush).toHaveBeenCalledTimes(2)
+    expect(mockPush).toHaveBeenCalledWith('/flights/501')
+  })
+
+  it('does not navigate on an unrelated keypress', () => {
+    const row = remountRow(BASE_COMMENT)
+
+    fireEvent.keyDown(row, { key: 'Tab' })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+})
