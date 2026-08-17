@@ -1,5 +1,6 @@
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { AppRouterContext, type AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime'
 import { isDeepStrictEqual, inspect } from 'node:util'
 import {
   anyPilotHasPriorVisit,
@@ -939,10 +940,29 @@ await withStubbedFetch(
 // follow list server-side — see index.tsx's own doc comment), known before the very first
 // render — there is no more separate hydration-skeleton branch to exercise (the old
 // localStorage-backed version's whole reason for one).
+//
+// FeedEntryRow (rendered by FeedTable, reached whenever entries is non-empty below) calls
+// useRouter() for row-click navigation (#217), which throws outside a mounted App Router.
+// renderToStaticMarkup has no such router, so every render is wrapped in a stub
+// AppRouterContext.Provider — only `push` is ever called by production code today, the rest are
+// no-ops satisfying AppRouterInstance's required shape.
 // =====================================================================================
 
+const stubRouter: AppRouterInstance = {
+  push: () => {},
+  replace: () => {},
+  back: () => {},
+  forward: () => {},
+  refresh: () => {},
+  prefetch: () => {},
+}
+
+function renderFeedMarkup(element: ReactElement): string {
+  return renderToStaticMarkup(createElement(AppRouterContext.Provider, { value: stubRouter }, element))
+}
+
 {
-  const empty = renderToStaticMarkup(
+  const empty = renderFeedMarkup(
     createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [] }, defaultPilotId: 1 }),
   )
   assert(empty.includes('Recent flights'), 'FlightFeedView: renders real content immediately, no hydration gap')
@@ -951,7 +971,7 @@ await withStubbedFetch(
     'FlightFeedView: a resolved, empty followedPilotIds list renders the empty state',
   )
 
-  const withFollows = renderToStaticMarkup(
+  const withFollows = renderFeedMarkup(
     createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [4549] }, defaultPilotId: 1 }),
   )
   assert(
@@ -964,7 +984,7 @@ await withStubbedFetch(
 // list — a follows query failure, not "follows nobody" — and must render its own visible notice
 // instead of the misleading "you follow nobody" empty state.
 {
-  const unavailable = renderToStaticMarkup(
+  const unavailable = renderFeedMarkup(
     createElement(FlightFeedView, { follows: { status: 'follows-unavailable' }, defaultPilotId: 1 }),
   )
   assert(
@@ -978,7 +998,7 @@ await withStubbedFetch(
 }
 
 {
-  const withFailure = renderToStaticMarkup(
+  const withFailure = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
@@ -993,7 +1013,7 @@ await withStubbedFetch(
     'FeedView: a non-empty failedPilots prop actually renders the failure notice with its message',
   )
 
-  const withoutFailure = renderToStaticMarkup(
+  const withoutFailure = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
@@ -1026,7 +1046,7 @@ await withStubbedFetch(
     trackedAt: '20260101000000',
   }
 
-  const loadedWithOneNew = renderToStaticMarkup(
+  const loadedWithOneNew = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
@@ -1041,7 +1061,7 @@ await withStubbedFetch(
     'NewSinceLastVisitNotice: renders the caption with the real count once loading has settled and there IS a prior visit — kills both "returns null unconditionally" and "newCount forced to 0"',
   )
 
-  const stillLoadingWithOneNew = renderToStaticMarkup(
+  const stillLoadingWithOneNew = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
@@ -1057,7 +1077,7 @@ await withStubbedFetch(
   )
 
   const notNewEntry = { ...newEntry, newness: 'not-new' as const }
-  const loadedWithNothingNew = renderToStaticMarkup(
+  const loadedWithNothingNew = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
@@ -1072,7 +1092,7 @@ await withStubbedFetch(
     'NewSinceLastVisitNotice: a zero count renders nothing once there IS a prior visit — no permanent "0 new" furniture',
   )
 
-  const firstVisit = renderToStaticMarkup(
+  const firstVisit = renderFeedMarkup(
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
