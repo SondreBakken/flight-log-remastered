@@ -15,6 +15,11 @@ type FlightRowProps = {
 // page (and its comments) at all. A `<tr>` can't be an `<a>`, so this is onClick + a keyboard
 // handler rather than a real link; no cell below carries its own link/button, which is what
 // keeps this from becoming an interactive element nested inside a clickable row.
+//
+// No role="button" here (#233, same fix as #221/#231 on the feed-entry-row and
+// browse-takeoff-detail flight-row siblings): ARIA prohibits role="button" on a <tr>, since it
+// strips the row's implicit row semantics and orphans its <td> children for assistive tech.
+// aria-label gives screen-reader users the same "this row is actionable" signal instead.
 export function FlightRow({ flight, hasTrack }: FlightRowProps) {
   const router = useRouter()
   const href = `/flights/${flight.tripId}`
@@ -31,10 +36,10 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
 
   return (
     <tr
+      aria-label="View flight details"
       className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
-      role="button"
       tabIndex={0}
     >
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.date}</td>
