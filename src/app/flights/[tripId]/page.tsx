@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import FlightTrack from '@/features/show-flight-track'
 import CommentsOnFlight from '@/features/comment-on-flight'
+import { BackLink } from '@/features/browse-flight-detail/back-link'
 import { flightlogFlightUrl } from '@/lib/flightlog/config'
 import { getFlightDetail } from '@/lib/flightlog/flight-detail'
 import { getTrack, hasTrack } from '@/lib/flightlog/tracks'
@@ -16,9 +17,7 @@ export default function FlightPage({ params }: { params: FlightParams }) {
       <Suspense fallback={<FlightSkeleton />}>
         <Flight params={params} />
       </Suspense>
-      <Link className="text-sm underline underline-offset-2" href="/">
-        Back to logbook
-      </Link>
+      <BackLink />
     </article>
   )
 }
