@@ -290,10 +290,11 @@ export type PilotSearchResult = {
   country: string
 }
 
-// a=22's "Siterecord" row: the best PG, HG and HG2 distance ever flown from this takeoff.
-// Its link carries a `trip_id` but no `user_id` (unlike a=42's flight rows), so a pilot name
-// here is text, not a follow target — see parse-takeoff-detail.ts's own doc comment.
-export type SiteRecordClass = 'PG' | 'HG' | 'HG2'
+// a=22's "Siterecord" row: the best distance ever flown from this takeoff, per discipline —
+// PG, HG, HG2 (tandem hang glider), PPG (powered paraglider), PHG (powered hang glider). Its
+// link carries a `trip_id` but no `user_id` (unlike a=42's flight rows), so a pilot name here
+// is text, not a follow target — see parse-takeoff-detail.ts's own doc comment.
+export type SiteRecordClass = 'PG' | 'HG' | 'HG2' | 'PPG' | 'PHG'
 
 export type SiteRecord = {
   recordClass: SiteRecordClass

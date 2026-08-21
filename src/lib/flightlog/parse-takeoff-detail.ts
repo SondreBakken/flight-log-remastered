@@ -99,11 +99,17 @@ function readDescription(cell: Nodes): string | null {
 // text node immediately before its anchor, not an attribute or wrapping element — cheerio's
 // raw node `.prev` (not the jQuery-style `.prev()`, which only walks ELEMENT siblings and
 // would skip straight past this text node to nothing) is what actually reaches it.
+const SITE_RECORD_CLASSES: readonly SiteRecordClass[] = ['PG', 'HG', 'HG2', 'PPG', 'PHG']
+
+// #235: a takeoff with a powered-flight record (PPG/PHG), not just the free-flight PG/HG/HG2
+// trio every fixture sampled for this parser originally had, threw "not recognised" here —
+// those two labels are real flightlog.org markup, not malformed input the strict-extraction
+// floor check in readSiteRecords is meant to catch.
 function readSiteRecordClass(anchor: Nodes): SiteRecordClass | null {
   const previous = anchor.get(0)?.prev
   if (!previous || previous.type !== 'text') return null
   const label = previous.data.trim().replace(/:$/, '').trim()
-  return label === 'PG' || label === 'HG' || label === 'HG2' ? label : null
+  return (SITE_RECORD_CLASSES as readonly string[]).includes(label) ? (label as SiteRecordClass) : null
 }
 
 // "Mikael Benjamin Ulstrup, 196.9 Km" — pilot name and distance share one anchor with no
