@@ -11,10 +11,17 @@ describe('SearchPilots', () => {
     expect(screen.queryByRole('table')).toBeNull()
   })
 
+  // #241: an exact textContent match, not just a regex substring — a regex still passes even if
+  // the space between {minLength} and "letters" goes missing at the source's own JSX compiler
+  // level (this bug shipped past this exact regex once already, under a different bundler than
+  // the one the live app actually runs; the fix removed the ambiguity at the source, this pins
+  // the literal string the fix produces).
   it('prompts for more characters when the query is below minLength (results still null)', () => {
     render(<SearchPilots query="ab" minLength={3} results={null} isSignedIn={false} followedPilotIds={[]} />)
 
-    screen.getByText(/type at least 3 letters in a row/i)
+    expect(screen.getByText(/type at least/i).textContent).toBe(
+      'Type at least 3 letters in a row to search (% and _ wildcards don’t count).',
+    )
   })
 
   it('renders a distinct "no matches" state for a real zero-match search, not the too-short prompt', () => {

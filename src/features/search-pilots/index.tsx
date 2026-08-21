@@ -76,9 +76,14 @@ function SearchStatus({
   if (query.trim() === '') return null
 
   if (results === null) {
+    // #241: an explicit {' '} between {minLength} and "letters" below — SWC's JSX transform (the
+    // live app's own bundler) drops the plain space that sat there in source, even though it was
+    // on the same line as both neighbours; esbuild (vitest's bundler) does not, which is why that
+    // bug shipped invisibly past the test suite. An explicit space child has no such
+    // compiler-dependent collapsing to go wrong.
     return (
       <p className="text-sm opacity-70">
-        Type at least {minLength} letters in a row to search (% and _ wildcards don&rsquo;t count).
+        Type at least {minLength}{' '}letters in a row to search (% and _ wildcards don&rsquo;t count).
       </p>
     )
   }
