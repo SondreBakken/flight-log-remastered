@@ -5,6 +5,7 @@ import PilotLogbook from '@/features/browse-pilot-logbook'
 import PilotStatistics from '@/features/browse-pilot-statistics'
 import { flightYear } from '@/lib/flightlog/flight-year'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
+import { isFallbackPilot } from '@/lib/flightlog/is-fallback-pilot'
 import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 import type { Flight } from '@/lib/flightlog/types'
@@ -45,9 +46,17 @@ export default function PilotPage({ params }: { params: PilotParams }) {
   )
 }
 
-async function Logbook({ params }: { params: PilotParams }) {
+// Exported (same reasoning as Flight in the sibling flights/[tripId]/page.tsx) so the
+// isFallbackPilot notFound() guard is exercised directly in page.test.tsx without a request
+// context.
+export async function Logbook({ params }: { params: PilotParams }) {
   const pilotId = await parsePilotId(params)
   const { pilot, flights } = await getPilotLogbook(pilotId)
+  // #239: parsePilot cannot itself tell "no such pilot" from "a real pilot with an empty
+  // profile" apart — both degrade to the identical synthetic fallback shape (see
+  // is-fallback-pilot.ts's own doc comment) — so without this check a nonexistent pilot id
+  // rendered as a normal, empty logbook instead of 404ing.
+  if (isFallbackPilot(pilotId, pilot)) notFound()
   const [trackedTripIds, { isSignedIn, followedPilotIds }] = await Promise.all([
     getTrackedTripIds(pilotId, yearsCovered(flights)),
     resolveFollowButtonState([pilotId]),
