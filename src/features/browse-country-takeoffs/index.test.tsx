@@ -682,4 +682,32 @@ describe('TakeoffDirectory — #10 map view toggle', () => {
     await screen.findByText('takeoffs for country 160: server returned 502')
     expect(screen.queryByTestId('stub-takeoffs-map')).toBeNull()
   })
+
+  it('shows icons on the List/Map view toggle buttons', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    const { container } = render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    expect(container.querySelectorAll('[aria-label="Directory view"] svg').length).toBe(2)
+  })
+
+  it('shows a leading icon in the name filter input', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    const { container } = render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('shows a leading icon on the "Sort by distance from me" label', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    render(<TakeoffDirectory countryId={999} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    const label = screen.getByText('Sort by distance from me').closest('label')
+    expect(label?.querySelector('svg')).toBeTruthy()
+  })
 })

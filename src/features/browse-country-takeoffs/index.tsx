@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { List as ListIcon, LocateFixed, Map as MapIcon, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
@@ -214,16 +215,18 @@ function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange:
         type="button"
         aria-pressed={view === 'list'}
         onClick={() => onViewChange('list')}
-        className={classes('rounded px-2 py-1', view === 'list' && 'bg-black/10 dark:bg-white/15')}
+        className={classes('flex items-center gap-1 rounded px-2 py-1', view === 'list' && 'bg-black/10 dark:bg-white/15')}
       >
+        <ListIcon aria-hidden="true" size={18} />
         List
       </button>
       <button
         type="button"
         aria-pressed={view === 'map'}
         onClick={() => onViewChange('map')}
-        className={classes('rounded px-2 py-1', view === 'map' && 'bg-black/10 dark:bg-white/15')}
+        className={classes('flex items-center gap-1 rounded px-2 py-1', view === 'map' && 'bg-black/10 dark:bg-white/15')}
       >
+        <MapIcon aria-hidden="true" size={18} />
         Map
       </button>
     </div>
@@ -311,14 +314,17 @@ function SearchControls({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Filter by name"
-          aria-label="Takeoff name"
-          className="flex-1 rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
-        />
+        <div className="relative flex-1">
+          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 opacity-50" size={14} />
+          <input
+            type="text"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="Filter by name"
+            aria-label="Takeoff name"
+            className="w-full rounded border border-black/20 py-1.5 pr-3 pl-8 text-sm dark:border-white/25"
+          />
+        </div>
         <select
           value={regionFilter}
           onChange={(event) => onRegionFilterChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}
@@ -348,12 +354,13 @@ function SearchControls({
         </select>
       </div>
       <div className="flex items-center gap-2 text-sm">
-        <label className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5">
           <input
             type="checkbox"
             checked={nearbyEnabled}
             onChange={(event) => onNearbyToggle(event.target.checked)}
           />
+          <LocateFixed aria-hidden="true" size={14} />
           Sort by distance from me
         </label>
         <NearbyStatusHint enabled={nearbyEnabled} status={nearbyStatus} />
