@@ -205,6 +205,23 @@ describe('TakeoffDetailView', () => {
     expect(screen.queryByTestId('stub-takeoffs-map')).toBeNull()
   })
 
+  it('shows an icon in the empty-flights state', () => {
+    const { container } = render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
   it('links back to the country takeoffs directory and out to flightlog.org', () => {
     render(
       <TakeoffDetailView

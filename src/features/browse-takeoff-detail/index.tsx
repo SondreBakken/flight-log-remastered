@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { TakeoffsMap } from '@/components/takeoffs-map'
+import { EmptyState } from '@/components/empty-state'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
 import type { PilotId, SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
@@ -176,11 +177,7 @@ function TakeoffFlights({
 }
 
 function EmptyFlights() {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No flights recorded from this takeoff yet this year.
-    </p>
-  )
+  return <EmptyState>No flights recorded from this takeoff yet this year.</EmptyState>
 }
 
 function FlightsTable({
