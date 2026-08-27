@@ -1,5 +1,6 @@
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
 import type { Flight } from '@/lib/flightlog/types'
+import { EmptyState } from '@/components/empty-state'
 import { FlyingDaysCalendar } from './flying-days-calendar'
 import { LongestFlightsList } from './longest-flights'
 import {
@@ -186,9 +187,5 @@ function FlyingDaysHeatmap({ flights }: { flights: Flight[] }) {
 }
 
 function EmptyStatistics() {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No flights recorded yet: statistics will appear once this pilot has logged flights.
-    </p>
-  )
+  return <EmptyState>No flights recorded yet: statistics will appear once this pilot has logged flights.</EmptyState>
 }

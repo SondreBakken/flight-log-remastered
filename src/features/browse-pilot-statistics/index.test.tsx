@@ -53,6 +53,12 @@ describe('PilotStatistics', () => {
     expect(screen.queryByText(/flying days?$/)).toBeNull()
   })
 
+  it('shows an icon in the empty-statistics state', () => {
+    const { container } = render(<PilotStatistics flights={[]} />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
   // #70/#68's shape, same as browse-pilot-logbook's own regression test: two single-flight
   // rows and two aggregated rows (flightCount 1, 2, 6, 1) totalling 10 flights, not 4 rows —
   // the dashboard's totals summary must report flights, not rows. Also pins two fixes
