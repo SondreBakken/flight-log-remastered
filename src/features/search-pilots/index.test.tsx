@@ -31,6 +31,12 @@ describe('SearchPilots', () => {
     expect(screen.queryByText(/type at least/i)).toBeNull()
   })
 
+  it('shows an icon in the no-matches state', () => {
+    const { container } = render(<SearchPilots query="zzznomatchxyz123" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
   it('renders one row per result, linking to the pilot profile and a follow button carrying the pilot id', () => {
     render(
       <SearchPilots

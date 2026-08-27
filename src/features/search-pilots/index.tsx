@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { FollowButton } from '@/components/follow-button'
+import { EmptyState } from '@/components/empty-state'
 import type { PilotId, PilotSearchResult } from '@/lib/flightlog/types'
 
 type SearchPilotsProps = {
@@ -89,11 +90,7 @@ function SearchStatus({
   }
 
   if (results.length === 0) {
-    return (
-      <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-        No pilots match &ldquo;{query}&rdquo;.
-      </p>
-    )
+    return <EmptyState>No pilots match &ldquo;{query}&rdquo;.</EmptyState>
   }
 
   return <ResultsTable results={results} isSignedIn={isSignedIn} followedPilotIds={followedPilotIds} />
