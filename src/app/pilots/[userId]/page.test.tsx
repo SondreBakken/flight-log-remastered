@@ -7,6 +7,7 @@ import type { Flight, Pilot } from '@/lib/flightlog/types'
 vi.mock('@/lib/flightlog/flights', () => ({ getPilotLogbook: vi.fn() }))
 vi.mock('@/lib/flightlog/tracks', () => ({ getTrackedTripIds: vi.fn() }))
 vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({ resolveFollowButtonState: vi.fn() }))
+vi.mock('@/lib/profiles/resolve-certificate-progress-state', () => ({ resolveCertificateProgressState: vi.fn() }))
 // page.tsx imports this at module scope for the FlownSites sibling boundary, which Logbook
 // itself never renders — its own fetch-flown-sites.ts carries 'server-only' too, so it must be
 // stubbed here regardless.
@@ -15,11 +16,13 @@ vi.mock('@/features/browse-flown-sites-map', () => ({ default: () => null }))
 import { getPilotLogbook } from '@/lib/flightlog/flights'
 import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
+import { resolveCertificateProgressState } from '@/lib/profiles/resolve-certificate-progress-state'
 import { Logbook } from './page'
 
 const mockedGetPilotLogbook = vi.mocked(getPilotLogbook)
 const mockedGetTrackedTripIds = vi.mocked(getTrackedTripIds)
 const mockedResolveFollowButtonState = vi.mocked(resolveFollowButtonState)
+const mockedResolveCertificateProgressState = vi.mocked(resolveCertificateProgressState)
 
 const REAL_PILOT: Pilot = {
   userId: 12677,
@@ -38,6 +41,7 @@ function stubDependencies(pilot: Pilot) {
   mockedGetPilotLogbook.mockResolvedValue({ pilot, flights: NO_FLIGHTS })
   mockedGetTrackedTripIds.mockResolvedValue(new Set())
   mockedResolveFollowButtonState.mockResolvedValue({ isSignedIn: false, followedPilotIds: [] })
+  mockedResolveCertificateProgressState.mockResolvedValue({ isOwner: false, level: null, levelSetAt: null, checklist: {} })
 }
 
 describe('Logbook', () => {
