@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { ChevronLeft } from 'lucide-react'
 
 // This page is reached from several different clickable rows (pilot logbook, takeoff detail,
 // flight feed, account activity, longest flights), so a hardcoded href="/" (#234) sent every
@@ -21,7 +22,8 @@ export function BackLink() {
   }
 
   return (
-    <button className="text-left text-sm underline underline-offset-2" onClick={goBack} type="button">
+    <button className="flex items-center gap-1 text-left text-sm underline underline-offset-2" onClick={goBack} type="button">
+      <ChevronLeft aria-hidden="true" size={14} />
       Back
     </button>
   )

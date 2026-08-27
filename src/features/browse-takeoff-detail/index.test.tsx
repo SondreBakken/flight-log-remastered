@@ -241,4 +241,12 @@ describe('TakeoffDetailView', () => {
     )
     screen.getByRole('link', { name: /view on flightlog.org/i })
   })
+
+  it('shows a leading icon on the back-to-takeoffs link', () => {
+    const { container } = render(
+      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} followedPilotIds={[]} />,
+    )
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
 import { FollowButton } from '@/components/follow-button'
 import { StatsLeaderboard } from './stats-leaderboard'
@@ -47,7 +48,8 @@ export default function BrowseClub({
         <h2 className="text-lg font-semibold tracking-tight">Members ({roster.length})</h2>
         <Roster roster={roster} isSignedIn={isSignedIn} followedPilotIds={followedPilotIdSet} />
       </div>
-      <Link className="text-sm underline underline-offset-2" href={`/countries/${countryId}`}>
+      <Link className="flex items-center gap-1 text-sm underline underline-offset-2" href={`/countries/${countryId}`}>
+        <ChevronLeft aria-hidden="true" size={14} />
         Back to {countryName} clubs
       </Link>
     </section>

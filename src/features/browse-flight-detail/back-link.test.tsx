@@ -41,6 +41,13 @@ describe('BackLink', () => {
     expect(mockBack).not.toHaveBeenCalled()
   })
 
+  it('shows a leading icon on the back button', () => {
+    vi.spyOn(window.history, 'length', 'get').mockReturnValue(2)
+    const { container } = render(<BackLink />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
   })

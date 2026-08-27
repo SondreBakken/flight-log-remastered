@@ -91,4 +91,10 @@ describe('CountryClubs', () => {
 
     expect(screen.queryByRole('link', { name: /browse takeoffs/i })).toBeNull()
   })
+
+  it('shows a leading icon on the back-to-countries link', () => {
+    const { container } = render(<CountryClubs countryId={160} countryName="Norway" clubs={[]} />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

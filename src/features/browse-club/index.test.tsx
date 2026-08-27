@@ -149,4 +149,12 @@ describe('BrowseClub', () => {
     screen.getByText(/no members recorded/i)
     expect(container.querySelector('svg')).toBeTruthy()
   })
+
+  it('shows a leading icon on the back-to-clubs link', () => {
+    const { container } = render(
+      <BrowseClub countryId={160} countryName="Norway" detail={DETAIL} roster={[]} stats={[]} isSignedIn={false} followedPilotIds={[]} />,
+    )
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

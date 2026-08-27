@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
 import type { Club } from '@/lib/flightlog/types'
 import { CURATED_TAKEOFF_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
 
@@ -24,7 +25,8 @@ export default function CountryClubs({ countryId, countryName, clubs }: CountryC
       </header>
       {clubs.length === 0 ? <EmptyClubs /> : <ClubTable countryId={countryId} clubs={clubs} />}
       <div className="flex flex-wrap gap-4">
-        <Link className="text-sm underline underline-offset-2" href="/countries">
+        <Link className="flex items-center gap-1 text-sm underline underline-offset-2" href="/countries">
+          <ChevronLeft aria-hidden="true" size={14} />
           Back to countries
         </Link>
         {hasTakeoffDirectory && (

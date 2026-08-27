@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { EmptyState } from '@/components/empty-state'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
@@ -82,7 +83,8 @@ function TakeoffLinks({
 }) {
   return (
     <div className="flex flex-wrap gap-4 text-sm">
-      <Link className="underline underline-offset-2" href={`/countries/${countryId}/takeoffs`}>
+      <Link className="flex items-center gap-1 underline underline-offset-2" href={`/countries/${countryId}/takeoffs`}>
+        <ChevronLeft aria-hidden="true" size={14} />
         Back to {countryName} takeoffs
       </Link>
       <a
