@@ -8,6 +8,7 @@ import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
 import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
+import { Callout } from '@/components/callout'
 
 // follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
 // the very first render, unlike the old localStorage-backed version, which had to render a
@@ -90,10 +91,10 @@ function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilo
 // advice when the real problem is that the follow list itself failed to load.
 function FollowsUnavailableNotice() {
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+    <Callout tone="warning">
       <p className="font-medium">Couldn&apos;t load the pilots you follow right now.</p>
       <p className="mt-1 opacity-80">Try reloading the page in a moment.</p>
-    </div>
+    </Callout>
   )
 }
 
@@ -195,7 +196,7 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
   if (failures.length === 0) return null
 
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+    <Callout tone="warning">
       <p className="font-medium">Some followed pilots could not be loaded:</p>
       <ul className="mt-1 list-inside list-disc opacity-80">
         {failures.map((failure) => (
@@ -207,7 +208,7 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
           </li>
         ))}
       </ul>
-    </div>
+    </Callout>
   )
 }
 
