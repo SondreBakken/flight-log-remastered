@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCertificateProgressByPilotId } from './get-certificate-progress-by-pilot-id'
 import { getFlightlogPilotIds } from './get-flightlog-pilot-ids'
 import { resolveCertificateProgressState } from './resolve-certificate-progress-state'
+import { ProfilesQueryError } from './profiles-query-error'
 
 const mockedGetSupabaseEnv = vi.mocked(getSupabaseEnv)
 const mockedCreateClient = vi.mocked(createClient)
@@ -69,6 +70,15 @@ describe('resolveCertificateProgressState', () => {
   it('defaults level/levelSetAt/checklist when no profile has declared this pilot id', async () => {
     mockedCreateClient.mockResolvedValue(fakeSupabaseClient(null) as unknown as Awaited<ReturnType<typeof createClient>>)
     mockedGetCertificateProgressByPilotId.mockResolvedValue(null)
+
+    const state = await resolveCertificateProgressState(PILOT_ID)
+
+    expect(state).toEqual({ isOwner: false, level: null, levelSetAt: null, checklist: {} })
+  })
+
+  it('degrades to the default state instead of throwing when the query fails with ProfilesQueryError', async () => {
+    mockedCreateClient.mockResolvedValue(fakeSupabaseClient(null) as unknown as Awaited<ReturnType<typeof createClient>>)
+    mockedGetCertificateProgressByPilotId.mockRejectedValue(new ProfilesQueryError('boom'))
 
     const state = await resolveCertificateProgressState(PILOT_ID)
 

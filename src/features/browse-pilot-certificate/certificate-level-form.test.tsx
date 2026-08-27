@@ -5,8 +5,12 @@ import { CertificateLevelForm } from './certificate-level-form'
 const mockSaveCertificateLevelAction = vi.fn()
 vi.mock('./actions', () => ({ saveCertificateLevelAction: (...args: unknown[]) => mockSaveCertificateLevelAction(...args) }))
 
+const mockRefresh = vi.fn()
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }))
+
 beforeEach(() => {
   mockSaveCertificateLevelAction.mockReset()
+  mockRefresh.mockReset()
 })
 
 describe('CertificateLevelForm', () => {
@@ -29,6 +33,7 @@ describe('CertificateLevelForm', () => {
 
     await screen.findByText('Saved.')
     expect(mockSaveCertificateLevelAction).toHaveBeenCalledWith('PP4')
+    expect(mockRefresh).toHaveBeenCalled()
   })
 
   it('shows the error message when saving fails', async () => {
@@ -38,5 +43,6 @@ describe('CertificateLevelForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
 
     await screen.findByText('Something went wrong saving your certificate level. Try again.')
+    expect(mockRefresh).not.toHaveBeenCalled()
   })
 })

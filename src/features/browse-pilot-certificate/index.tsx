@@ -38,7 +38,7 @@ export default function PilotCertificateProgress({ flights, isOwner, level, leve
         <details className="flex flex-col gap-3">
           <summary className="cursor-pointer text-sm font-medium opacity-70">View full requirements</summary>
           <div className="flex flex-col gap-4 pt-2">
-            {CERTIFICATE_LEVELS.map((tableLevel) => (
+            {CERTIFICATE_LEVELS.filter((tableLevel) => tableLevel !== upcoming).map((tableLevel) => (
               <div className="flex flex-col gap-2" key={tableLevel}>
                 <h4 className="text-sm font-medium opacity-70">{tableLevel}</h4>
                 <CertificateChecklistCard

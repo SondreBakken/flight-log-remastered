@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { saveCertificateLevelAction } from './actions'
 import { CERTIFICATE_LEVELS, type CertificateLevel } from '@/lib/certificates/types'
 
@@ -12,6 +13,7 @@ type CertificateLevelFormProps = {
 // "prefilled, always resubmittable" shape, rather than a separate first-declare vs. later-
 // redeclare UI split.
 export function CertificateLevelForm({ currentLevel }: CertificateLevelFormProps) {
+  const router = useRouter()
   const [selected, setSelected] = useState(currentLevel ?? '')
   const [isPending, startTransition] = useTransition()
   const [status, setStatus] = useState<{ kind: 'idle' } | { kind: 'success' } | { kind: 'error'; message: string }>({ kind: 'idle' })
@@ -20,10 +22,17 @@ export function CertificateLevelForm({ currentLevel }: CertificateLevelFormProps
     event.preventDefault()
     if (selected === '') return
     const level = selected as CertificateLevel
-    startTransition(() => {
-      saveCertificateLevelAction(level).then((result) => {
-        setStatus(result.status === 'success' ? { kind: 'success' } : { kind: 'error', message: result.message })
-      })
+    startTransition(async () => {
+      const result = await saveCertificateLevelAction(level)
+      if (result.status === 'success') {
+        setStatus({ kind: 'success' })
+        // The declared level drives server-computed content (the checklist in index.tsx) this
+        // client component has no other way to refresh — router.refresh() re-runs the server
+        // components on the next paint so the checklist below reflects the new level.
+        router.refresh()
+      } else {
+        setStatus({ kind: 'error', message: result.message })
+      }
     })
   }
 

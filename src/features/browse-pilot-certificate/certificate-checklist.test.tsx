@@ -29,7 +29,23 @@ beforeEach(() => {
 describe('CertificateChecklist', () => {
   it('shows an experience item as current / threshold', () => {
     render(<CertificateChecklist isOwner={false} items={ITEMS} level="PP4" />)
-    screen.getByText('12 / 40 hours')
+    screen.getByText('12.0 / 40.0 hours')
+  })
+
+  it('rounds a non-integer hours value to tenths instead of rendering a raw float', () => {
+    const items: EvaluatedRequirement[] = [
+      { kind: 'experience', id: 'total-hours', label: 'Total flight hours', unit: 'hours', current: 12.333333333333334, threshold: 40, satisfied: false },
+    ]
+    render(<CertificateChecklist isOwner={false} items={items} level="PP4" />)
+    screen.getByText('12.3 / 40.0 hours')
+  })
+
+  it('renders a non-hours experience value as a plain integer, no decimal', () => {
+    const items: EvaluatedRequirement[] = [
+      { kind: 'experience', id: 'flights-over-1h', label: 'Single flights over 1 hour', unit: 'flights', current: 45, threshold: 3, satisfied: true },
+    ]
+    render(<CertificateChecklist isOwner={false} items={items} level="PP4" />)
+    screen.getByText('45 / 3 flights')
   })
 
   it('shows an experience item\'s caveat as a footnote when it has one', () => {

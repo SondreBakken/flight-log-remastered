@@ -30,8 +30,21 @@ export function CertificateChecklist({ level, items, isOwner }: CertificateCheck
   )
 }
 
+// Mirrors browse-pilot-statistics/index.tsx's formatMinutesAsHours rounding technique: round to
+// tenths BEFORE dividing back to a decimal, so a value like 12.333... renders "12.3", not a raw
+// float — plain toFixed(1) alone can still land on the same binary-fraction boundary that
+// function's own comment explains.
+function formatExperienceValue(value: number, unit: string): string {
+  if (unit !== 'hours') return String(Math.round(value))
+  const tenths = Math.round(value * 10)
+  return (tenths / 10).toFixed(1)
+}
+
 function ComputedItemRow({ item }: { item: Extract<EvaluatedRequirement, { kind: 'experience' | 'tenure' }> }) {
-  const summary = item.kind === 'experience' ? `${item.current} / ${item.threshold} ${item.unit}` : `${item.daysHeld ?? 0} / ${item.minDays} days`
+  const summary =
+    item.kind === 'experience'
+      ? `${formatExperienceValue(item.current, item.unit)} / ${formatExperienceValue(item.threshold, item.unit)} ${item.unit}`
+      : `${item.daysHeld ?? 0} / ${item.minDays} days`
   const progress = item.kind === 'experience' ? Math.min(item.current / item.threshold, 1) : Math.min((item.daysHeld ?? 0) / item.minDays, 1)
   const caveat = item.kind === 'experience' ? item.caveat : undefined
 
@@ -69,13 +82,12 @@ function ManualItemRow({
     const next = !checked
     setChecked(next)
     setError(null)
-    startTransition(() => {
-      toggleCertificateChecklistItemAction(level, item.id, next).then((result) => {
-        if (result.status === 'error') {
-          setChecked(!next)
-          setError(result.message)
-        }
-      })
+    startTransition(async () => {
+      const result = await toggleCertificateChecklistItemAction(level, item.id, next)
+      if (result.status === 'error') {
+        setChecked(!next)
+        setError(result.message)
+      }
     })
   }
 

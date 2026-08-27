@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Flight } from '@/lib/flightlog/types'
 import PilotCertificateProgress from './index'
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
 const NO_FLIGHTS: Flight[] = []
 
@@ -26,6 +28,18 @@ describe('PilotCertificateProgress', () => {
     render(<PilotCertificateProgress checklist={{}} flights={NO_FLIGHTS} isOwner={false} level="PP5" levelSetAt={null} />)
     expect(screen.queryByText(/progress toward/i)).toBeNull()
     screen.getByText(/view full requirements/i)
+    screen.getByRole('heading', { name: 'PP4' })
+    screen.getByRole('heading', { name: 'PP5' })
+  })
+
+  it('does not re-render the upcoming level a second time inside the full requirements table', () => {
+    render(<PilotCertificateProgress checklist={{}} flights={NO_FLIGHTS} isOwner={false} level="PP3" levelSetAt={null} />)
+
+    screen.getByText(/progress toward pp4/i)
+    expect(screen.queryByRole('heading', { name: 'PP4' })).toBeNull()
+    screen.getByRole('heading', { name: 'PP2' })
+    screen.getByRole('heading', { name: 'PP3' })
+    screen.getByRole('heading', { name: 'PP5' })
   })
 
   it('renders the level form for the owner even once a level is declared, prefilled', () => {
