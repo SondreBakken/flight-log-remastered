@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { EmptyState } from '@/components/empty-state'
 import { FollowButton } from '@/components/follow-button'
 import { StatsLeaderboard } from './stats-leaderboard'
 import { resolveStatsPilots } from './resolve-stats-pilots'
@@ -125,11 +126,7 @@ function Roster({
   followedPilotIds: ReadonlySet<PilotId>
 }) {
   if (roster.length === 0) {
-    return (
-      <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-        No members recorded for this club yet.
-      </p>
-    )
+    return <EmptyState>No members recorded for this club yet.</EmptyState>
   }
 
   return (

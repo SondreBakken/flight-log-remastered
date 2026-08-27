@@ -134,7 +134,7 @@ describe('BrowseClub', () => {
   })
 
   it('renders the empty-roster state, not an empty list, for a real club with zero members', () => {
-    render(
+    const { container } = render(
       <BrowseClub
         countryId={160}
         countryName="Norway"
@@ -147,5 +147,6 @@ describe('BrowseClub', () => {
     )
 
     screen.getByText(/no members recorded/i)
+    expect(container.querySelector('svg')).toBeTruthy()
   })
 })
