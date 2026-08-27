@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
+import { UserCheck, UserPlus } from 'lucide-react'
 import { clearWatermark } from '@/lib/watermark-store/storage'
 import { clearSeenTripIds } from '@/lib/seen-trip-store/storage'
 import { FOLLOW_BUTTON_SIZE_CLASSES, getFollowButtonPresentation, type FollowButtonVariant } from './presentation'
@@ -62,16 +63,18 @@ export function FollowButton({ pilotId, variant, isFollowed, isSignedIn }: Follo
   }
 
   const presentation = getFollowButtonPresentation({ isFollowed: followed, variant })
+  const FollowIcon = followed ? UserCheck : UserPlus
 
   return (
     <span className="inline-flex flex-col items-start gap-1">
       <button
         aria-pressed={presentation.ariaPressed}
-        className={`${presentation.className} disabled:opacity-50`}
+        className={`${presentation.className} disabled:opacity-50 flex items-center gap-1`}
         disabled={isPending}
         onClick={handleClick}
         type="button"
       >
+        <FollowIcon aria-hidden="true" size={14} />
         {presentation.label}
       </button>
       {error && <span className="text-xs text-red-600 dark:text-red-400">{error}</span>}

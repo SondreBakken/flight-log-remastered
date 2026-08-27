@@ -53,6 +53,14 @@ describe('FollowButton, signed in', () => {
     expect(button.textContent).toBe('Follow')
   })
 
+  it('shows an icon on the button in both followed and unfollowed states', () => {
+    const { container: followedContainer } = render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    expect(followedContainer.querySelector('svg')).toBeTruthy()
+
+    const { container: unfollowedContainer } = render(<FollowButton isFollowed={false} isSignedIn pilotId={PILOT_ID} variant="prominent" />)
+    expect(unfollowedContainer.querySelector('svg')).toBeTruthy()
+  })
+
   it('renders the compact variant with its own class set', () => {
     render(<FollowButton isFollowed isSignedIn pilotId={PILOT_ID} variant="compact" />)
 
