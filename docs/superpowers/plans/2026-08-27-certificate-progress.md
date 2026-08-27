@@ -1864,7 +1864,7 @@ Expected: FAIL with "Cannot find module './certificate-checklist'".
 ```typescript
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { toggleCertificateChecklistItemAction } from './actions'
 import type { CertificateLevel, EvaluatedRequirement } from '@/lib/certificates/types'
 
@@ -1927,23 +1927,26 @@ function ManualItemRow({
 }) {
   const [checked, setChecked] = useState(item.checked)
   const [error, setError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
   function handleChange() {
     const next = !checked
     setChecked(next)
     setError(null)
-    toggleCertificateChecklistItemAction(level, item.id, next).then((result) => {
-      if (result.status === 'error') {
-        setChecked(!next)
-        setError(result.message)
-      }
+    startTransition(() => {
+      toggleCertificateChecklistItemAction(level, item.id, next).then((result) => {
+        if (result.status === 'error') {
+          setChecked(!next)
+          setError(result.message)
+        }
+      })
     })
   }
 
   return (
     <div className="flex flex-col gap-1">
       <label className="flex items-center gap-2">
-        <input checked={checked} disabled={!isOwner} onChange={handleChange} type="checkbox" />
+        <input checked={checked} disabled={!isOwner || isPending} onChange={handleChange} type="checkbox" />
         {item.label}
       </label>
       {error && (
