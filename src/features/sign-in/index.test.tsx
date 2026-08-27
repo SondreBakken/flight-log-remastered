@@ -85,4 +85,10 @@ describe('SignIn', () => {
 
     expect(screen.getByLabelText('Email')).toBeTruthy()
   })
+
+  it('shows a leading icon on the "Send magic link" button', () => {
+    const { container } = render(<SignIn />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

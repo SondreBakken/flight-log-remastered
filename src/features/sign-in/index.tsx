@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { Mail } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type SignInStatus = { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent'; email: string } | { kind: 'error'; message: string }
@@ -91,10 +92,11 @@ export default function SignIn() {
         />
       </label>
       <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="flex items-center gap-1.5 self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
         disabled={status.kind === 'sending'}
         type="submit"
       >
+        <Mail aria-hidden="true" size={14} />
         {status.kind === 'sending' ? 'Sending…' : 'Send magic link'}
       </button>
       {status.kind === 'error' && <p className="text-sm text-red-600 dark:text-red-400">{status.message}</p>}
