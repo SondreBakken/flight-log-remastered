@@ -19,4 +19,10 @@ describe('SiteNav', () => {
     expect(screen.getByRole('link', { name: 'Find a pilot' }).getAttribute('href')).toBe('/pilots/search')
     expect(screen.getByRole('link', { name: 'Countries' }).getAttribute('href')).toBe('/countries')
   })
+
+  it('gives each nav link a leading icon', () => {
+    const { container } = render(<SiteNav />)
+
+    expect(container.querySelectorAll('svg').length).toBe(3)
+  })
 })

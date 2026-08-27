@@ -115,4 +115,22 @@ describe('AuthStatus', () => {
     expect(mockOnAuthStateChange).not.toHaveBeenCalled()
     expect(screen.queryByRole('link', { name: 'Sign in' })).toBeNull()
   })
+
+  it('shows an icon on the sign-in link', () => {
+    stubAuthStateChange()
+    const { container } = render(<AuthStatus />)
+
+    emitAuthStateChange(null)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('shows icons on the account link and the sign-out button', () => {
+    stubAuthStateChange()
+    const { container } = render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+
+    expect(container.querySelectorAll('svg').length).toBe(2)
+  })
 })

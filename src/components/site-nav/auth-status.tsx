@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { LogIn, LogOut, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 
@@ -49,7 +50,8 @@ export default function AuthStatus() {
 
   if (state.kind === 'signed-out') {
     return (
-      <Link className="underline-offset-2 hover:underline" href="/sign-in">
+      <Link className="flex items-center gap-1.5 underline-offset-2 hover:underline" href="/sign-in">
+        <LogIn aria-hidden="true" size={14} />
         Sign in
       </Link>
     )
@@ -57,11 +59,13 @@ export default function AuthStatus() {
 
   return (
     <div className="flex items-center gap-3">
-      <Link className="opacity-70 underline-offset-2 hover:underline" href="/account">
+      <Link className="flex items-center gap-1.5 opacity-70 underline-offset-2 hover:underline" href="/account">
+        <User aria-hidden="true" size={14} />
         {state.email}
       </Link>
       <form action="/api/auth/sign-out" method="post">
-        <button className="underline-offset-2 hover:underline" type="submit">
+        <button className="flex items-center gap-1.5 underline-offset-2 hover:underline" type="submit">
+          <LogOut aria-hidden="true" size={14} />
           Sign out
         </button>
       </form>
