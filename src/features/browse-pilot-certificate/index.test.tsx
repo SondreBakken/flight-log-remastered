@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type { Flight } from '@/lib/flightlog/types'
 import PilotCertificateProgress from './index'
 
@@ -15,7 +15,7 @@ describe('PilotCertificateProgress', () => {
 
   it('renders the level form, and no checklist, for the owner when no level is declared', () => {
     render(<PilotCertificateProgress checklist={{}} flights={NO_FLIGHTS} isOwner level={null} levelSetAt={null} />)
-    screen.getByLabelText(/current certificate level/i)
+    screen.getByRole('button', { name: /edit certificate level/i })
     expect(screen.queryByText(/progress toward/i)).toBeNull()
   })
 
@@ -42,8 +42,9 @@ describe('PilotCertificateProgress', () => {
     screen.getByRole('heading', { name: 'PP5' })
   })
 
-  it('renders the level form for the owner even once a level is declared, prefilled', () => {
+  it('renders the level form for the owner even once a level is declared, prefilled once opened', () => {
     render(<PilotCertificateProgress checklist={{}} flights={NO_FLIGHTS} isOwner level="PP3" levelSetAt={null} />)
+    fireEvent.click(screen.getByRole('button', { name: /edit certificate level/i }))
     expect(screen.getByLabelText<HTMLSelectElement>(/current certificate level/i).value).toBe('PP3')
   })
 })
