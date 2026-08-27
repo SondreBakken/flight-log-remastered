@@ -9,6 +9,7 @@ import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFail
 import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import type { PilotId } from '@/lib/flightlog/types'
 import { Callout } from '@/components/callout'
+import { EmptyState } from '@/components/empty-state'
 
 // follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
 // the very first render, unlike the old localStorage-backed version, which had to render a
@@ -74,7 +75,7 @@ function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilo
     return (
       <>
         <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
-        <EmptyState defaultPilotId={defaultPilotId} />
+        <NotFollowingAnyoneNotice defaultPilotId={defaultPilotId} />
       </>
     )
   }
@@ -212,7 +213,7 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
   )
 }
 
-function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
+function NotFollowingAnyoneNotice({ defaultPilotId }: { defaultPilotId: number }) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-dashed border-black/15 p-6 text-sm opacity-80 dark:border-white/20">
       <p>You are not following any pilots yet.</p>
@@ -234,11 +235,7 @@ function EmptyState({ defaultPilotId }: { defaultPilotId: number }) {
 }
 
 function NoRecentFlights({ isLoading }: { isLoading: boolean }) {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      {isLoading ? 'Loading recent flights…' : 'No recent flights from the pilots you follow.'}
-    </p>
-  )
+  return <EmptyState>{isLoading ? 'Loading recent flights…' : 'No recent flights from the pilots you follow.'}</EmptyState>
 }
 
 function FeedTable({ entries }: { entries: FeedEntry[] }) {

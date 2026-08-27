@@ -90,7 +90,7 @@ function NoSitesMapped() {
 
 function UnmatchedTakeoffs({ unmatched }: { unmatched: UnmatchedSite[] }) {
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+    <Callout tone="warning">
       <p className="font-medium">Takeoffs that could not be located:</p>
       {/* data-testid, not a role/text selector: scripts/verify-flown-sites.mts reads this
           container's own textContent to count "(N flight(s))" markers, scoped away from the
@@ -106,6 +106,6 @@ function UnmatchedTakeoffs({ unmatched }: { unmatched: UnmatchedSite[] }) {
           </li>
         ))}
       </ul>
-    </div>
+    </Callout>
   )
 }

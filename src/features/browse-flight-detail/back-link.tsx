@@ -22,7 +22,7 @@ export function BackLink() {
   }
 
   return (
-    <button className="flex items-center gap-1 text-left text-sm underline underline-offset-2" onClick={goBack} type="button">
+    <button className="flex w-fit items-center gap-1 text-left text-sm underline underline-offset-2" onClick={goBack} type="button">
       <ChevronLeft aria-hidden="true" size={14} />
       Back
     </button>

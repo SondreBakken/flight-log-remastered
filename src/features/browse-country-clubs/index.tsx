@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import type { Club } from '@/lib/flightlog/types'
 import { CURATED_TAKEOFF_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
+import { EmptyState } from '@/components/empty-state'
 
 type CountryClubsProps = {
   countryId: number
@@ -72,9 +73,5 @@ function ClubTable({ countryId, clubs }: { countryId: number; clubs: Club[] }) {
 }
 
 function EmptyClubs() {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No clubs recorded for this country yet.
-    </p>
-  )
+  return <EmptyState>No clubs recorded for this country yet.</EmptyState>
 }

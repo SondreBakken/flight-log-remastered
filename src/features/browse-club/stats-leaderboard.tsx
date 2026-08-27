@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { FollowButton } from '@/components/follow-button'
+import { EmptyState } from '@/components/empty-state'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
 import type { PilotId } from '@/lib/flightlog/types'
@@ -50,11 +51,7 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
   const followedPilotIdSet = useMemo(() => new Set(followedPilotIds), [followedPilotIds])
 
   if (stats.length === 0) {
-    return (
-      <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-        No pilot stats recorded for this club yet.
-      </p>
-    )
+    return <EmptyState>No pilot stats recorded for this club yet.</EmptyState>
   }
 
   return (
@@ -72,7 +69,7 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, column.key))}
-                  className="flex items-center gap-1 underline-offset-2 hover:underline"
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
                 >
                   {column.label}
                   {sort.key === column.key &&

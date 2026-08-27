@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 
 type CalloutTone = 'warning' | 'error'
 
@@ -27,7 +27,7 @@ const TONE_CONTENT_CLASSES: Record<CalloutTone, string> = {
 export function Callout({ tone, children }: CalloutProps) {
   return (
     <div className={TONE_BOX_CLASSES[tone]}>
-      <AlertTriangle aria-hidden="true" className="mt-0.5 shrink-0 opacity-70" size={14} />
+      <TriangleAlert aria-hidden="true" className="mt-0.5 shrink-0 opacity-70" size={14} />
       <div className={TONE_CONTENT_CLASSES[tone]}>{children}</div>
     </div>
   )

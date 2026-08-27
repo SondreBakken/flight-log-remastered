@@ -10,6 +10,7 @@ import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
 import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-geojson'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
+import { EmptyState } from '@/components/empty-state'
 import {
   selectVisibleTakeoffs,
   foldTakeoffNames,
@@ -432,7 +433,7 @@ function TakeoffResults({
   if (totalMatchCount === 0) {
     const regionName = regionFilter === 'all' ? undefined : (regionNameById.get(regionFilter) ?? UNREGIONED_LABEL)
     return (
-      <EmptyState query={query} regionFilter={regionFilter} regionName={regionName} windFilter={windFilter} windUnknownCount={windUnknownCount} />
+      <NoTakeoffsMatch query={query} regionFilter={regionFilter} regionName={regionName} windFilter={windFilter} windUnknownCount={windUnknownCount} />
     )
   }
 
@@ -502,7 +503,7 @@ function buildEmptyStateMessage(query: string, regionFilter: RegionFilter, regio
   return `No takeoffs ${verb}${regionClause}${windClause}.`
 }
 
-function EmptyState({
+function NoTakeoffsMatch({
   query,
   regionFilter,
   regionName,
@@ -518,9 +519,9 @@ function EmptyState({
   const message = buildEmptyStateMessage(query, regionFilter, regionName, windFilter)
 
   return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
+    <EmptyState>
       {message}
       {windFilter !== 'all' && windUnknownCount > 0 && <> {windExclusionMessage(windUnknownCount)}</>}
-    </p>
+    </EmptyState>
   )
 }
