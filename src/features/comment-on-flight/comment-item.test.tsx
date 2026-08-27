@@ -74,4 +74,10 @@ describe('CommentItem', () => {
     resolveAction({ status: 'success' })
     await screen.findByRole('button', { name: 'Delete' })
   })
+
+  it('shows a leading icon on the delete control', () => {
+    const { container } = render(<CommentItem comment={comment} isOwnComment tripId={1} />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

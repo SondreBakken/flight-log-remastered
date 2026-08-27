@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { Comment } from '@/lib/comments/types'
 import { deleteCommentAction } from './actions'
 
@@ -31,11 +32,12 @@ export function CommentItem({ comment, isOwnComment, tripId }: CommentItemProps)
         <p className="text-xs opacity-60">{formatCommentDate(comment.createdAt)}</p>
         {isOwnComment && (
           <button
-            className="text-xs underline underline-offset-2 disabled:opacity-50"
+            className="flex items-center gap-1 text-xs underline underline-offset-2 disabled:opacity-50"
             disabled={isPending}
             onClick={handleDelete}
             type="button"
           >
+            <Trash2 aria-hidden="true" size={14} />
             {isPending ? 'Deleting…' : 'Delete'}
           </button>
         )}
