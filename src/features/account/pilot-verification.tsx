@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ShieldCheck } from 'lucide-react'
 import { startPilotVerificationAction } from './actions'
 import { ConfirmPilotVerificationForm } from './confirm-pilot-verification-form'
 import type { OwnPilotVerificationStatusState } from './use-own-pilot-verification-status'
@@ -330,11 +331,12 @@ function StartVerificationTrigger({
     <div className="flex flex-col gap-2">
       {warning && <p className="text-sm opacity-70">{warning}</p>}
       <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="flex items-center gap-1.5 self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
         disabled={phase !== 'idle'}
         onClick={handleClick}
         type="button"
       >
+        <ShieldCheck aria-hidden="true" size={14} />
         {phase === 'requesting' ? 'Starting…' : label}
       </button>
       {message && (

@@ -254,6 +254,12 @@ describe('PilotVerification, none', () => {
 
     expect(screen.getByText('Verification started. Check the server log for your code.')).toBeTruthy()
   })
+
+  it('shows a leading icon on the verification trigger button', () => {
+    const { container } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'none' }} />)
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })
 
 describe('PilotVerification, start-verification timeout (#208)', () => {
