@@ -28,7 +28,7 @@ beforeEach(() => {
 
 describe('resolveCertificateProgressState', () => {
   it('returns a null level and isOwner false when Supabase is not configured', async () => {
-    mockedGetSupabaseEnv.mockReturnValue(undefined)
+    mockedGetSupabaseEnv.mockReturnValue(null)
 
     const state = await resolveCertificateProgressState(PILOT_ID)
 
