@@ -118,4 +118,20 @@ describe('FlownSitesSection', () => {
     screen.getByText(/Laragne, Chabre/)
     screen.getByText(/Other Site/)
   })
+
+  it('shows an icon in the load-failure notice', async () => {
+    mockedGetFlownSites.mockResolvedValue({ status: 'error', message: 'flightlog.org returned 502' })
+
+    const { container } = render(await FlownSitesSection({ userId: 4549 }))
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('shows an icon in the no-flights empty state', async () => {
+    mockedGetFlownSites.mockResolvedValue({ status: 'no-flights' })
+
+    const { container } = render(await FlownSitesSection({ userId: 4549 }))
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })

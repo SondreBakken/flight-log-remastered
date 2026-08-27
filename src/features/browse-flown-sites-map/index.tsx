@@ -1,3 +1,5 @@
+import { Callout } from '@/components/callout'
+import { EmptyState } from '@/components/empty-state'
 import { FlownSitesMap } from '@/components/flown-sites-map'
 import { pluralize } from '@/lib/text/pluralize'
 import { getFlownSites, type FlownSitesResult } from './fetch-flown-sites'
@@ -35,19 +37,15 @@ function FlownSitesBody({ result }: { result: FlownSitesResult }) {
 
 function LoadFailure({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+    <Callout tone="warning">
       <p className="font-medium">Flown sites could not be loaded:</p>
       <p className="mt-1 opacity-80">{message}</p>
-    </div>
+    </Callout>
   )
 }
 
 function NoFlights() {
-  return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No flights recorded yet: flown sites will appear once this pilot has logged flights.
-    </p>
-  )
+  return <EmptyState>No flights recorded yet: flown sites will appear once this pilot has logged flights.</EmptyState>
 }
 
 // The exact visible-omission sentence #76's acceptance criterion 1 requires: a count AND the
@@ -84,10 +82,9 @@ function LoadedSites({ sites, unmatched }: { sites: FlownSite[]; unmatched: Unma
 // canvas to imply it.
 function NoSitesMapped() {
   return (
-    <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
-      No sites could be mapped for this pilot — every flight&apos;s takeoff was unmatched. See
-      the list below.
-    </p>
+    <EmptyState>
+      No sites could be mapped for this pilot — every flight&apos;s takeoff was unmatched. See the list below.
+    </EmptyState>
   )
 }
 
