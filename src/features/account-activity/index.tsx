@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ShieldAlert } from 'lucide-react'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
@@ -164,11 +165,14 @@ function PilotIdLoadErrorPrompt() {
 // current link can't back up.
 function UnverifiedLinkNote() {
   return (
-    <p className="text-xs opacity-60">
-      This shows the followers and comments for whichever flightlog.org pilot id is linked to
-      this account. That link is currently unverified and self-declared, so anyone who links the
-      same pilot id sees this same data. It is not a private view guaranteed to belong only to
-      the real pilot.
+    <p className="flex items-start gap-1.5 text-xs opacity-60">
+      <ShieldAlert aria-hidden="true" className="mt-0.5 shrink-0" size={14} />
+      <span>
+        This shows the followers and comments for whichever flightlog.org pilot id is linked to
+        this account. That link is currently unverified and self-declared, so anyone who links the
+        same pilot id sees this same data. It is not a private view guaranteed to belong only to
+        the real pilot.
+      </span>
     </p>
   )
 }

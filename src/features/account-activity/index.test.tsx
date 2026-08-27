@@ -116,4 +116,12 @@ describe('AccountActivity', () => {
 
     expect(mockGetVerifiedPilotIds).not.toHaveBeenCalled()
   })
+
+  it('shows an icon on the unverified-link note', async () => {
+    mockGetVerifiedPilotIds.mockResolvedValue(new Set())
+
+    const { container } = render(await AccountActivity())
+
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
 })
