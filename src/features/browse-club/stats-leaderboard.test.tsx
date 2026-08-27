@@ -82,4 +82,11 @@ describe('StatsLeaderboard', () => {
     expect(screen.getByRole('columnheader', { name: /distance/i }).getAttribute('aria-sort')).toBe('descending')
     expect(screen.getByRole('columnheader', { name: /^flights/i }).getAttribute('aria-sort')).toBe('none')
   })
+
+  it('shows an arrow icon, not a text glyph, next to the actively sorted column', () => {
+    const { container } = render(<StatsLeaderboard stats={ROWS} isSignedIn followedPilotIds={[]} />)
+
+    expect(container.querySelector('th[aria-sort="descending"] svg')).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: /^flights/i }).textContent).not.toContain('↓')
+  })
 })

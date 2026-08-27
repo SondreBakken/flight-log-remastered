@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { FollowButton } from '@/components/follow-button'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
@@ -71,10 +72,11 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, column.key))}
-                  className="underline-offset-2 hover:underline"
+                  className="flex items-center gap-1 underline-offset-2 hover:underline"
                 >
                   {column.label}
-                  {sort.key === column.key ? (sort.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  {sort.key === column.key &&
+                    (sort.direction === 'desc' ? <ArrowDown aria-hidden="true" size={14} /> : <ArrowUp aria-hidden="true" size={14} />)}
                 </button>
               </th>
             ))}
