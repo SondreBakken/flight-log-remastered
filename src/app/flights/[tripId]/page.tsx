@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { ExternalLink } from 'lucide-react'
 import FlightTrack from '@/features/show-flight-track'
 import CommentsOnFlight from '@/features/comment-on-flight'
 import { BackLink } from '@/features/browse-flight-detail/back-link'
@@ -56,12 +57,13 @@ export async function Flight({ params }: { params: FlightParams }) {
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Flight {id}</h1>
         <a
-          className="text-sm underline underline-offset-2 opacity-70"
+          className="flex w-fit items-center gap-1 text-sm underline underline-offset-2 opacity-70"
           href={flightlogFlightUrl(id)}
           target="_blank"
           rel="noreferrer"
         >
           View on flightlog.org
+          <ExternalLink aria-hidden="true" size={14} />
         </a>
       </header>
       {track ? <FlightTrack track={track} /> : <FlightDetailTable detail={detail!} />}

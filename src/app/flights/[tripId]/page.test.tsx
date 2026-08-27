@@ -137,4 +137,14 @@ describe('Flight', () => {
 
     screen.getByTestId('comments-on-flight')
   })
+
+  it('shows a trailing icon on the "View on flightlog.org" link', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    const element = await Flight({ params: Promise.resolve({ tripId: '123' }) })
+    const { container } = render(element)
+
+    expect(container.querySelector('a svg')).toBeTruthy()
+  })
 })

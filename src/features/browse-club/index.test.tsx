@@ -157,4 +157,13 @@ describe('BrowseClub', () => {
 
     expect(container.querySelector('svg')).toBeTruthy()
   })
+
+  it('shows a trailing icon on the "View on map" link', () => {
+    const { container } = render(
+      <BrowseClub countryId={160} countryName="Norway" detail={DETAIL} roster={[]} stats={[]} isSignedIn={false} followedPilotIds={[]} />,
+    )
+
+    expect(screen.getByRole('link', { name: /view on map/i })).toBeTruthy()
+    expect(container.querySelector('a svg')).toBeTruthy()
+  })
 })

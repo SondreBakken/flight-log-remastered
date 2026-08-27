@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { EmptyState } from '@/components/empty-state'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
@@ -88,16 +88,18 @@ function TakeoffLinks({
         Back to {countryName} takeoffs
       </Link>
       <a
-        className="underline underline-offset-2 opacity-70"
+        className="flex items-center gap-1 underline underline-offset-2 opacity-70"
         href={flightlogTakeoffUrl(countryId, takeoffId)}
         target="_blank"
         rel="noreferrer"
       >
         View on flightlog.org
+        <ExternalLink aria-hidden="true" size={14} />
       </a>
       {linkUrl && (
-        <a className="underline underline-offset-2 opacity-70" href={linkUrl} target="_blank" rel="noreferrer">
+        <a className="flex items-center gap-1 underline underline-offset-2 opacity-70" href={linkUrl} target="_blank" rel="noreferrer">
           More info
+          <ExternalLink aria-hidden="true" size={14} />
         </a>
       )}
     </div>

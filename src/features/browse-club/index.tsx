@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
 import { FollowButton } from '@/components/follow-button'
 import { StatsLeaderboard } from './stats-leaderboard'
@@ -80,8 +80,9 @@ function ClubHeader({ countryId, countryName, detail }: { countryId: number; cou
               {detail.mapUrl !== null && (
                 <>
                   {' '}
-                  <a className="underline underline-offset-2" href={detail.mapUrl} target="_blank" rel="noreferrer">
+                  <a className="inline-flex items-center gap-1 underline underline-offset-2" href={detail.mapUrl} target="_blank" rel="noreferrer">
                     View on map
+                    <ExternalLink aria-hidden="true" size={14} />
                   </a>
                 </>
               )}

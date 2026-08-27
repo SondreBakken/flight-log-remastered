@@ -249,4 +249,12 @@ describe('TakeoffDetailView', () => {
 
     expect(container.querySelector('svg')).toBeTruthy()
   })
+
+  it('shows trailing icons on the external takeoff links', () => {
+    const { container } = render(
+      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} followedPilotIds={[]} />,
+    )
+
+    expect(container.querySelectorAll('a svg').length).toBeGreaterThanOrEqual(2)
+  })
 })
