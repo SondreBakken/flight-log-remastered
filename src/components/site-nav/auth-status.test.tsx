@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import AuthStatus from './auth-status'
 
 const mockOnAuthStateChange = vi.fn()
 const mockGetSupabaseEnv = vi.fn()
+const mockGetFlightlogPilotIds = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -13,6 +14,10 @@ vi.mock('@/lib/supabase/client', () => ({
 
 vi.mock('@/lib/supabase/env', () => ({
   getSupabaseEnv: () => mockGetSupabaseEnv(),
+}))
+
+vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
+  getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
 }))
 
 // Captures the callback AuthStatus registers with onAuthStateChange, so tests can drive it the
@@ -25,7 +30,7 @@ function stubAuthStateChange() {
   return unsubscribe
 }
 
-function emitAuthStateChange(session: { user: { email: string } } | null) {
+function emitAuthStateChange(session: { user: { id: string; email: string } } | null) {
   const onChange = mockOnAuthStateChange.mock.calls[0][0] as (event: string, session: unknown) => void
   act(() => {
     onChange('SIGNED_IN', session)
@@ -34,6 +39,9 @@ function emitAuthStateChange(session: { user: { email: string } } | null) {
 
 beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
+  // Default: no pilot id linked, so existing tests asserting on the account link / sign-out
+  // control (which predate the "My flights" link below) don't also have to account for it.
+  mockGetFlightlogPilotIds.mockResolvedValue(new Map())
 })
 
 describe('AuthStatus', () => {
@@ -60,7 +68,7 @@ describe('AuthStatus', () => {
     stubAuthStateChange()
     render(<AuthStatus />)
 
-    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
 
     expect(screen.getByText('pilot@example.com')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
@@ -70,7 +78,7 @@ describe('AuthStatus', () => {
     stubAuthStateChange()
     render(<AuthStatus />)
 
-    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
 
     const link = screen.getByRole('link', { name: 'pilot@example.com' })
     expect(link.getAttribute('href')).toBe('/account')
@@ -80,7 +88,7 @@ describe('AuthStatus', () => {
     stubAuthStateChange()
     render(<AuthStatus />)
 
-    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
     emitAuthStateChange(null)
 
     expect(screen.queryByText('pilot@example.com')).toBeNull()
@@ -100,7 +108,7 @@ describe('AuthStatus', () => {
     stubAuthStateChange()
     render(<AuthStatus />)
 
-    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
 
     const form = screen.getByRole('button', { name: 'Sign out' }).closest('form')
     expect(form?.getAttribute('action')).toBe('/api/auth/sign-out')
@@ -129,8 +137,43 @@ describe('AuthStatus', () => {
     stubAuthStateChange()
     const { container } = render(<AuthStatus />)
 
-    emitAuthStateChange({ user: { email: 'pilot@example.com' } })
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
 
     expect(container.querySelectorAll('svg').length).toBe(2)
+  })
+
+  it('links to the pilot page once a linked pilot id resolves (#243)', async () => {
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 12677]]))
+    stubAuthStateChange()
+    render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
+
+    const link = await screen.findByRole('link', { name: 'My flights' })
+    expect(link.getAttribute('href')).toBe('/pilots/12677')
+  })
+
+  it('does not show a "My flights" link when no pilot id is linked', async () => {
+    mockGetFlightlogPilotIds.mockResolvedValue(new Map())
+    stubAuthStateChange()
+    render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
+
+    await waitFor(() => expect(mockGetFlightlogPilotIds).toHaveBeenCalled())
+    expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
+  })
+
+  it('surfaces a failed pilot id lookup instead of silently hiding the link', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetFlightlogPilotIds.mockRejectedValue(new Error('profiles query failed'))
+    stubAuthStateChange()
+    render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
+
+    await screen.findByTitle('Could not load your pilot id')
+    expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
+    consoleError.mockRestore()
   })
 })
