@@ -2,15 +2,12 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { LogIn, LogOut, User } from 'lucide-react'
+import { LogIn, LogOut, PlaneTakeoff, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getSupabaseEnv } from '@/lib/supabase/env'
+import { useOwnPilotId } from './use-own-pilot-id'
 
-type AuthState = { kind: 'loading' } | { kind: 'signed-out' } | { kind: 'signed-in'; email: string }
-
-function toAuthState(email: string | undefined): AuthState {
-  return email ? { kind: 'signed-in', email } : { kind: 'signed-out' }
-}
+type AuthState = { kind: 'loading' } | { kind: 'signed-out' } | { kind: 'signed-in'; userId: string; email: string }
 
 // This has to read the session client-side rather than as a Server Component reading cookies()
 // server-side: SiteNav sits in the root layout, so a server-side session read here would make
@@ -40,7 +37,7 @@ export default function AuthStatus() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setState(toAuthState(session?.user.email))
+      setState(session?.user.email ? { kind: 'signed-in', userId: session.user.id, email: session.user.email } : { kind: 'signed-out' })
     })
 
     return () => subscription.unsubscribe()
@@ -57,11 +54,26 @@ export default function AuthStatus() {
     )
   }
 
+  return <SignedInStatus email={state.email} userId={state.userId} />
+}
+
+// Split out from the branch above so useOwnPilotId (which needs a userId) is only ever called
+// once state has actually narrowed to 'signed-in' — hooks can't be called conditionally in the
+// branch itself. Mirrors features/account/index.tsx's own SignedInAccountForm split exactly.
+function SignedInStatus({ userId, email }: { userId: string; email: string }) {
+  const ownPilotId = useOwnPilotId(userId)
+
   return (
     <div className="flex items-center gap-3">
+      {ownPilotId.kind === 'loaded' && ownPilotId.pilotId != null && (
+        <Link className="flex items-center gap-1.5 underline-offset-2 hover:underline" href={`/pilots/${ownPilotId.pilotId}`}>
+          <PlaneTakeoff aria-hidden="true" size={14} />
+          My flights
+        </Link>
+      )}
       <Link className="flex items-center gap-1.5 opacity-70 underline-offset-2 hover:underline" href="/account">
         <User aria-hidden="true" size={14} />
-        {state.email}
+        {email}
       </Link>
       <form action="/api/auth/sign-out" method="post">
         <button className="flex items-center gap-1.5 underline-offset-2 hover:underline" type="submit">
