@@ -163,4 +163,17 @@ describe('AuthStatus', () => {
     await waitFor(() => expect(mockGetFlightlogPilotIds).toHaveBeenCalled())
     expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
   })
+
+  it('surfaces a failed pilot id lookup instead of silently hiding the link', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetFlightlogPilotIds.mockRejectedValue(new Error('profiles query failed'))
+    stubAuthStateChange()
+    render(<AuthStatus />)
+
+    emitAuthStateChange({ user: { id: 'user-1', email: 'pilot@example.com' } })
+
+    await screen.findByTitle('Could not load your pilot id')
+    expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
+    consoleError.mockRestore()
+  })
 })
