@@ -83,6 +83,11 @@ export type FlightFeedResults = {
 // prop is exactly the anti-pattern react-hooks/set-state-in-effect flags. A fresh mount
 // giving every state variable a fresh initial value is the recommended replacement (see
 // https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes).
+//
+// A fresh mount is not the only way the effect starts, though: with cacheComponents, Next.js
+// keeps a navigated-away route mounted inside React's <Activity mode="hidden">, which runs the
+// effect cleanup but preserves state. Navigating back re-runs the effect against the previous
+// load's `results` unless the cleanup has restored initial state — see the cleanup below.
 export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
   const [results, setResults] = useState<PilotFeedResult[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -143,10 +148,16 @@ export function usePilotFeedResults(pilotIds: number[]): FlightFeedResults {
     return () => {
       cancelled = true
       controller.abort()
+      // Restores initial state so the next run (an <Activity> re-show, see doc comment above)
+      // starts from empty instead of appending a second copy of every pilot. Resetting here
+      // rather than at the top of the effect keeps setState out of the effect body, which
+      // react-hooks/set-state-in-effect rejects. A no-op after a real unmount.
+      setResults([])
+      setIsLoading(true)
     }
     // pilotIds is frozen for this mount by construction (see doc comment above), so this
-    // intentionally runs once per mount rather than re-running if the caller ever passed a
-    // new array instance with the same ids.
+    // intentionally has no dependencies rather than re-running if the caller ever passed a
+    // new array instance with the same ids. It still re-runs on every <Activity> re-show.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
