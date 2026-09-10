@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Activity } from 'react'
 import { render, waitFor } from '@testing-library/react'
 import type { RecentFlightsSuccessBody } from '@/app/api/pilots/[userId]/recent-flights/contract'
 import type { Pilot } from '@/lib/flightlog/types'
@@ -525,5 +526,56 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(JSON.parse(window.localStorage.getItem(SEEN_TRIP_KEY) ?? '{}')).toEqual({ [PILOT_ID]: [1, 2, 3] })
+  })
+})
+
+// With cacheComponents enabled, Next.js wraps routes in React's <Activity> on client
+// navigation: leaving the feed hides it instead of unmounting, so `results` survives, and
+// coming back re-runs the mount effect against that surviving state. A harness that only ever
+// mounts once can never see what a second effect run does to state it did not start from.
+describe('usePilotFeedResults — re-shown inside <Activity> (cacheComponents client navigation)', () => {
+  let originalFetch: typeof fetch
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('renders each flight once after the feed is hidden and shown again, not once per effect run', async () => {
+    const reshownTs = '20260601000000'
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(stubbedFeedResponse()))
+      // A newer tracked ts on the second load so the watermark advancing to it is an observable
+      // "second load has fully settled" signal — the first load already left it at the older ts.
+      .mockResolvedValueOnce(
+        jsonResponse({ ...stubbedFeedResponse(), trackedTrips: [{ tripId: 991729, updatedAt: reshownTs }] }),
+      ) as unknown as typeof fetch
+    const useHook = await loadFreshUsePilotFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    const harness = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />
+      </Activity>
+    )
+    const { rerender } = render(harness('visible'))
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.entries.map((entry) => entry.flight.tripId)).toEqual([991729])
+
+    rerender(harness('hidden'))
+    rerender(harness('visible'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem(WATERMARK_KEY) ?? '{}')
+      expect(stored).toEqual({ [PILOT_ID]: reshownTs })
+    })
+    expect(latest?.isLoading).toBe(false)
+    expect(latest?.entries.map((entry) => entry.flight.tripId)).toEqual([991729])
   })
 })
