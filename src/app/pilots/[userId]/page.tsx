@@ -10,6 +10,7 @@ import { isFallbackPilot } from '@/lib/flightlog/is-fallback-pilot'
 import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 import { resolveCertificateProgressState } from '@/lib/profiles/resolve-certificate-progress-state'
+import { resolvePilotVerified } from '@/lib/profiles/resolve-pilot-verified'
 import type { Flight } from '@/lib/flightlog/types'
 
 type PilotParams = Promise<{ userId: string }>
@@ -59,10 +60,11 @@ export async function Logbook({ params }: { params: PilotParams }) {
   // is-fallback-pilot.ts's own doc comment) — so without this check a nonexistent pilot id
   // rendered as a normal, empty logbook instead of 404ing.
   if (isFallbackPilot(pilotId, pilot)) notFound()
-  const [trackedTripIds, { isSignedIn, followedPilotIds }, certificateProgress] = await Promise.all([
+  const [trackedTripIds, { isSignedIn, followedPilotIds }, certificateProgress, isVerified] = await Promise.all([
     getTrackedTripIds(pilotId, yearsCovered(flights)),
     resolveFollowButtonState([pilotId]),
     resolveCertificateProgressState(pilotId),
+    resolvePilotVerified(pilotId),
   ])
 
   return (
@@ -73,6 +75,7 @@ export async function Logbook({ params }: { params: PilotParams }) {
         trackedTripIds={trackedTripIds}
         isFollowed={followedPilotIds.includes(pilotId)}
         isSignedIn={isSignedIn}
+        isVerified={isVerified}
       />
       <PilotStatistics flights={flights} />
       <PilotCertificateProgress
