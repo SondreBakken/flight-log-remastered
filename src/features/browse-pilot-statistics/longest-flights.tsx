@@ -3,6 +3,7 @@
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Flight } from '@/lib/flightlog/types'
+import { CalendarDate } from '@/components/calendar-date'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 
 type LongestFlightsListProps = {
@@ -22,13 +23,15 @@ export function LongestFlightsList({ byDuration, byDistance }: LongestFlightsLis
     <ul className="flex flex-col gap-1 text-sm">
       {byDuration && (
         <LongestFlightRow flight={byDuration}>
-          By duration (single-flight rows only): {formatFlightDuration(byDuration)} ({byDuration.date}
+          By duration (single-flight rows only): {formatFlightDuration(byDuration)} (
+          <CalendarDate value={byDuration.date} />
           {byDuration.takeoff && ` at ${byDuration.takeoff}`})
         </LongestFlightRow>
       )}
       {byDistance && (
         <LongestFlightRow flight={byDistance}>
-          By distance: {formatFlightDistance(byDistance)} ({byDistance.date}
+          By distance: {formatFlightDistance(byDistance)} (
+          <CalendarDate value={byDistance.date} />
           {byDistance.takeoff && ` at ${byDistance.takeoff}`})
         </LongestFlightRow>
       )}

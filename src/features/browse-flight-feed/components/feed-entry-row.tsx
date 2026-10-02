@@ -3,6 +3,7 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { CalendarDate } from '@/components/calendar-date'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 import type { FeedEntry } from '../feed'
 
@@ -61,7 +62,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
             New
           </span>
         )}
-        {flight.date}
+        <CalendarDate value={flight.date} />
       </td>
       <td className="py-2 pr-4">
         <Link

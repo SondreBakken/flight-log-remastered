@@ -4,6 +4,7 @@ import type { KeyboardEvent, MouseEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
+import { CalendarDate } from '@/components/calendar-date'
 import { FollowButton } from '@/components/follow-button'
 
 type TakeoffFlightRowProps = {
@@ -52,7 +53,9 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.date ?? '—'}</td>
+      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
+        {flight.date === null ? '—' : <CalendarDate value={flight.date} />}
+      </td>
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.timeOfDay ?? '—'}</td>
       <td className="py-2 pr-4">
         <div className="flex items-center gap-2" onClick={stopRowNavigation}>

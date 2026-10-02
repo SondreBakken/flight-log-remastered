@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useCalendarDateFormatter } from '@/components/calendar-date'
 import {
   calendarYearLabel,
   datesInYear,
@@ -175,7 +176,8 @@ function heatLevel(count: number, max: number): number {
 // absent day (count === 0) gets no title either, so it renders as nothing but a styled div; a
 // present day keeps its title as a sighted-user tooltip.
 function HeatmapDayCell({ date, count, max }: { date: string; count: number; max: number }) {
-  const title = count === 0 ? undefined : `${date}: ${pluralize(count, 'flight')}`
+  const formatCalendarDate = useCalendarDateFormatter()
+  const title = count === 0 ? undefined : `${formatCalendarDate(date)}: ${pluralize(count, 'flight')}`
 
   return (
     <div
