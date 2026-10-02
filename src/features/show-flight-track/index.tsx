@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import { CalendarDate } from '@/components/calendar-date'
 import type { Track, TrackPoint, TrackStats, TrackStatsResult } from '@/lib/flightlog/types'
 import { formatAltitude } from './format-altitude'
 import { TrackHoverView } from './track-hover-view'
@@ -6,7 +8,7 @@ type FlightTrackProps = {
   track: Track
 }
 
-type Stat = { label: string; value: string }
+type Stat = { label: string; value: ReactNode }
 
 function isTrackStats(result: TrackStatsResult): result is TrackStats {
   return result !== 'unparseable'
@@ -14,7 +16,7 @@ function isTrackStats(result: TrackStatsResult): result is TrackStats {
 
 function toStats(stats: TrackStats, points: TrackPoint[]): Stat[] {
   return [
-    { label: 'Date', value: stats.date ?? '—' },
+    { label: 'Date', value: stats.date === null ? '—' : <CalendarDate value={stats.date} /> },
     { label: 'Start / finish', value: stats.startFinish ?? '—' },
     { label: 'Duration', value: stats.duration ?? '—' },
     { label: 'Max altitude', value: formatAltitude(stats.maxAltitude) },

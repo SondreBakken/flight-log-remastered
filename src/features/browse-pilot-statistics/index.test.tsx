@@ -143,7 +143,7 @@ describe('PilotStatistics', () => {
 
     render(<PilotStatistics flights={flights} />)
 
-    screen.getByText(/By duration \(single-flight rows only\): 00:45 \(2026-05-02 at Single Site\)/)
+    screen.getByText(/By duration \(single-flight rows only\): 00:45 \(May 2, 2026 at Single Site\)/)
   })
 
   it('shows the longest flight by distance using the openDistanceKm fallback', () => {
@@ -154,7 +154,7 @@ describe('PilotStatistics', () => {
 
     render(<PilotStatistics flights={flights} />)
 
-    screen.getByText(/By distance: 40\.0 km \(2026-05-01 at Open Site\)/)
+    screen.getByText(/By distance: 40\.0 km \(May 1, 2026 at Open Site\)/)
   })
 
   it('renders the flying-days count in the heading', () => {
@@ -179,7 +179,7 @@ describe('PilotStatistics', () => {
     const { container } = render(<PilotStatistics flights={flights} />)
 
     screen.getByRole('img', { name: '2026: 2 flying days, 2 flights' })
-    const flownDay = container.querySelector('[title="2026-05-01: 1 flight"]')
+    const flownDay = container.querySelector('[title="May 1, 2026: 1 flight"]')
     const gapDayIndex = [...container.querySelectorAll('.h-3.w-3')].findIndex(
       (cell) => !cell.hasAttribute('title'),
     )
@@ -200,7 +200,7 @@ describe('PilotStatistics', () => {
     const { container } = render(<PilotStatistics flights={flights} />)
 
     const yearRow = screen.getByRole('img', { name: '2026: 1 flying day, 2 flights' })
-    const presentCell = container.querySelector('[title="2026-05-01: 2 flights"]') as HTMLElement
+    const presentCell = container.querySelector('[title="May 1, 2026: 2 flights"]') as HTMLElement
     // Jan 2 never had a flight, so it's an ordinary absent cell to check the "no title at all"
     // half of the fix.
     const absentCell = yearRow.children[1] as HTMLElement
@@ -251,7 +251,7 @@ describe('PilotStatistics', () => {
 
     const { container } = render(<PilotStatistics flights={flights} />)
 
-    const flownCell = container.querySelector('[title="2026-05-01: 1 flight"]') as HTMLElement
+    const flownCell = container.querySelector('[title="May 1, 2026: 1 flight"]') as HTMLElement
     const [, absentCell] = [...screen.getByRole('img', { name: /^2026:/ }).children] as HTMLElement[]
     const darkestCellCount = container.querySelectorAll('.bg-black\\/70').length
 
@@ -271,8 +271,8 @@ describe('PilotStatistics', () => {
 
     const { container } = render(<PilotStatistics flights={flights} />)
 
-    const lightDay = container.querySelector('[title="2026-05-01: 1 flight"]') as HTMLElement
-    const busyDay = container.querySelector('[title="2026-05-02: 3 flights"]') as HTMLElement
+    const lightDay = container.querySelector('[title="May 1, 2026: 1 flight"]') as HTMLElement
+    const busyDay = container.querySelector('[title="May 2, 2026: 3 flights"]') as HTMLElement
 
     expect(lightDay.className).toContain('bg-black/20')
     expect(busyDay.className).toContain('bg-black/70')

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
+import { CalendarDate } from '@/components/calendar-date'
 import { EmptyState } from '@/components/empty-state'
 import { FollowButton } from '@/components/follow-button'
 import { StatsLeaderboard } from './stats-leaderboard'
@@ -102,13 +103,17 @@ function ClubHeader({ countryId, countryName, detail }: { countryId: number; cou
         {detail.createdAt !== null && (
           <>
             <dt className="opacity-70">Created</dt>
-            <dd>{detail.createdAt}</dd>
+            <dd>
+              <CalendarDate value={detail.createdAt} />
+            </dd>
           </>
         )}
         {detail.updatedAt !== null && (
           <>
             <dt className="opacity-70">Updated</dt>
-            <dd>{detail.updatedAt}</dd>
+            <dd>
+              <CalendarDate value={detail.updatedAt} />
+            </dd>
           </>
         )}
       </dl>

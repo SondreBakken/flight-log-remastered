@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import FlightTrack from '@/features/show-flight-track'
 import CommentsOnFlight from '@/features/comment-on-flight'
+import { CalendarDate } from '@/components/calendar-date'
 import { BackLink } from '@/features/browse-flight-detail/back-link'
 import { flightlogFlightUrl } from '@/lib/flightlog/config'
 import { getFlightDetail } from '@/lib/flightlog/flight-detail'
@@ -83,7 +84,9 @@ function FlightDetailTable({ detail }: { detail: FlightDetail }) {
       {detail.date !== null && (
         <>
           <dt className="opacity-70">Date</dt>
-          <dd>{detail.date}</dd>
+          <dd>
+            <CalendarDate value={detail.date} />
+          </dd>
         </>
       )}
       {detail.country !== null && (

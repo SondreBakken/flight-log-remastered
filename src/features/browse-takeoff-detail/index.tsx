@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { EmptyState } from '@/components/empty-state'
+import { CalendarDate } from '@/components/calendar-date'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
 import type { PilotId, SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
@@ -148,7 +149,17 @@ function TakeoffMetadata({ createdAt, updatedAt }: { createdAt: string | null; u
   if (createdAt === null && updatedAt === null) return null
   return (
     <p className="text-xs opacity-50">
-      {[createdAt && `Created ${createdAt}`, updatedAt && `Updated ${updatedAt}`].filter(Boolean).join(' · ')}
+      {createdAt && (
+        <>
+          Created <CalendarDate value={createdAt} />
+        </>
+      )}
+      {createdAt && updatedAt && ' · '}
+      {updatedAt && (
+        <>
+          Updated <CalendarDate value={updatedAt} />
+        </>
+      )}
     </p>
   )
 }

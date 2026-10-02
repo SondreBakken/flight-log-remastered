@@ -3,6 +3,7 @@
 import type { KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Flight } from '@/lib/flightlog/types'
+import { CalendarDate } from '@/components/calendar-date'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 
 type FlightRowProps = {
@@ -42,7 +43,9 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{flight.date}</td>
+      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
+        <CalendarDate value={flight.date} />
+      </td>
       {/* data-testid: scripts/verify-flown-sites.mts (F5) cross-checks the flown-sites
           section's own matched+unmatched count against the DISTINCT takeoff names this table
           renders independently — an under-reporting bug in the join would show up here as a
