@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { BadgeCheck } from 'lucide-react'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
 import { FollowButton } from '@/components/follow-button'
@@ -13,9 +14,10 @@ type PilotLogbookProps = {
   // pilot's own follow button, so no candidate-id set is needed, just the one boolean.
   isFollowed: boolean
   isSignedIn: boolean
+  isVerified: boolean
 }
 
-export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn }: PilotLogbookProps) {
+export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn, isVerified }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
       <PilotHeader
@@ -24,6 +26,7 @@ export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowe
         trackCount={trackedRowCount(flights, trackedTripIds)}
         isFollowed={isFollowed}
         isSignedIn={isSignedIn}
+        isVerified={isVerified}
       />
       {flights.length === 0 ? <EmptyLogbook /> : (
         <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
@@ -56,17 +59,20 @@ function PilotHeader({
   trackCount,
   isFollowed,
   isSignedIn,
+  isVerified,
 }: {
   pilot: Pilot
   flightCount: number
   trackCount: number
   isFollowed: boolean
   isSignedIn: boolean
+  isVerified: boolean
 }) {
   return (
     <header className="flex flex-col gap-1">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{pilot.name}</h1>
+        {isVerified && <VerifiedAccountIcon />}
         <span className="shrink-0 whitespace-nowrap">
           <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={pilot.userId} variant="prominent" />
         </span>
@@ -78,6 +84,16 @@ function PilotHeader({
         {flightCount} flights shown · {trackCount} GPS tracks
       </p>
     </header>
+  )
+}
+
+const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flight Log Remastered'
+
+function VerifiedAccountIcon() {
+  return (
+    <span className="shrink-0 text-sky-600 dark:text-sky-400" role="img" aria-label={VERIFIED_ACCOUNT_LABEL} title={VERIFIED_ACCOUNT_LABEL}>
+      <BadgeCheck aria-hidden="true" size={20} />
+    </span>
   )
 }
 

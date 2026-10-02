@@ -1,4 +1,4 @@
-import { describe, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import PilotLogbook from './index'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
@@ -68,6 +68,7 @@ describe('PilotLogbook header', () => {
         trackedTripIds={trackedTripIds}
         isFollowed={false}
         isSignedIn={false}
+        isVerified={false}
       />,
     )
 
@@ -92,6 +93,7 @@ describe('PilotLogbook header', () => {
         trackedTripIds={trackedTripIds}
         isFollowed={false}
         isSignedIn={false}
+        isVerified={false}
       />,
     )
 
@@ -116,9 +118,41 @@ describe('PilotLogbook header', () => {
         trackedTripIds={trackedTripIds}
         isFollowed={false}
         isSignedIn={false}
+        isVerified={false}
       />,
     )
 
     screen.getByText('3 flights shown · 2 GPS tracks')
+  })
+})
+
+describe('PilotLogbook verified-account icon', () => {
+  const VERIFIED_LABEL = 'Has an account on Flight Log Remastered'
+
+  function renderLogbook(isVerified: boolean) {
+    render(
+      <PilotLogbook
+        pilot={PILOT}
+        flights={[]}
+        trackedTripIds={new Set()}
+        isFollowed={false}
+        isSignedIn={false}
+        isVerified={isVerified}
+      />,
+    )
+  }
+
+  it('shows the icon with a tooltip next to the pilot name when the pilot has a verified account', () => {
+    renderLogbook(true)
+
+    const icon = screen.getByRole('img', { name: VERIFIED_LABEL })
+    expect(icon.getAttribute('title')).toBe(VERIFIED_LABEL)
+    expect(screen.getByRole('heading', { level: 1 }).parentElement?.contains(icon)).toBe(true)
+  })
+
+  it('shows no icon when the pilot has no verified account', () => {
+    renderLogbook(false)
+
+    expect(screen.queryByRole('img', { name: VERIFIED_LABEL })).toBeNull()
   })
 })
