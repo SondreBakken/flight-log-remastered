@@ -18,22 +18,18 @@ type VerificationRow = {
   created_at: string
 }
 
-// Mirrors use-own-flightlog-pilot-id.ts's shape: a client-side effect keyed on userId, folding a
-// query error into a distinct 'error' kind rather than silently collapsing a real status into
-// "none" — a returning user who is actually 'pending' or 'verified' must never see this collapse
-// into "no verification in flight", or re-triggering could stomp a live one (or re-send an email
-// when a code is already outstanding).
+// A client-side effect keyed on userId, folding a query error into a distinct 'error' kind
+// rather than silently collapsing a real status into "none" — a returning user who is actually
+// 'pending' or 'verified' must never see this collapse into "no verification in flight", or
+// re-triggering could stomp a live one (or re-send an email when a code is already outstanding).
 //
-// Queries the table directly rather than through a lib/profiles/*.ts helper, unlike
-// use-own-flightlog-pilot-id.ts (which wraps getFlightlogPilotIds): this table has no other
-// reader anywhere in the app yet, so there's nothing else that would share a lib function with
-// it. Columns are named explicitly, never select('*') — otp_code_hash is excluded from the
-// client's own column-level SELECT grant (see 20260813000000_create_profile_verifications.sql's
-// own doc comment on why), so a bare select('*') fails outright with a column-privilege error.
+// Queries the table directly: this table has no other reader anywhere in the app yet, so there's
+// nothing else that would share a lib function with it. Columns are named explicitly, never
+// select('*') — otp_code_hash is excluded from the client's own column-level SELECT grant (see
+// 20260813000000_create_profile_verifications.sql's own doc comment on why), so a bare
+// select('*') fails outright with a column-privilege error.
 //
-// `refreshKey` isn't part of use-own-flightlog-pilot-id.ts's own signature — that hook never
-// needs to refetch after its own writes, because PilotIdForm's useActionState re-renders
-// independently of it. This hook's read has no such luck: starting verification
+// `refreshKey` exists because starting verification
 // (startPilotVerificationAction) happens via a plain client-side call with nothing bound to
 // useActionState to force a re-render off (see pilot-verification.tsx's own doc comment) — the
 // caller bumps refreshKey after that call settles so this effect re-runs and picks up the
@@ -66,7 +62,7 @@ export function useOwnPilotVerificationStatus(userId: string, refreshKey = 0): O
         setState(stateFromRow(data))
       })
       .catch((error: unknown) => {
-        // Unlike getFlightlogPilotIds, nothing upstream here has already logged this — this query
+        // Nothing upstream here has already logged this — this query
         // runs directly against the Supabase client, so any thrown failure (as opposed to a
         // resolved {error} shape, handled above) gets its first and only log right here.
         if (cancelled) return

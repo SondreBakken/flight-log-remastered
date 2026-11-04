@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite'
+import { eq } from 'drizzle-orm'
 import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite'
 import { migrate } from 'drizzle-orm/pglite/migrator'
 import { randomUUID } from 'node:crypto'
@@ -48,4 +49,15 @@ export async function createTestComment(db: TestDatabase['db'], comment: TestCom
     .values({ body: 'Nice flight', ...comment })
     .returning({ id: schema.comments.id })
   return row.id
+}
+
+export type TestProfile = typeof schema.profiles.$inferInsert
+
+export async function createTestProfile(db: TestDatabase['db'], profile: TestProfile): Promise<void> {
+  await db.insert(schema.profiles).values(profile)
+}
+
+export async function findTestProfile(db: TestDatabase['db'], userId: string): Promise<typeof schema.profiles.$inferSelect | undefined> {
+  const [row] = await db.select().from(schema.profiles).where(eq(schema.profiles.userId, userId))
+  return row
 }

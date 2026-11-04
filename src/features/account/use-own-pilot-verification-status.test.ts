@@ -80,7 +80,7 @@ describe('useOwnPilotVerificationStatus', () => {
     consoleError.mockRestore()
   })
 
-  // Nothing upstream (unlike getFlightlogPilotIds) already logs a thrown failure here, since this
+  // Nothing upstream already logs a thrown failure here, since this
   // hook queries the Supabase client directly rather than through a lib/profiles/*.ts helper — a
   // rejected promise must resolve to a visible 'error' state, not an unhandled rejection in the
   // browser, and must be logged exactly once, right here.
@@ -124,7 +124,7 @@ describe('useOwnPilotVerificationStatus', () => {
     await waitFor(() => expect(mockMaybeSingle).toHaveBeenCalledTimes(2))
   })
 
-  // Same stale-response guard as use-own-flightlog-pilot-id.test.ts's own equivalent test: a slow
+  // A slow
   // lookup for refreshKey 0 that resolves AFTER refreshKey 1's fetch has already landed must not
   // clobber the newer result with its own stale one.
   it('a late-arriving response for a stale refreshKey does not clobber a newer one', async () => {

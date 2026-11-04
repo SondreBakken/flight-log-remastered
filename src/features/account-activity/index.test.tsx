@@ -5,7 +5,7 @@ import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 const mockGetSupabaseEnv = vi.fn()
 const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
-const mockGetFlightlogPilotIds = vi.fn()
+const mockGetProfile = vi.fn()
 const mockGetVerifiedPilotIds = vi.fn()
 const mockGetFollowersForPilot = vi.fn()
 const mockGetPilotLogbook = vi.fn()
@@ -23,8 +23,12 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: () => mockCreateClient(),
 }))
 
-vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
-  getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => ({}),
+}))
+
+vi.mock('@/lib/profiles/get-profile', () => ({
+  getProfile: (...args: unknown[]) => mockGetProfile(...args),
 }))
 
 vi.mock('@/lib/profiles/get-verified-pilot-ids', () => ({
@@ -58,7 +62,7 @@ beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
   mockCreateClient.mockResolvedValue({})
   mockGetCurrentUserId.mockResolvedValue('user-abc')
-  mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
+  mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 12677 })
   mockGetVerifiedPilotIds.mockResolvedValue(new Set())
   mockGetFollowersForPilot.mockResolvedValue([])
   mockGetPilotLogbook.mockResolvedValue({ flights: [] })
@@ -113,12 +117,40 @@ describe('AccountActivity', () => {
     consoleError.mockRestore()
   })
 
-  it('does not query verification status for a signed-in user with no pilot id linked', async () => {
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map())
+  it('keeps showing the unverified-link note, without querying verifications, when Supabase is not provisioned', async () => {
+    mockGetSupabaseEnv.mockReturnValue(null)
 
     await renderActivity()
 
+    expect(screen.getByText(UNVERIFIED_NOTE_TEXT)).toBeTruthy()
     expect(mockGetVerifiedPilotIds).not.toHaveBeenCalled()
+  })
+
+  it('does not query verification status for a signed-in user with no pilot id linked', async () => {
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: null })
+
+    await renderActivity()
+
+    expect(screen.getByText(/Link your flightlog.org pilot id/)).toBeTruthy()
+    expect(mockGetVerifiedPilotIds).not.toHaveBeenCalled()
+  })
+
+  it("reads the signed-in user's own profile, and says so when that lookup fails rather than asking to link a pilot id", async () => {
+    mockGetProfile.mockRejectedValue(new ProfilesQueryError('profiles query failed'))
+
+    await renderActivity()
+
+    expect(mockGetProfile).toHaveBeenCalledWith(expect.anything(), 'user-abc')
+    expect(screen.getByText(/Couldn't check your linked flightlog.org pilot id/)).toBeTruthy()
+  })
+
+  it('asks a signed-out visitor to sign in, without reading any profile', async () => {
+    mockGetCurrentUserId.mockResolvedValue(null)
+
+    await renderActivity()
+
+    expect(screen.getByText('Sign in')).toBeTruthy()
+    expect(mockGetProfile).not.toHaveBeenCalled()
   })
 
   it('shows an icon on the unverified-link note', async () => {

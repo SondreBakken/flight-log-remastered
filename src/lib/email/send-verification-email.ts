@@ -7,7 +7,7 @@ import 'server-only'
 import { Resend } from 'resend'
 
 // The narrow slice of Resend's client this module actually calls, mirroring the injected
-// SupabaseClient convention (see get-flightlog-pilot-ids.ts): callers pass a real client in
+// SupabaseClient convention (see issue-pilot-verification.ts): callers pass a real client in
 // production and a fake one in tests, so a send can be asserted without a real network call.
 export type VerificationEmailClient = { send: Resend['emails']['send'] }
 

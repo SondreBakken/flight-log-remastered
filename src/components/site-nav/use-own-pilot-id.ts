@@ -1,32 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
-import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+import { fetchOwnPilotId } from './fetch-own-pilot-id'
 
 export type OwnPilotIdState = { kind: 'loading' } | { kind: 'loaded'; pilotId: number | null } | { kind: 'error' }
 
-// Kept as its own copy rather than imported from features/account/use-own-flightlog-pilot-id.ts
-// (which it otherwise mirrors exactly) — components/site-nav must not depend on a feature's
-// internals.
-// Only ever called with a userId once AuthStatus has resolved to 'signed-in'.
+// Read after mount, from a route handler, so the root layout this nav sits in stays prerendered.
+// The route answers for the session's own user; userId only re-runs the lookup when the signed-in
+// user changes. Only ever called once AuthStatus has resolved to 'signed-in'.
 export function useOwnPilotId(userId: string): OwnPilotIdState {
   const [state, setState] = useState<OwnPilotIdState>({ kind: 'loading' })
 
   useEffect(() => {
     let cancelled = false
 
-    // createClient() throws when Supabase is unconfigured. Called inside the chain, that lands in
-    // the 'error' state instead of crashing the tree, now that a Better Auth session can exist
-    // without Supabase.
-    Promise.resolve()
-      .then(() => getFlightlogPilotIds(createClient(), [userId]))
-      .then((pilotIds) => {
-        if (!cancelled) setState({ kind: 'loaded', pilotId: pilotIds.get(userId) ?? null })
+    fetchOwnPilotId()
+      .then((pilotId) => {
+        if (!cancelled) setState({ kind: 'loaded', pilotId })
       })
-      .catch((error) => {
-        if (!(error instanceof ProfilesQueryError)) console.error('[site-nav] unexpected failure loading own flightlog pilot id:', error)
+      .catch((error: unknown) => {
+        console.error('[site-nav] failed to load own flightlog pilot id:', error)
         if (!cancelled) setState({ kind: 'error' })
       })
 

@@ -46,7 +46,7 @@ export type IssuePilotVerificationResult =
 
 // Business logic: generate a plaintext OTP and persist it (hashed) via the service_role-only
 // issue_pilot_verification RPC, against an injected Supabase client — same testability
-// convention as get-flightlog-pilot-ids.ts and delete-comment.ts.
+// convention as confirm-pilot-verification.ts.
 //
 // 'server-only': this module's only legitimate caller is a trusted server context holding a
 // createAdminClient() (src/lib/supabase/admin.ts) — issue_pilot_verification's own doc comment
@@ -88,8 +88,7 @@ export async function issuePilotVerification(
 
   // This repo applies migrations by hand (20260813010000_fix_..._toctou.sql's own header says
   // so), so "app code shipped ahead of the migration" is a real, expected state here, not
-  // hypothetical — mirrors get-flightlog-pilot-ids.ts's own 42703 branch, which guards the same
-  // kind of not-yet-migrated gap. If that migration hasn't landed yet, the RPC is still the old
+  // hypothetical. If that migration hasn't landed yet, the RPC is still the old
   // `returns void` version and `data` comes back `null`. Without this guard, `null as number`
   // would compare unequal to every real pilot id at the call site, so EVERY verification attempt
   // would silently report a pilot-id-changed mismatch, with nothing pointing at the actual cause

@@ -7,25 +7,15 @@ import type { AccountFormState } from './account-form-state'
 const initialState: AccountFormState = { status: 'idle' }
 
 type AccountFormProps = {
-  // undefined while index.tsx's useOwnDisplayName is still loading, or once it has settled into
-  // an 'error' state (see displayNameLoadFailed below) — both render the same blank input. null
-  // once loaded with no name set. Keyed distinctly below so an initial undefined->null transition
-  // (no name to prefill) never forces a needless remount.
+  // null when no name is set; undefined when the profile lookup failed (see displayNameLoadFailed).
   initialDisplayName?: string | null
-  // True once useOwnDisplayName's lookup has settled into its 'error' state, rather than merely
-  // still loading (#160) — index.tsx passes `undefined` for initialDisplayName in both cases, so
-  // without this the two states render byte-identical: a blank input with no indication anything
-  // failed. That matters here specifically because a blank submit stores `null` (see
-  // update-display-name.ts's own "a blank name is stored as null" comment) — a returning user who
-  // already has a display name set and hits this error would otherwise see a blank field and could
-  // unknowingly wipe their real name on submit. Disables both the field and the Save button so a
-  // blank state during an error can't be silently submitted as if it were an intentional clear.
+  // A failed lookup renders a blank input too, and a blank submit stores null (#160): a returning
+  // user could unknowingly wipe their real name. So the field and its Save button are disabled.
   displayNameLoadFailed?: boolean
 }
 
-// Only rendered once index.tsx has already established the visitor is signed in — the Server
-// Action re-checks that itself (see actions.ts's own doc comment on why render-time gating alone
-// is never a security boundary), same rule as comment-form.tsx.
+// Only rendered once index.tsx has established the visitor is signed in. The Server Action
+// re-checks that itself: render-time gating is never a security boundary.
 export function AccountForm({ initialDisplayName, displayNameLoadFailed = false }: AccountFormProps) {
   const [state, formAction, pending] = useActionState(saveDisplayName, initialState)
   const defaultDisplayName = initialDisplayName ?? ''
@@ -35,9 +25,8 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false 
       <label className="flex flex-col gap-1 text-sm" htmlFor="display-name">
         Display name
         <input
-          // The input is uncontrolled (defaultValue only applies on mount) but the prefill
-          // arrives asynchronously after mount — keying on the resolved value forces a remount
-          // once it loads, so React re-applies defaultValue instead of leaving the input blank.
+          // Uncontrolled, so defaultValue applies only on mount: keying on it remounts the input
+          // when a server re-render hands down a different stored name.
           key={defaultDisplayName}
           className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
           defaultValue={defaultDisplayName}

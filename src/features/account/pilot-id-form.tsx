@@ -7,34 +7,23 @@ import type { PilotIdFormState } from './pilot-id-form-state'
 const initialState: PilotIdFormState = { status: 'idle' }
 
 type PilotIdFormProps = {
-  // undefined while index.tsx's useOwnFlightlogPilotId is still loading, or once it has settled
-  // into an 'error' state (see pilotIdLoadFailed below) — both render the same blank input. null
-  // once loaded with no pilot id set. Same distinct-but-both-render-blank convention as
-  // account-form.tsx's own initialDisplayName prop.
+  // null when no pilot id is linked; undefined when the profile lookup failed (see pilotIdLoadFailed).
   initialPilotId?: number | null
-  // True once useOwnFlightlogPilotId's lookup has settled into its 'error' state, rather than
-  // merely still loading (#163, same shape as account-form.tsx's own displayNameLoadFailed,
-  // #160) — index.tsx passes `undefined` for initialPilotId in both cases, so without this the
-  // two states render byte-identical: a blank input with no indication anything failed. Disables
-  // both the field and the Save button so a blank state during an error can't be silently
-  // submitted as if it were an intentional unlink.
+  // A failed lookup renders a blank input too (#163), so the field and its Save button are
+  // disabled rather than inviting a submit that looks like a deliberate change.
   pilotIdLoadFailed?: boolean
-  // Called once, right after a save resolves to 'success' (#177's own review follow-up).
-  // invalidate_verification_on_pilot_id_change (see that trigger's own doc comment in
-  // 20260813000000_create_profile_verifications.sql) deletes the caller's profile_verifications
-  // row server-side whenever flightlog_pilot_id actually changes — but nothing client-side ever
-  // learns about that write on its own. Without this, a user who relinks to a different pilot id
-  // keeps seeing "Re-verify" (the verified-state UI) for a verification that no longer exists.
-  // index.tsx threads this to the same refreshKey bump used by PilotVerification's own start/
-  // confirm paths.
+  // Called once, right after a save succeeds. The invalidate_verification_on_pilot_id_change
+  // trigger deletes the user's verification when the pilot id changes, and nothing client-side
+  // learns of that write on its own; without this, a relinked user keeps seeing "Re-verify" for a
+  // verification that no longer exists.
   onSaved?: () => void
 }
 
 // A separate form/action from AccountForm, not a second field on it, because the two fields have
 // independent failure modes — this one calls out to flightlog.org over the network to check the
 // id exists, the display name never leaves this database — and useActionState binds one action
-// per form (see issue #137's own reasoning). Only rendered once index.tsx has already established
-// the visitor is signed in; the Server Action re-checks that itself, same rule as AccountForm.
+// per form (see issue #137's own reasoning). Only rendered once index.tsx has established the
+// visitor is signed in; the Server Action re-checks that itself, same rule as AccountForm.
 //
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
@@ -45,7 +34,7 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, onSaved
   useEffect(() => {
     if (state.status === 'success') onSaved?.()
     // onSaved excluded deliberately — see confirm-pilot-verification-form.tsx's own identical
-    // effect for why: index.tsx passes a fresh closure every render, and including it would
+    // effect for why: signed-in-account-settings.tsx passes a fresh closure every render, and including it would
     // re-fire this on every unrelated parent re-render while state is still 'success', not only
     // once when the save itself actually succeeded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -61,9 +50,7 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, onSaved
       <label className="flex flex-col gap-1 text-sm" htmlFor="flightlog-pilot-id">
         flightlog.org pilot id
         <input
-          // Uncontrolled, keyed on the resolved prefill value — same remount-on-load trick as
-          // account-form.tsx's own display-name input, for the same reason: the prefill arrives
-          // asynchronously after mount.
+          // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
           key={defaultPilotId}
           className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
           defaultValue={defaultPilotId}

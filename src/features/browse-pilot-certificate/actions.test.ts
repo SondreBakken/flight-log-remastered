@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }))
+vi.mock('@/lib/db/client', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/auth/current-user', () => ({ getCurrentUserId: vi.fn() }))
 vi.mock('@/lib/profiles/update-certificate-level', () => ({ updateCertificateLevel: vi.fn() }))
 vi.mock('@/lib/profiles/update-certificate-checklist-item', () => ({ updateCertificateChecklistItem: vi.fn() }))

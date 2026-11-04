@@ -1,62 +1,66 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
-import { ProfilesQueryError } from './profiles-query-error'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+
+import {
+  createTestDatabase,
+  createTestProfile,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { getCertificateProgressByPilotId } from './get-certificate-progress-by-pilot-id'
+import { ProfilesQueryError } from './profiles-query-error'
+
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
 
 describe('getCertificateProgressByPilotId', () => {
-  it('returns the matching row, camelCased', async () => {
-    const rows = [
-      { user_id: 'user-1', certificate_level: 'PP3', certificate_level_set_at: '2026-01-01T00:00:00.000Z', certificate_checklist: { PP3: { 'theory-exam': true } } },
-    ]
-    const { client, builder } = fakeSupabaseQuery({ data: rows, error: null })
+  it('reads the progress of the profile linked to the pilot id, for any viewer', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await createTestProfile(testDatabase.db, {
+      userId,
+      flightlogPilotId: 8001,
+      certificateLevel: 'PP3',
+      certificateLevelSetAt: new Date('2026-08-27T10:00:00Z'),
+      certificateChecklist: { PP4: { 'safety-course': true } },
+    })
 
-    const result = await getCertificateProgressByPilotId(client, 12677)
-
-    expect(builder.eq).toHaveBeenCalledWith('flightlog_pilot_id', 12677)
-    expect(result).toEqual({
-      userId: 'user-1',
+    expect(await getCertificateProgressByPilotId(testDatabase.db, 8001)).toEqual({
+      userId,
       level: 'PP3',
-      levelSetAt: '2026-01-01T00:00:00.000Z',
-      checklist: { PP3: { 'theory-exam': true } },
+      levelSetAt: '2026-08-27T10:00:00.000Z',
+      checklist: { PP4: { 'safety-course': true } },
     })
   })
 
-  it('returns null when no profile has declared this pilot id', async () => {
-    const { client } = fakeSupabaseQuery({ data: [], error: null })
+  it('reads an undeclared level as nulls and an empty checklist', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await createTestProfile(testDatabase.db, { userId, flightlogPilotId: 8002 })
 
-    expect(await getCertificateProgressByPilotId(client, 12677)).toBeNull()
+    expect(await getCertificateProgressByPilotId(testDatabase.db, 8002)).toEqual({
+      userId,
+      level: null,
+      levelSetAt: null,
+      checklist: {},
+    })
   })
 
-  it('returns the first match when more than one profile self-declared the same pilot id', async () => {
-    const rows = [
-      { user_id: 'user-1', certificate_level: 'PP2', certificate_level_set_at: null, certificate_checklist: {} },
-      { user_id: 'user-2', certificate_level: 'PP4', certificate_level_set_at: null, certificate_checklist: {} },
-    ]
-    const { client } = fakeSupabaseQuery({ data: rows, error: null })
-
-    const result = await getCertificateProgressByPilotId(client, 12677)
-    expect(result?.userId).toBe('user-1')
+  it('returns null when no profile has linked the pilot id', async () => {
+    expect(await getCertificateProgressByPilotId(testDatabase.db, 8003)).toBeNull()
   })
 
-  it('throws a ProfilesQueryError on a query error, preserving the original error as cause', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { message: 'permission denied for table profiles' }
-    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
+  it('throws a ProfilesQueryError when the query fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
 
-    const error = await getCertificateProgressByPilotId(client, 12677).catch((thrown: unknown) => thrown)
-
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).cause).toBe(queryError)
-    consoleError.mockRestore()
-  })
-
-  // Same known-transitional carve-out as get-flightlog-pilot-ids.ts: a missing column means the
-  // migration hasn't been applied yet, not that every pilot genuinely has no certificate declared.
-  it('returns null, and does not throw, when the query fails with 42703 (undefined_column)', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseQuery({ data: null, error: { code: '42703', message: 'column does not exist' } })
-
-    expect(await getCertificateProgressByPilotId(client, 12677)).toBeNull()
-    consoleError.mockRestore()
+    await expect(getCertificateProgressByPilotId(unmigrated.db, 8004)).rejects.toBeInstanceOf(ProfilesQueryError)
+    await unmigrated.client.close()
   })
 })
