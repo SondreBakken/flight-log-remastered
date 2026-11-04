@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getFollowersForPilot } from '../src/lib/follows/get-followers-for-pilot'
 import { getCommentsForTripIds } from '../src/lib/comments/get-comments-for-trip-ids'
 import { ProfilesQueryError } from '../src/lib/profiles/profiles-query-error'
 import { assertRejects } from './lib/assert'
@@ -23,20 +22,12 @@ function assert(condition: boolean, label: string): void {
 
 // --- Fake Supabase client ---
 //
-// getFollowersForPilot/getCommentsForTripIds both take an injected SupabaseClient (see their own
-// doc comments) specifically so this script can drive them against a hand-built fake instead of
-// a live database — same reasoning and shape as scripts/check-comments.mts's own fake: a plain
-// object implementing just the chain each function actually calls (from/select/eq/in/order),
-// matching how the real postgrest-js builder resolves.
-//
-// This fake has NO row-visibility engine at all — it returns every row a query's own filters
-// match, unconditionally. It cannot exercise the new
-// supabase/migrations/20260812000000_add_follows_select_for_own_pilot.sql RLS policy (whether an
-// unrelated visitor is actually blocked from reading someone else's followers) — that needs a
-// live database or Supabase Studio's own policy simulator, once that migration is actually
-// applied, which is out of scope for this script.
+// getCommentsForTripIds takes an injected SupabaseClient (see its own doc comment) specifically so
+// this script can drive it against a hand-built fake instead of a live database — same reasoning
+// and shape as scripts/check-comments.mts's own fake: a plain object implementing just the chain
+// the function actually calls (from/select/in/order), matching how the real postgrest-js builder
+// resolves. getFollowersForPilot moved to Drizzle (#266) and is covered by its own PGlite test.
 
-type FakeFollowRow = { user_id: string; pilot_id: number; created_at: string }
 type FakeCommentRow = { id: string; user_id: string; trip_id: number; body: string; created_at: string }
 type FakeProfileRow = { user_id: string; display_name: string | null }
 
@@ -64,51 +55,17 @@ function sortByCreatedAt<T extends { created_at: string }>(rows: T[], orderCalle
   })
 }
 
-function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeCommentRow[]; profiles?: FakeProfileRow[] } = {}) {
-  const followRows = [...(seed.follows ?? [])]
+function makeFakeSupabase(seed: { comments?: FakeCommentRow[]; profiles?: FakeProfileRow[] } = {}) {
   const commentRows = [...(seed.comments ?? [])]
   const profileRows = [...(seed.profiles ?? [])]
 
-  let followsQueryCalls = 0
   let commentsQueryCalls = 0
   let profilesQueryCalls = 0
-  let forcedFollowsError: { message: string } | null = null
   let forcedCommentsError: { message: string } | null = null
   let forcedProfilesError: { message: string; code?: string } | null = null
 
   const client = {
     from(table: string) {
-      if (table === 'follows') {
-        return {
-          select(columns: string) {
-            let pilotIdFilter: number | null = null
-            let ascending = true
-            let orderCalled = false
-            const query = {
-              eq(column: string, value: unknown) {
-                if (column === 'pilot_id') pilotIdFilter = value as number
-                return query
-              },
-              order(_column: string, options: { ascending: boolean }) {
-                ascending = options.ascending
-                orderCalled = true
-                return query
-              },
-              then(resolve: (result: { data: FakeFollowRow[] | null; error: { message: string } | null }) => void) {
-                followsQueryCalls++
-                if (forcedFollowsError) {
-                  resolve({ data: null, error: forcedFollowsError })
-                  return
-                }
-                const matching = followRows.filter((row) => pilotIdFilter === null || row.pilot_id === pilotIdFilter)
-                const ordered = sortByCreatedAt(matching, orderCalled, ascending)
-                resolve({ data: ordered.map((row) => project(row, columns)), error: null })
-              },
-            }
-            return query
-          },
-        }
-      }
       if (table === 'comments') {
         return {
           select(columns: string) {
@@ -169,17 +126,11 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
 
   return {
     client: client as unknown as SupabaseClient,
-    forceFollowsError(message: string): void {
-      forcedFollowsError = { message }
-    },
     forceCommentsError(message: string): void {
       forcedCommentsError = { message }
     },
     forceProfilesError(message: string, code?: string): void {
       forcedProfilesError = { message, code }
-    },
-    get followsQueryCalls() {
-      return followsQueryCalls
     },
     get commentsQueryCalls() {
       return commentsQueryCalls
@@ -188,124 +139,6 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
       return profilesQueryCalls
     },
   }
-}
-
-// --- getFollowersForPilot ---
-
-{
-  const fake = makeFakeSupabase({
-    follows: [
-      { user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' },
-      { user_id: 'user-b', pilot_id: 12677, created_at: '2026-01-02T00:00:00.000Z' },
-      { user_id: 'user-c', pilot_id: 99999, created_at: '2026-01-03T00:00:00.000Z' },
-    ],
-    profiles: [{ user_id: 'user-a', display_name: 'Alex' }],
-  })
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assertEqual(
-    followers,
-    [
-      { userId: 'user-b', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
-      { userId: 'user-a', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
-    ],
-    'getFollowersForPilot returns only followers of the given pilot id, newest first, each with a joined display name, falling back to null for an author with no profile row',
-  )
-  assertEqual(fake.profilesQueryCalls, 1, 'getFollowersForPilot issues exactly one profiles query for the whole page, not one per follower')
-}
-
-{
-  const fake = makeFakeSupabase({ follows: [{ user_id: 'user-a', pilot_id: 99999, created_at: '2026-01-01T00:00:00.000Z' }] })
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assertEqual(followers, [], 'a pilot id with no followers returns an empty list')
-}
-
-// #155: see getFollowersForPilot's own doc comment for why a query error throws rather than
-// degrading to []. The throw is caught by account-activity/index.tsx's SectionErrorBoundary,
-// which is out of this script's own reach (it drives getFollowersForPilot directly, not the
-// React tree around it).
-{
-  const fake = makeFakeSupabase()
-  fake.forceFollowsError('connection refused')
-  await assertRejects(
-    assert,
-    () => getFollowersForPilot(fake.client, 12677),
-    'getFollowersForPilot throws, distinguishably from an empty list, when the query fails',
-  )
-}
-
-// #160: getDisplayNames now throws a ProfilesQueryError on an unexpected profiles-table failure
-// rather than degrading to an empty Map. getFollowersForPilot deliberately leaves that throw to
-// propagate as-is (see its own doc comment on why, contrasting get-comments.ts's recast) —
-// account-activity/index.tsx's SectionErrorBoundary around Followers already catches any thrown
-// error identically, so the un-recast ProfilesQueryError produces the same visible degrade a
-// FollowsQueryError would.
-{
-  const fake = makeFakeSupabase({
-    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
-  })
-  fake.forceProfilesError('connection refused')
-  let caught: unknown
-  try {
-    await getFollowersForPilot(fake.client, 12677)
-  } catch (error) {
-    caught = error
-  }
-  assert(
-    caught instanceof ProfilesQueryError,
-    'a failed profiles query surfaces as a ProfilesQueryError propagating unchanged out of getFollowersForPilot (#160)',
-  )
-}
-
-// The 42703 (undefined_column) carve-out in getDisplayNames (#149/#151) is deliberately excluded
-// from the throw above — it must still degrade end-to-end through getFollowersForPilot, exactly
-// as before, since that branch exists specifically so an unapplied migration doesn't take
-// followers down.
-{
-  const fake = makeFakeSupabase({
-    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
-  })
-  fake.forceProfilesError('column "display_name" does not exist', '42703')
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assertEqual(
-    followers,
-    [{ userId: 'user-a', createdAt: '2026-01-01T00:00:00.000Z', displayName: null }],
-    'a 42703 profiles error still degrades to displayName: null end-to-end through getFollowersForPilot, rather than throwing',
-  )
-}
-
-// Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only
-// passes if getFollowersForPilot's own `.order('created_at', { ascending: false })` call is what
-// produces the newest-first result — dropping that call would leave the fake's rows in their
-// unsorted (ascending) insertion order and fail this assertion, since the fake now only sorts
-// when `.order()` is actually invoked on the chain (see sortByCreatedAt/orderCalled above).
-{
-  const fake = makeFakeSupabase({
-    follows: [
-      { user_id: 'user-oldest', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' },
-      { user_id: 'user-middle', pilot_id: 12677, created_at: '2026-01-02T00:00:00.000Z' },
-      { user_id: 'user-newest', pilot_id: 12677, created_at: '2026-01-03T00:00:00.000Z' },
-    ],
-  })
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assertEqual(
-    followers.map((follower) => follower.userId),
-    ['user-newest', 'user-middle', 'user-oldest'],
-    'getFollowersForPilot mutation guard: newest-first ordering actually comes from the query, not from seed order',
-  )
-}
-
-// Mutation guard: dropping a column from getFollowersForPilot's own select() list (e.g.
-// `created_at`) would leave it undefined here, since the fake now actually projects rows down to
-// the requested columns instead of returning full rows regardless of what was selected.
-{
-  const fake = makeFakeSupabase({
-    follows: [{ user_id: 'user-a', pilot_id: 12677, created_at: '2026-01-01T00:00:00.000Z' }],
-  })
-  const followers = await getFollowersForPilot(fake.client, 12677)
-  assert(
-    followers[0]?.createdAt === '2026-01-01T00:00:00.000Z',
-    "getFollowersForPilot mutation guard: createdAt is populated from the select's own columns, not left undefined by a narrowed select",
-  )
 }
 
 // --- getCommentsForTripIds ---
@@ -333,8 +166,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
 
 // Mutation guard: seeded oldest-to-newest (insertion order already ascending), so this only
 // passes if getCommentsForTripIds's own `.order('created_at', { ascending: false })` call is what
-// produces the newest-first result — same reasoning as getFollowersForPilot's own mutation guard
-// above.
+// produces the newest-first result.
 {
   const fake = makeFakeSupabase({
     comments: [
@@ -374,7 +206,7 @@ function makeFakeSupabase(seed: { follows?: FakeFollowRow[]; comments?: FakeComm
 }
 
 // #159: see getCommentsForTripIds's own doc comment for why a query error throws rather than
-// degrading to [] — same shape #155 established for getFollowersForPilot above. The throw is
+// degrading to [] — same shape #155 established for getFollowersForPilot. The throw is
 // caught by account-activity/index.tsx's own SectionErrorBoundary, out of this script's reach
 // (it drives getCommentsForTripIds directly, not the React tree around it).
 {

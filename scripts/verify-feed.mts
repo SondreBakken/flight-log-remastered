@@ -1,36 +1,27 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { chromium, type Page } from 'playwright'
-import { checkFollowsTableExists } from './lib/check-follows-table'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
-import { createAdminClient } from '../src/lib/supabase/admin'
 
 // Follow state is seeded through a REAL authenticated session, not the deleted localStorage
 // follow-store (#115 left this stale; #131/#132 replace it): the feed
 // (src/features/browse-flight-feed/index.tsx) resolves the viewer's followed pilots from the
 // `follows` table, keyed on the signed-in user's id. This script signs in a stable test user for
-// real, then writes/clears rows directly in `follows` between scenarios via the service-role admin
-// client (RLS is owner-only; the service-role key bypasses it by design). Scenario 1 (empty state)
-// runs BEFORE the sign-in step below it, specifically so it stays a genuine signed-out visitor
-// rather than a signed-in user who happens to follow nobody.
+// real, then writes/clears that user's rows directly in the app database's `follows` table between
+// scenarios. Scenario 1 (empty state) runs BEFORE the sign-in step below it, specifically so it
+// stays a genuine signed-out visitor rather than a signed-in user who happens to follow nobody.
 //
 // Signing in goes through Better Auth's own magic-link verify endpoint, the same URL a real email
 // carries: the script writes the test user and a single-use magic-link token straight into the
 // app's Postgres (DATABASE_URL), then the browser opens the verify URL and Better Auth sets the
 // real session cookie. No email is sent. See signInAsTestUser below.
 //
-// Until #266 ports follows to Postgres, `follows` still lives in Supabase, keyed on Supabase auth
-// user ids, so the follow-seeding scenarios cannot attribute rows to the Better Auth test user.
-//
 // Run with (DATABASE_URL and BETTER_AUTH_URL must point at the same database and origin as the
 // running app):
-//   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
-// --env-file loads DATABASE_URL and Supabase's service-role credentials into THIS script's own
-// Node process — Next's dev server loads .env.local for itself, not for a separate `tsx`
-// invocation. --conditions=react-server is required because src/lib/supabase/admin.ts imports
-// 'server-only', which throws under plain Node ESM resolution outside Next's own bundler-set
-// condition; the flag makes Node's resolver pick server-only's no-op react-server export instead.
+//   pnpm exec tsx --env-file=.env.local scripts/verify-feed.mts
+// --env-file loads DATABASE_URL into THIS script's own Node process — Next's dev server loads
+// .env.local for itself, not for a separate `tsx` invocation.
 
 // Real pilot ids from the flightlog.org fixture set (see docs/testing.md): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
@@ -54,7 +45,6 @@ const FAILING_PILOT_MESSAGE = 'could not load recent flights for pilot 555555 (s
 const TEST_USER_EMAIL = 'verify-feed-script@example.test'
 
 const { report, finish } = createReporter()
-const adminClient = createAdminClient()
 
 function requireDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL
@@ -126,17 +116,13 @@ function isFeedSettled(): boolean {
 // server component (which resolves follows on the request, not client-side) picks up the new
 // state — the same round-trip a real visitor clicking follow/unfollow would cause.
 async function seedFollowedPilots(page: Page, userId: string, pilotIds: number[]): Promise<void> {
-  const { error: deleteError } = await adminClient.from('follows').delete().eq('user_id', userId)
-  if (deleteError) throw new Error(`failed to clear follows for test user ${userId}: ${deleteError.message}`)
-
-  if (pilotIds.length > 0) {
-    const { error: insertError } = await adminClient
-      .from('follows')
-      .insert(pilotIds.map((pilotId) => ({ user_id: userId, pilot_id: pilotId })))
-    if (insertError) throw new Error(`failed to seed follows for test user ${userId}: ${insertError.message}`)
-  }
-
+  await clearFollows(userId)
+  await appDb.query('insert into follows (user_id, pilot_id) select $1, unnest($2::int[])', [userId, pilotIds])
   await page.reload({ waitUntil: 'domcontentloaded' })
+}
+
+async function clearFollows(userId: string): Promise<void> {
+  await appDb.query('delete from follows where user_id = $1', [userId])
 }
 
 type RowInfo = { date: string; pilot: string; hasTrackLink: boolean; href: string | null }
@@ -176,11 +162,10 @@ function reportRowInvariants(rows: RowInfo[], scenarioLabel: string): void {
   )
 }
 
-await checkFollowsTableExists(adminClient)
 const testUserId = await ensureTestUser(TEST_USER_EMAIL)
 // Idempotent re-run safety: clear out anything a previous (possibly aborted) run left behind
 // before scenario 1, not just between scenarios below.
-await adminClient.from('follows').delete().eq('user_id', testUserId)
+await clearFollows(testUserId)
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 const page = await browser.newPage({ viewport: { width: 1400, height: 1400 } })
@@ -324,7 +309,7 @@ if (failureScenarioReady) {
 await page.unroute(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`)
 
 // Leaves the test user's row in place (harmless, reused next run) but not garbage follows rows.
-await adminClient.from('follows').delete().eq('user_id', testUserId)
+await clearFollows(testUserId)
 
 console.log('final logs:', logs.length ? logs : 'none')
 // Plain `fullPage: true`, not scripts/lib/screenshot.ts's capture: this page has no WebGL
