@@ -1,4 +1,5 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { profiles } from '@/lib/db/schema'
+import type { Database } from '@/lib/db/client'
 
 export type UpdateDisplayNameInput = {
   userId: string
@@ -7,25 +8,23 @@ export type UpdateDisplayNameInput = {
 
 export type UpdateDisplayNameResult = { kind: 'saved' } | { kind: 'db-error'; message: string }
 
-// Business logic: upsert this user's display name, against an injected Supabase client, same
-// testability convention as postComment/followPilot. Lazy upsert rather than a signup-time
-// insert (see the migration's own doc comment) — insert and update RLS policies both exist
-// because this can hit either path, depending on whether the caller already has a row.
+// userId must be the session's own id (see account/actions.ts): with RLS gone, the upsert's key
+// is all that keeps a user writing their own row and nobody else's. An upsert, because a profile
+// row is created lazily on a user's first save.
 //
-// A blank (whitespace-only) name is stored as null, not as an empty string, so clearing the
-// input field back to nothing reverts a comment's author to "Anonymous" rather than an empty
-// name line.
-export async function updateDisplayName(supabase: SupabaseClient, input: UpdateDisplayNameInput): Promise<UpdateDisplayNameResult> {
-  const trimmed = input.displayName.trim()
+// A blank name is stored as null, so clearing the field reverts the user's comments to
+// "Anonymous" rather than an empty name line.
+export async function updateDisplayName(db: Database, input: UpdateDisplayNameInput): Promise<UpdateDisplayNameResult> {
+  const displayName = input.displayName.trim() || null
 
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({ user_id: input.userId, display_name: trimmed === '' ? null : trimmed }, { onConflict: 'user_id' })
-
-  if (error) {
+  try {
+    await db
+      .insert(profiles)
+      .values({ userId: input.userId, displayName })
+      .onConflictDoUpdate({ target: profiles.userId, set: { displayName } })
+    return { kind: 'saved' }
+  } catch (error) {
     console.error('[profiles] failed to save display name:', error)
     return { kind: 'db-error', message: 'failed to save the display name' }
   }
-
-  return { kind: 'saved' }
 }

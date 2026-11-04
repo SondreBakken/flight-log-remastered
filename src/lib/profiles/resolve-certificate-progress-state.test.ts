@@ -1,40 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/supabase/env', () => ({ getSupabaseEnv: vi.fn() }))
-vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }))
+vi.mock('@/lib/db/client', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/auth/current-user', () => ({ getCurrentUserId: vi.fn() }))
 vi.mock('./get-certificate-progress-by-pilot-id', () => ({ getCertificateProgressByPilotId: vi.fn() }))
-vi.mock('./get-flightlog-pilot-ids', () => ({ getFlightlogPilotIds: vi.fn() }))
+vi.mock('./get-profile', () => ({ getProfile: vi.fn() }))
 
-import { getSupabaseEnv } from '@/lib/supabase/env'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getCertificateProgressByPilotId } from './get-certificate-progress-by-pilot-id'
-import { getFlightlogPilotIds } from './get-flightlog-pilot-ids'
+import { getProfile } from './get-profile'
 import { resolveCertificateProgressState } from './resolve-certificate-progress-state'
 import { ProfilesQueryError } from './profiles-query-error'
 
-const mockedGetSupabaseEnv = vi.mocked(getSupabaseEnv)
 const mockedGetCurrentUserId = vi.mocked(getCurrentUserId)
 const mockedGetCertificateProgressByPilotId = vi.mocked(getCertificateProgressByPilotId)
-const mockedGetFlightlogPilotIds = vi.mocked(getFlightlogPilotIds)
+const mockedGetProfile = vi.mocked(getProfile)
 
 const PILOT_ID = 12677
-
+const DEFAULT_STATE = { isOwner: false, level: null, levelSetAt: null, checklist: {} }
 
 beforeEach(() => {
-  mockedGetSupabaseEnv.mockReturnValue({} as ReturnType<typeof getSupabaseEnv>)
+  vi.clearAllMocks()
 })
 
 describe('resolveCertificateProgressState', () => {
-  it('returns a null level and isOwner false when Supabase is not configured', async () => {
-    mockedGetSupabaseEnv.mockReturnValue(null)
-
-    const state = await resolveCertificateProgressState(PILOT_ID)
-
-    expect(state).toEqual({ isOwner: false, level: null, levelSetAt: null, checklist: {} })
-    expect(mockedGetCertificateProgressByPilotId).not.toHaveBeenCalled()
-  })
-
   it('returns the declared progress with isOwner false when the viewer is signed out', async () => {
     mockedGetCurrentUserId.mockResolvedValue(null)
     mockedGetCertificateProgressByPilotId.mockResolvedValue({ userId: 'user-1', level: 'PP3', levelSetAt: null, checklist: {} })
@@ -42,23 +30,24 @@ describe('resolveCertificateProgressState', () => {
     const state = await resolveCertificateProgressState(PILOT_ID)
 
     expect(state).toEqual({ isOwner: false, level: 'PP3', levelSetAt: null, checklist: {} })
-    expect(mockedGetFlightlogPilotIds).not.toHaveBeenCalled()
+    expect(mockedGetProfile).not.toHaveBeenCalled()
   })
 
-  it('returns isOwner true when the signed-in viewer\'s own linked pilot id matches', async () => {
+  it("returns isOwner true when the signed-in viewer's own linked pilot id matches", async () => {
     mockedGetCurrentUserId.mockResolvedValue('user-1')
     mockedGetCertificateProgressByPilotId.mockResolvedValue({ userId: 'user-1', level: 'PP3', levelSetAt: null, checklist: {} })
-    mockedGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', PILOT_ID]]))
+    mockedGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: PILOT_ID })
 
     const state = await resolveCertificateProgressState(PILOT_ID)
 
     expect(state.isOwner).toBe(true)
+    expect(mockedGetProfile).toHaveBeenCalledWith(expect.anything(), 'user-1')
   })
 
-  it('returns isOwner false when the signed-in viewer\'s linked pilot id does not match', async () => {
+  it("returns isOwner false when the signed-in viewer's linked pilot id does not match", async () => {
     mockedGetCurrentUserId.mockResolvedValue('user-2')
     mockedGetCertificateProgressByPilotId.mockResolvedValue(null)
-    mockedGetFlightlogPilotIds.mockResolvedValue(new Map([['user-2', 999999]]))
+    mockedGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 999999 })
 
     const state = await resolveCertificateProgressState(PILOT_ID)
 
@@ -69,17 +58,22 @@ describe('resolveCertificateProgressState', () => {
     mockedGetCurrentUserId.mockResolvedValue(null)
     mockedGetCertificateProgressByPilotId.mockResolvedValue(null)
 
-    const state = await resolveCertificateProgressState(PILOT_ID)
-
-    expect(state).toEqual({ isOwner: false, level: null, levelSetAt: null, checklist: {} })
+    expect(await resolveCertificateProgressState(PILOT_ID)).toEqual(DEFAULT_STATE)
   })
 
-  it('degrades to the default state instead of throwing when the query fails with ProfilesQueryError', async () => {
+  it('degrades to the default state instead of throwing when a profiles query fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockedGetCurrentUserId.mockResolvedValue('user-1')
+    mockedGetCertificateProgressByPilotId.mockResolvedValue({ userId: 'user-1', level: 'PP3', levelSetAt: null, checklist: {} })
+    mockedGetProfile.mockRejectedValue(new ProfilesQueryError('boom'))
+
+    expect(await resolveCertificateProgressState(PILOT_ID)).toEqual(DEFAULT_STATE)
+  })
+
+  it('propagates a throw that is not a ProfilesQueryError', async () => {
     mockedGetCurrentUserId.mockResolvedValue(null)
-    mockedGetCertificateProgressByPilotId.mockRejectedValue(new ProfilesQueryError('boom'))
+    mockedGetCertificateProgressByPilotId.mockRejectedValue(new TypeError('mapping bug'))
 
-    const state = await resolveCertificateProgressState(PILOT_ID)
-
-    expect(state).toEqual({ isOwner: false, level: null, levelSetAt: null, checklist: {} })
+    await expect(resolveCertificateProgressState(PILOT_ID)).rejects.toBeInstanceOf(TypeError)
   })
 })

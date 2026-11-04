@@ -1,14 +1,9 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { eq } from 'drizzle-orm'
+import type { Database } from '@/lib/db/client'
+import { profiles } from '@/lib/db/schema'
 import type { CertificateChecklist, CertificateLevel } from '@/lib/certificates/types'
 import type { PilotId } from '@/lib/flightlog/types'
 import { ProfilesQueryError } from './profiles-query-error'
-
-type ProfileRow = {
-  user_id: string
-  certificate_level: CertificateLevel | null
-  certificate_level_set_at: string | null
-  certificate_checklist: CertificateChecklist
-}
 
 export type CertificateProgressRow = {
   userId: string
@@ -17,37 +12,33 @@ export type CertificateProgressRow = {
   checklist: CertificateChecklist
 }
 
-// Reverse lookup: profiles is keyed by auth user_id, but the pilot page is keyed by flightlog.org
-// pilot id. Unlike flightlog_pilot_id verification (owner-only RLS), profiles' own SELECT policy
-// is public (`using (true)`), so this works for any viewer, signed in or not. flightlog_pilot_id
-// carries no uniqueness constraint, so more than one profile could in principle self-declare the
-// same pilot id — this reads the first match rather than treating that as an error, the same
-// loose trust model flightlog_pilot_id linking already accepts elsewhere.
-export async function getCertificateProgressByPilotId(supabase: SupabaseClient, pilotId: PilotId): Promise<CertificateProgressRow | null> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('user_id, certificate_level, certificate_level_set_at, certificate_checklist')
-    .eq('flightlog_pilot_id', pilotId)
-
-  if (error) {
-    if (error.code === '42703') {
-      console.error(
-        '[profiles] a certificate progress column does not exist — apply migration 20260827000000_add_certificate_progress_to_profiles.sql',
-        error,
-      )
-      return null
-    }
+// Reverse lookup: profiles are keyed by user id, the pilot page by flightlog.org pilot id. Public
+// read, so it answers any viewer, signed in or not. flightlog_pilot_id is not unique (the link is
+// self-declared), so more than one profile can claim a pilot id; this reads the first match.
+export async function getCertificateProgressByPilotId(db: Database, pilotId: PilotId): Promise<CertificateProgressRow | null> {
+  const [row] = await findCertificateProgress(db, pilotId).catch((error: unknown) => {
     console.error('[profiles] failed to load certificate progress for pilot id:', error)
-    throw new ProfilesQueryError(`Failed to load certificate progress for pilot id ${pilotId}: ${error.message}`, { cause: error })
-  }
-
-  const [row] = data as ProfileRow[]
+    throw new ProfilesQueryError(`Failed to load certificate progress for pilot id ${pilotId}`, { cause: error })
+  })
   if (row === undefined) return null
 
   return {
-    userId: row.user_id,
-    level: row.certificate_level,
-    levelSetAt: row.certificate_level_set_at,
-    checklist: row.certificate_checklist,
+    userId: row.userId,
+    level: row.level as CertificateLevel | null,
+    levelSetAt: row.levelSetAt?.toISOString() ?? null,
+    checklist: row.checklist as CertificateChecklist,
   }
+}
+
+function findCertificateProgress(db: Database, pilotId: PilotId) {
+  return db
+    .select({
+      userId: profiles.userId,
+      level: profiles.certificateLevel,
+      levelSetAt: profiles.certificateLevelSetAt,
+      checklist: profiles.certificateChecklist,
+    })
+    .from(profiles)
+    .where(eq(profiles.flightlogPilotId, pilotId))
+    .limit(1)
 }

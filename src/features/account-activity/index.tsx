@@ -1,12 +1,11 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { ShieldAlert } from 'lucide-react'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getDb } from '@/lib/db/client'
-import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
+import { getProfile, type Profile } from '@/lib/profiles/get-profile'
 import { getVerifiedPilotIds } from '@/lib/profiles/get-verified-pilot-ids'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { getFollowersForPilot } from '@/lib/follows/get-followers-for-pilot'
@@ -19,45 +18,29 @@ import type { Follower } from '@/lib/follows/get-followers-for-pilot'
 import type { CommentWithTripId } from '@/lib/comments/get-comments-for-trip-ids'
 import type { PilotId } from '@/lib/flightlog/types'
 
-// Server Component, not a client-side auth read like account/index.tsx's — this page's own
-// content (followers, comments) is itself a server-side read gated on the signed-in user's id,
-// so there's no benefit to splitting auth state into its own client roundtrip the way
-// account/index.tsx does for a form that needs useActionState. Same overall shape as that file,
-// but resolved server-side, one level up: signed-out, signed-in-but-pilot-id-lookup-failed (#163),
-// signed-in-but-unlinked, or signed-in-and-linked, each its own return here rather than a client
-// component branching on a hook.
-//
-// Renders nothing when Supabase isn't provisioned in this environment — same no-op-not-crash
-// rule as CommentsOnFlight and resolveViewerFollowState (see lib/supabase/env.ts's doc comment).
+// Server Component: this page's content (followers, comments) is a server-side read gated on the
+// signed-in user's id. Four branches, each its own return: signed-out, pilot-id lookup failed
+// (#163), signed-in but unlinked, signed-in and linked.
 export default async function AccountActivity() {
-  if (!getSupabaseEnv()) return null
-
-  const supabase = await createClient()
   const userId = await getCurrentUserId()
 
   if (!userId) return <SignInPrompt />
 
-  // getFlightlogPilotIds can throw a ProfilesQueryError on an unexpected failure (#163, same bug
-  // class as #160's fix to getDisplayNames) rather than resolving to an empty Map. Unlike
-  // Followers/CommentsOnMyFlights below, this read runs before any Suspense boundary exists —
-  // it decides which of the four branches this whole component renders — so a thrown error here
-  // can't be left to propagate into a SectionErrorBoundary the way those two sections' own
-  // throws are (see this file's own top-of-file doc comment): there is no child tree yet for a
-  // boundary to wrap. Caught here instead, and rendered as its own distinct prompt, so a broken
-  // profiles query never gets misread as "this user genuinely has no pilot id linked" and shown
-  // LinkPilotPrompt's "link your pilot id" copy for the wrong reason.
-  let pilotId: number | null
+  // This read decides which branch renders, so it runs before any SectionErrorBoundary exists to
+  // catch its failure. A ProfilesQueryError gets its own prompt instead, so a broken query is never
+  // shown as "link your pilot id" to a user who already has one linked.
+  let profile: Profile
   try {
-    const pilotIds = await getFlightlogPilotIds(supabase, [userId])
-    pilotId = pilotIds.get(userId) ?? null
+    profile = await getProfile(getDb(), userId)
   } catch (error) {
     if (error instanceof ProfilesQueryError) return <PilotIdLoadErrorPrompt />
     throw error
   }
 
+  const pilotId = profile.flightlogPilotId
   if (pilotId == null) return <LinkPilotPrompt />
 
-  const isPilotVerified = await isPilotIdVerified(supabase, pilotId)
+  const isPilotVerified = await isPilotIdVerified(pilotId)
 
   return (
     <div className="flex flex-col gap-8">
@@ -84,13 +67,15 @@ export default async function AccountActivity() {
 
 // Fail-safe, not fail-closed-to-an-error-page: a verification-status lookup failure here isn't
 // treated as page-breaking the way a failed pilotId lookup above is (see AccountActivity's own
-// catch around getFlightlogPilotIds) — it only ever gates one note's visibility, not which of
-// this component's four branches renders. Defaulting to false on failure keeps that note visible
-// rather than risking the opposite: a broken query silently hiding a real "this link is
-// unverified" disclaimer.
-async function isPilotIdVerified(supabase: SupabaseClient, pilotId: PilotId): Promise<boolean> {
+// catch around getProfile) — it only ever gates one note's visibility, not which of
+// this component's four branches renders. Defaulting to false on failure, or when Supabase (which
+// still holds verifications until #268) isn't provisioned, keeps that note visible rather than
+// risking the opposite: a broken query silently hiding a real "this link is unverified" disclaimer.
+async function isPilotIdVerified(pilotId: PilotId): Promise<boolean> {
+  if (!getSupabaseEnv()) return false
+
   try {
-    const verifiedPilotIds = await getVerifiedPilotIds(supabase, [pilotId])
+    const verifiedPilotIds = await getVerifiedPilotIds(await createClient(), [pilotId])
     return verifiedPilotIds.has(pilotId)
   } catch (error) {
     if (!(error instanceof ProfilesQueryError)) throw error

@@ -1,10 +1,9 @@
-import { getSupabaseEnv } from '@/lib/supabase/env'
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db/client'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import type { CertificateChecklist, CertificateLevel } from '@/lib/certificates/types'
 import type { PilotId } from '@/lib/flightlog/types'
 import { getCertificateProgressByPilotId } from './get-certificate-progress-by-pilot-id'
-import { getFlightlogPilotIds } from './get-flightlog-pilot-ids'
+import { getProfile } from './get-profile'
 import { ProfilesQueryError } from './profiles-query-error'
 
 export type CertificateProgressState = {
@@ -16,28 +15,20 @@ export type CertificateProgressState = {
 
 const DEFAULT_STATE: CertificateProgressState = { isOwner: false, level: null, levelSetAt: null, checklist: {} }
 
-// Resolved once per page render, same "resolve identity server-side once, pass booleans down"
-// shape as resolveFollowButtonState. Renders as the default (unowned, undeclared) state rather
-// than crashing when Supabase isn't provisioned, or when a profiles query genuinely fails — this
-// card is additive UI, not load-bearing for the pilot page it sits on. Only ProfilesQueryError is
-// caught (mirrors resolveViewerFollowState's own FollowsQueryError-only catch); any other throw
-// (e.g. a mapping bug unrelated to the query itself) propagates.
+// Resolved once per page render, like resolveFollowButtonState. The card is additive to the pilot
+// page, so a failed profiles query renders the default (unowned, undeclared) state instead of
+// breaking the page. Only ProfilesQueryError is caught; any other throw propagates.
+//
+// The session is read before the database is touched, so under Cache Components the caller is
+// already dynamic by the time a query runs.
 export async function resolveCertificateProgressState(pilotId: PilotId): Promise<CertificateProgressState> {
-  if (!getSupabaseEnv()) return DEFAULT_STATE
-
-  const supabase = await createClient()
+  const viewerUserId = await getCurrentUserId()
 
   try {
-    const progress = await getCertificateProgressByPilotId(supabase, pilotId)
-
-    const userId = await getCurrentUserId()
-
-    let isOwner = false
-    if (userId) {
-      const pilotIds = await getFlightlogPilotIds(supabase, [userId])
-      isOwner = pilotIds.get(userId) === pilotId
-    }
-
+    const [progress, isOwner] = await Promise.all([
+      getCertificateProgressByPilotId(getDb(), pilotId),
+      isViewerLinkedToPilot(viewerUserId, pilotId),
+    ])
     return {
       isOwner,
       level: progress?.level ?? null,
@@ -49,4 +40,10 @@ export async function resolveCertificateProgressState(pilotId: PilotId): Promise
     console.error('[profiles] failed to resolve certificate progress state:', error)
     return DEFAULT_STATE
   }
+}
+
+async function isViewerLinkedToPilot(viewerUserId: string | null, pilotId: PilotId): Promise<boolean> {
+  if (!viewerUserId) return false
+  const viewerProfile = await getProfile(getDb(), viewerUserId)
+  return viewerProfile.flightlogPilotId === pilotId
 }

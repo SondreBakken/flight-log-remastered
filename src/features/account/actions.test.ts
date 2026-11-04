@@ -10,10 +10,12 @@ const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
 const mockRpc = vi.fn()
 const mockCreateAdminClient = vi.fn()
-const mockGetFlightlogPilotIds = vi.fn()
+const mockGetProfile = vi.fn()
 const mockGetPilotEmail = vi.fn()
 const mockIssuePilotVerification = vi.fn()
 const mockSendVerificationEmail = vi.fn()
+const mockUpdateDisplayName = vi.fn()
+const mockUpdateFlightlogPilotId = vi.fn()
 
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
@@ -27,8 +29,20 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => mockCreateAdminClient(),
 }))
 
-vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
-  getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => 'app-database',
+}))
+
+vi.mock('@/lib/profiles/get-profile', () => ({
+  getProfile: (...args: unknown[]) => mockGetProfile(...args),
+}))
+
+vi.mock('@/lib/profiles/update-display-name', () => ({
+  updateDisplayName: (...args: unknown[]) => mockUpdateDisplayName(...args),
+}))
+
+vi.mock('@/lib/profiles/update-flightlog-pilot-id', () => ({
+  updateFlightlogPilotId: (...args: unknown[]) => mockUpdateFlightlogPilotId(...args),
 }))
 
 vi.mock('@/lib/flightlog/get-pilot-email', () => ({
@@ -43,7 +57,12 @@ vi.mock('@/lib/email/send-verification-email', () => ({
   sendVerificationEmail: (...args: unknown[]) => mockSendVerificationEmail(...args),
 }))
 
-import { startPilotVerificationAction, confirmPilotVerificationAction } from './actions'
+import {
+  confirmPilotVerificationAction,
+  saveDisplayName,
+  saveFlightlogPilotId,
+  startPilotVerificationAction,
+} from './actions'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import { startPilotVerificationStateFor } from './start-pilot-verification-state'
 import { confirmPilotVerificationStateFor } from './confirm-pilot-verification-state'
@@ -65,12 +84,12 @@ describe('startPilotVerificationAction', () => {
     const state = await startPilotVerificationAction()
 
     expect(state).toEqual({ status: 'error', message: 'Sign in to verify your flightlog.org pilot id.' })
-    expect(mockGetFlightlogPilotIds).not.toHaveBeenCalled()
+    expect(mockGetProfile).not.toHaveBeenCalled()
   })
 
   it('surfaces a "link your pilot id first" outcome, never scraping or issuing, when no pilot id is linked', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map())
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: null })
 
     const state = await startPilotVerificationAction()
 
@@ -84,7 +103,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a "link your pilot id first" outcome when the profile row exists but the linked pilot id is null', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', null]]))
+    mockGetProfile.mockResolvedValue({ displayName: 'Alex', flightlogPilotId: null })
 
     const state = await startPilotVerificationAction()
 
@@ -94,7 +113,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable pilot-not-found outcome when the linked pilot id no longer resolves on flightlog.org', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'not-found' })
 
     const state = await startPilotVerificationAction()
@@ -108,7 +127,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable no-email outcome when the pilot exists but has no scrapable email', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'no-email' })
 
     const state = await startPilotVerificationAction()
@@ -122,7 +141,7 @@ describe('startPilotVerificationAction', () => {
 
   it('scrapes, issues, and sends the code, passing the session-derived user id (never a client-supplied one) as target_user_id, on the happy path', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
@@ -141,7 +160,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable "started-logged" outcome, not the generic success state, when sendVerificationEmail resolves \'logged\' (flag off, code only reached the server log)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'logged' })
@@ -154,35 +173,23 @@ describe('startPilotVerificationAction', () => {
     })
   })
 
-  it('looks up the linked pilot id through the session-scoped client (never the admin client), with the session-derived user id as target_user_id', async () => {
+  it("looks up the session user's own linked pilot id, and issues for the session user id", async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    // Two entries, session id inserted second: if target_user_id (or the id passed to
-    // getFlightlogPilotIds) were ever read from the Map instead of the session — e.g. its first
-    // key, or its first entry's id — this would resolve to 'someone-else'/9999 instead of
-    // 'user-1'/4549, and the assertions below would catch it. A single-entry Map keyed 'user-1'
-    // can't distinguish "read from session" from "read from the Map" at all.
-    mockGetFlightlogPilotIds.mockResolvedValue(
-      new Map([
-        ['someone-else', 9999],
-        ['user-1', 4549],
-      ]),
-    )
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
 
     await startPilotVerificationAction()
 
-    const sessionClient = await mockCreateClient.mock.results[0]!.value
-    expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(sessionClient, ['user-1'])
-    expect(mockGetFlightlogPilotIds.mock.calls[0]![0]).not.toEqual({ __brand: 'admin-client' })
+    expect(mockGetProfile).toHaveBeenCalledWith('app-database', 'user-1')
     expect(mockGetPilotEmail).toHaveBeenCalledWith(4549)
     expect(mockIssuePilotVerification.mock.calls[0]![1]).toBe('user-1')
   })
 
   it('bails without sending, surfacing a distinguishable pilot-id-changed outcome, when the RPC-bound pilot id no longer matches the one scraped for (the TOCTOU the RPC now closes)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     // The profile got relinked to a different pilot id mid-scrape: issue_pilot_verification
     // re-derives the pilot id from `profiles` at execution time, so it reports back 9999, not the
@@ -200,7 +207,7 @@ describe('startPilotVerificationAction', () => {
 
   it('falls back to the "link your pilot id first" outcome, without sending, when issuance hits the RPC\'s own no-linked-pilot-id rejection (a TOCTOU race)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'no-linked-pilot-id' })
 
@@ -215,7 +222,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable rate-limited outcome, without sending, when issuance hits the RPC\'s own re-issuance cooldown', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'rate-limited' })
 
@@ -231,7 +238,7 @@ describe('startPilotVerificationAction', () => {
   it('surfaces a generic error, without crashing or sending, when issuance throws a genuine ProfilesQueryError', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockRejectedValue(new ProfilesQueryError('boom'))
 
@@ -247,7 +254,7 @@ describe('startPilotVerificationAction', () => {
   it('lets a non-ProfilesQueryError thrown earlier in the chain propagate instead of being folded into the generic result', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockRejectedValue(new Error('markup not recognised'))
 
     await expect(startPilotVerificationAction()).rejects.toThrow('markup not recognised')
@@ -256,7 +263,7 @@ describe('startPilotVerificationAction', () => {
   it('surfaces a distinguishable "code issued but not sent" outcome when sendVerificationEmail throws', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 4549]]))
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
     mockSendVerificationEmail.mockRejectedValue(new Error('resend down'))
@@ -267,21 +274,6 @@ describe('startPilotVerificationAction', () => {
       status: 'error',
       message: 'Your verification code was generated, but we could not email it. Try again in a moment.',
     })
-  })
-
-  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreateClient.mockImplementation(() => {
-      throw new Error('Supabase is not configured')
-    })
-
-    const state = await startPilotVerificationAction()
-
-    expect(state).toEqual({
-      status: 'error',
-      message: 'Something went wrong starting pilot id verification. Try again.',
-    })
-    expect(mockGetFlightlogPilotIds).not.toHaveBeenCalled()
   })
 
   it('shows a generic error, without crashing, when the admin client is not configured', async () => {
@@ -296,7 +288,7 @@ describe('startPilotVerificationAction', () => {
       status: 'error',
       message: 'Something went wrong starting pilot id verification. Try again.',
     })
-    expect(mockGetFlightlogPilotIds).not.toHaveBeenCalled()
+    expect(mockGetProfile).not.toHaveBeenCalled()
   })
 })
 
@@ -447,5 +439,61 @@ describe('confirmPilotVerificationStateFor', () => {
       status: 'error',
       message: 'Something went wrong confirming your pilot id verification. Try again.',
     })
+  })
+})
+
+function formDataWith(fields: Record<string, string>): FormData {
+  const formData = new FormData()
+  for (const [name, value] of Object.entries(fields)) formData.set(name, value)
+  return formData
+}
+
+describe('saveDisplayName', () => {
+  it("saves the name on the session user's own profile, ignoring any user id the form sends", async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-1')
+    mockUpdateDisplayName.mockResolvedValue({ kind: 'saved' })
+
+    const state = await saveDisplayName({ status: 'idle' }, formDataWith({ displayName: 'Alex', userId: 'someone-else' }))
+
+    expect(state).toEqual({ status: 'success' })
+    expect(mockUpdateDisplayName).toHaveBeenCalledWith('app-database', { userId: 'user-1', displayName: 'Alex' })
+  })
+
+  it('rejects a signed-out request without writing', async () => {
+    mockGetCurrentUserId.mockResolvedValue(null)
+
+    const state = await saveDisplayName({ status: 'idle' }, formDataWith({ displayName: 'Alex' }))
+
+    expect(state).toEqual({ status: 'error', message: 'Sign in to set a display name.' })
+    expect(mockUpdateDisplayName).not.toHaveBeenCalled()
+  })
+})
+
+describe('saveFlightlogPilotId', () => {
+  it("saves the pilot id on the session user's own profile, ignoring any user id the form sends", async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-1')
+    mockUpdateFlightlogPilotId.mockResolvedValue({ kind: 'saved' })
+
+    const state = await saveFlightlogPilotId({ status: 'idle' }, formDataWith({ flightlogPilotId: '12677', userId: 'someone-else' }))
+
+    expect(state).toEqual({ status: 'success' })
+    expect(mockUpdateFlightlogPilotId).toHaveBeenCalledWith('app-database', { userId: 'user-1', pilotId: 12677 }, expect.any(Function))
+  })
+
+  it('rejects a signed-out request without writing', async () => {
+    mockGetCurrentUserId.mockResolvedValue(null)
+
+    const state = await saveFlightlogPilotId({ status: 'idle' }, formDataWith({ flightlogPilotId: '12677' }))
+
+    expect(state).toEqual({ status: 'error', message: 'Sign in to link your flightlog.org pilot id.' })
+    expect(mockUpdateFlightlogPilotId).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed pilot id before reading the session or writing', async () => {
+    const state = await saveFlightlogPilotId({ status: 'idle' }, formDataWith({ flightlogPilotId: 'abc' }))
+
+    expect(state.status).toBe('error')
+    expect(mockGetCurrentUserId).not.toHaveBeenCalled()
+    expect(mockUpdateFlightlogPilotId).not.toHaveBeenCalled()
   })
 })
