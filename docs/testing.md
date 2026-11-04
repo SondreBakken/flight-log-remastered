@@ -23,10 +23,8 @@ pnpm run check:feed                       # recent-flights feed: merge/sort/slic
 pnpm run check:watermark-store            # per-pilot "new since last visit" watermark, pure core + storage adapter
 pnpm run check:seen-trip-store            # per-pilot remembered UNTRACKED trip ids, pure core + storage adapter
 pnpm run check:request-gate               # outbound request gate: concurrency cap, in-flight tracking
-pnpm run check:comments                   # comment rate-limit/insert/soft-delete logic and result-to-form-state mapping, stubbed Supabase client
 pnpm run check:profiles                   # display-name lookup/upsert logic, stubbed Supabase client
-pnpm run check:account-activity           # comments-for-trip-ids join logic, stubbed Supabase client
-pnpm test                                 # Vitest: components, jsdom + React Testing Library
+pnpm test                                 # Vitest: components (jsdom + React Testing Library) and data access against PGlite with the real drizzle/ migrations
 pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
 pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof shot.mts's capture isn't blank (#21); see note below

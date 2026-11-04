@@ -69,14 +69,13 @@ export default async function AccountActivity() {
       </SectionErrorBoundary>
       {/* Names the content (comments on your flights), not a count of causes: this boundary can't
           tell which of CommentsOnMyFlights's several possible throws fired — getPilotLogbook's
-          flightlog.org round trip, getCommentsForTripIds's own Supabase query (#159), or
-          getDisplayNames's Supabase query propagating through attachDisplayNames uncaught (#160) —
-          see each function's own doc comment for why it throws instead of degrading. Naming a
+          flightlog.org round trip or getCommentsForTripIds's own query (#159) — see each
+          function's own doc comment for why it throws instead of degrading. Naming a
           fixed count of causes here would go stale the next time a new one is added, but the
           fallback still needs to say what failed to load, same as its Followers sibling above. */}
       <SectionErrorBoundary fallback="Couldn't load comments on your flights right now.">
         <Suspense fallback={<CommentsSkeleton />}>
-          <CommentsOnMyFlights supabase={supabase} pilotId={pilotId} />
+          <CommentsOnMyFlights pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
     </div>
@@ -99,17 +98,14 @@ async function isPilotIdVerified(supabase: SupabaseClient, pilotId: PilotId): Pr
   }
 }
 
-type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
-
 // Sibling of CommentsOnMyFlights below, not a shared Promise.all under one boundary — this gives
 // each branch its own independent streaming/loading state, so Followers can resolve and paint
 // without waiting on CommentsOnMyFlights's own flightlog.org round trip (or vice versa). Same
 // reasoning as src/app/pilots/[userId]/page.tsx's own Logbook/FlownSites split. Note this split
 // alone does NOT isolate a thrown error between the two branches — Suspense is not an error
 // boundary. Each branch can throw for its own reason: Followers from getFollowersForPilot's
-// Supabase query, CommentsOnMyFlights from any of getPilotLogbook's flightlog.org round trip,
-// getCommentsForTripIds's own Supabase query (#159), or getDisplayNames's Supabase query
-// propagating through attachDisplayNames (#160) — see each function's own doc comment for why a
+// own query, CommentsOnMyFlights from getPilotLogbook's flightlog.org round trip or
+// getCommentsForTripIds's own query (#159) — see each function's own doc comment for why a
 // query error throws rather than degrading to []. Each branch gets its own SectionErrorBoundary
 // instance rather than relying on this sibling split alone for fault isolation (see that
 // boundary's own fallback prop, below, for why CommentsOnMyFlights's fallback names its content
@@ -119,9 +115,9 @@ async function Followers({ viewerUserId, pilotId }: { viewerUserId: string; pilo
   return <FollowersSection followers={followers} />
 }
 
-async function CommentsOnMyFlights({ supabase, pilotId }: PilotSectionProps) {
+async function CommentsOnMyFlights({ pilotId }: { pilotId: PilotId }) {
   const { flights } = await getPilotLogbook(pilotId)
-  const comments = await getCommentsForTripIds(supabase, flights.map((flight) => flight.tripId))
+  const comments = await getCommentsForTripIds(getDb(), flights.map((flight) => flight.tripId))
   return <CommentsSection comments={comments} />
 }
 

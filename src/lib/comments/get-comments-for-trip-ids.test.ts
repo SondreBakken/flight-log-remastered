@@ -1,65 +1,77 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
-import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { profiles } from '@/lib/db/schema'
+import {
+  createTestComment,
+  createTestDatabase,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { CommentsQueryError } from './comments-query-error'
-
-const mockAttachDisplayNames = vi.fn()
-
-vi.mock('@/lib/profiles/attach-display-names', () => ({
-  attachDisplayNames: (...args: unknown[]) => mockAttachDisplayNames(...args),
-}))
-
 import { getCommentsForTripIds } from './get-comments-for-trip-ids'
 
+let database: TestDatabase
+
+beforeAll(async () => {
+  database = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await database.client.close()
+})
+
 describe('getCommentsForTripIds', () => {
-  it('short-circuits to an empty list without querying when tripIds is empty', async () => {
-    const { client } = fakeSupabaseQuery({ data: null, error: null })
+  it('short-circuits to an empty list without querying when there are no trip ids', async () => {
+    const unmigrated = createUnmigratedTestDatabase()
 
-    const result = await getCommentsForTripIds(client, [])
-
-    expect(result).toEqual([])
-    expect(client.from).not.toHaveBeenCalled()
+    expect(await getCommentsForTripIds(unmigrated.db, [])).toEqual([])
+    await unmigrated.client.close()
   })
 
-  it('scopes the query with .in() across the given trip ids and resolves display names via attachDisplayNames', async () => {
-    const rows = [{ id: 'comment-1', user_id: 'user-1', trip_id: 100, body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client, builder } = fakeSupabaseQuery({ data: rows, error: null })
-    mockAttachDisplayNames.mockResolvedValue([
-      { id: 'comment-1', tripId: 100, userId: 'user-1', body: 'nice flight', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
-    ])
+  it('returns comments on any of the given flights, newest first, with each author display name or null', async () => {
+    const namedAuthorId = await createTestUser(database.client)
+    const unnamedAuthorId = await createTestUser(database.client)
+    await database.db.insert(profiles).values({ userId: namedAuthorId, displayName: 'Alex' })
+    const olderId = await createTestComment(database.db, {
+      userId: namedAuthorId,
+      tripId: 201,
+      body: 'first',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    })
+    const newerId = await createTestComment(database.db, {
+      userId: unnamedAuthorId,
+      tripId: 202,
+      body: 'second',
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+    })
+    await createTestComment(database.db, { userId: namedAuthorId, tripId: 203 })
 
-    const result = await getCommentsForTripIds(client, [100, 200])
-
-    expect(builder.in).toHaveBeenCalledWith('trip_id', [100, 200])
-    expect(mockAttachDisplayNames).toHaveBeenCalledWith(client, rows, expect.any(Function))
-    expect(result).toEqual([
-      { id: 'comment-1', tripId: 100, userId: 'user-1', body: 'nice flight', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
+    expect(await getCommentsForTripIds(database.db, [201, 202])).toEqual([
+      { id: newerId, tripId: 202, userId: unnamedAuthorId, body: 'second', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
+      { id: olderId, tripId: 201, userId: namedAuthorId, body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
     ])
   })
 
-  it('throws, distinguishably from an empty list, when the query errors, preserving the original error as cause', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { message: 'permission denied for table comments' }
-    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
+  // Former RLS read policy: a deleted comment is hidden from every reader, its author included.
+  it('never returns a soft-deleted comment', async () => {
+    const authorId = await createTestUser(database.client)
+    const visibleId = await createTestComment(database.db, { userId: authorId, tripId: 204 })
+    await createTestComment(database.db, { userId: authorId, tripId: 205, deletedAt: new Date() })
 
-    const error = await getCommentsForTripIds(client, [100]).catch((thrown: unknown) => thrown)
+    const visibleComments = await getCommentsForTripIds(database.db, [204, 205])
+
+    expect(visibleComments.map((comment) => comment.id)).toEqual([visibleId])
+  })
+
+  it('throws a CommentsQueryError, not an empty list, when the query fails, keeping the driver error as cause', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
+
+    const error = await getCommentsForTripIds(unmigrated.db, [201]).catch((thrown: unknown) => thrown)
 
     expect(error).toBeInstanceOf(CommentsQueryError)
-    expect((error as CommentsQueryError).cause).toBe(queryError)
-    expect(mockAttachDisplayNames).not.toHaveBeenCalled()
-    consoleError.mockRestore()
-  })
-
-  // Explicit decision (see this function's own doc comment): unlike get-comments.ts, a
-  // ProfilesQueryError from attachDisplayNames is NOT recast into a CommentsQueryError here — its
-  // one caller (account-activity's SectionErrorBoundary) catches any thrown error identically, so
-  // it propagates as-is rather than being wrapped for no observable benefit.
-  it('lets a ProfilesQueryError from attachDisplayNames propagate unchanged, not recast as a CommentsQueryError', async () => {
-    const rows = [{ id: 'comment-1', user_id: 'user-1', trip_id: 100, body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client } = fakeSupabaseQuery({ data: rows, error: null })
-    const profilesError = new ProfilesQueryError('Failed to load display names for 1 user id: boom')
-    mockAttachDisplayNames.mockRejectedValue(profilesError)
-
-    await expect(getCommentsForTripIds(client, [100])).rejects.toBe(profilesError)
+    expect((error as CommentsQueryError).cause).toBeInstanceOf(Error)
+    await unmigrated.client.close()
   })
 })

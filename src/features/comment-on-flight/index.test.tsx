@@ -3,21 +3,15 @@ import { render, screen } from '@testing-library/react'
 import { CommentsQueryError } from '@/lib/comments/comments-query-error'
 import type { Comment } from '@/lib/comments/types'
 
-const mockGetSupabaseEnv = vi.fn()
-const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
 const mockGetComments = vi.fn()
-
-vi.mock('@/lib/supabase/env', () => ({
-  getSupabaseEnv: () => mockGetSupabaseEnv(),
-}))
 
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => mockCreateClient(),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => ({}),
 }))
 
 vi.mock('@/lib/comments/get-comments', () => ({
@@ -50,8 +44,6 @@ async function renderSection(tripId = 1) {
 }
 
 beforeEach(() => {
-  mockGetSupabaseEnv.mockReturnValue({ url: 'https://example.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({})
   mockGetCurrentUserId.mockResolvedValue(null)
 })
 

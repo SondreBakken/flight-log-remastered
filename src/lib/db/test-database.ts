@@ -33,3 +33,19 @@ export async function createTestUser(client: PGlite): Promise<string> {
   ])
   return userId
 }
+
+export type TestComment = {
+  userId: string
+  tripId: number
+  body?: string
+  createdAt?: Date
+  deletedAt?: Date
+}
+
+export async function createTestComment(db: TestDatabase['db'], comment: TestComment): Promise<string> {
+  const [row] = await db
+    .insert(schema.comments)
+    .values({ body: 'Nice flight', ...comment })
+    .returning({ id: schema.comments.id })
+  return row.id
+}

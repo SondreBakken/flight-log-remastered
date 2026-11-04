@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db/client'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { postComment } from '@/lib/comments/post-comment'
 import { deleteComment } from '@/lib/comments/delete-comment'
@@ -9,7 +9,6 @@ import { commentFormStateFor, type CommentFormState } from './comment-form-state
 
 const SIGN_IN_MESSAGE = 'Sign in to post a comment.'
 const EMPTY_BODY_MESSAGE = 'Write something before posting.'
-const GENERIC_ERROR_MESSAGE = 'Something went wrong posting your comment. Try again.'
 const DELETE_SIGN_IN_MESSAGE = 'Sign in to delete your comment.'
 const DELETE_GENERIC_ERROR_MESSAGE = 'Something went wrong deleting your comment. Try again.'
 
@@ -28,21 +27,13 @@ export async function submitComment(
   const body = formData.get('body')
   if (typeof body !== 'string') return { status: 'error', message: EMPTY_BODY_MESSAGE }
 
-  let supabase: Awaited<ReturnType<typeof createClient>>
-  try {
-    supabase = await createClient()
-  } catch (error) {
-    console.error('[comments] Supabase is not configured:', error)
-    return { status: 'error', message: GENERIC_ERROR_MESSAGE }
-  }
-
   // Reachable directly via POST, not just through this form (see the Server Actions security
   // guide) — getCurrentUserId() looks the session up in the database rather than trusting an
   // unverified cookie, and the resulting id is what's inserted, never anything the client sends.
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await postComment(supabase, { tripId, userId, body })
+  const result = await postComment(getDb(), { tripId, userId, body })
   if (result.kind === 'posted') revalidatePath(`/flights/${tripId}`)
 
   return commentFormStateFor(result)
@@ -56,18 +47,10 @@ export type DeleteCommentActionResult = { status: 'success' } | { status: 'error
 // isOwnComment gating in comment-item.tsx is display-only; getCurrentUserId() here is the actual
 // re-derivation of who's asking, same rule as submitComment.
 export async function deleteCommentAction(tripId: number, commentId: string): Promise<DeleteCommentActionResult> {
-  let supabase: Awaited<ReturnType<typeof createClient>>
-  try {
-    supabase = await createClient()
-  } catch (error) {
-    console.error('[comments] Supabase is not configured:', error)
-    return { status: 'error', message: DELETE_GENERIC_ERROR_MESSAGE }
-  }
-
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: DELETE_SIGN_IN_MESSAGE }
 
-  const result = await deleteComment(supabase, { id: commentId, userId })
+  const result = await deleteComment(getDb(), { id: commentId, userId })
   if (result.kind === 'db-error') return { status: 'error', message: DELETE_GENERIC_ERROR_MESSAGE }
 
   // 'not-found' covers both an already-deleted comment and someone else's (see delete-comment.ts)

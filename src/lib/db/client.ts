@@ -5,8 +5,16 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 
 import * as schema from './schema'
 
+// Every driver used here (node-postgres in production, PGlite in tests) returns raw query results
+// with a `rows` array; this HKT says so, so execute() is typed without naming either driver.
+type RowsQueryResult<Row> = { rows: Row[] }
+
+interface RowsQueryResultHKT extends PgQueryResultHKT {
+  type: RowsQueryResult<this['row']>
+}
+
 // Driver-agnostic, so domain functions take the node-postgres pool in the app and PGlite in tests.
-export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
+export type Database = PgDatabase<RowsQueryResultHKT, typeof schema>
 
 let database: Database | undefined
 

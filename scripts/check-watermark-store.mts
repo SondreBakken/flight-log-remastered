@@ -1,5 +1,4 @@
-// Mirrors scripts/check-follow-store.mts's shape (see its own doc comments for the full
-// rationale): watermark-store/storage.ts is gated on `typeof window` and reads/writes
+// watermark-store/storage.ts is gated on `typeof window` and reads/writes
 // `window.localStorage` directly, so exercising it under plain node means faking just enough
 // of `window` before the module is first imported (it registers a `storage` listener at
 // module-eval time).
@@ -92,8 +91,7 @@ function dispatchStorageEvent(key: string | null): void {
 const WATERMARK_KEY = 'flight-log:track-watermarks'
 
 // Bundles "capture the counter" and "perform the read/write being measured" into one call, so
-// the two can't drift apart — see check-follow-store.mts's readItemCallsDuring for the same
-// rationale.
+// the two can't drift apart.
 function itemCallsDuring(action: () => void): { reads: number; writes: number } {
   const readsBefore = fakeLocalStorage.getItemCalls
   const writesBefore = fakeLocalStorage.setItemCalls
@@ -312,10 +310,9 @@ for (const [label, corrupt, probePilotId] of [
 // =====================================================================================
 // Write-side length guard, symmetric with the read-side one: a watermark map that serializes
 // past STORED_RAW_MAX_LENGTH must stop being persisted rather than silently overwrite (and
-// later re-read as) whatever was last durably stored. Bracketed per-commit exactly like
-// check-follow-store.mts's own write-guard loop, for the same reason: sampling only "before"
-// and "after" the whole loop can't tell a correct guard from one that clobbers storage on
-// every over-limit commit, if every clobber happens to write the same bytes.
+// later re-read as) whatever was last durably stored. Bracketed per-commit because sampling
+// only "before" and "after" the whole loop can't tell a correct guard from one that clobbers
+// storage on every over-limit commit, if every clobber happens to write the same bytes.
 // =====================================================================================
 
 await withFreshStore('write-guard', () => {}, ({ storage: freshStorage, fakeLocalStorage: freshFake }) => {

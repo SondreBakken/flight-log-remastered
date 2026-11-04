@@ -1,20 +1,10 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { attachDisplayNames } from '@/lib/profiles/attach-display-names'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import type { Database } from '@/lib/db/client'
+import { comments, profiles } from '@/lib/db/schema'
 import { CommentsQueryError } from './comments-query-error'
 
-type CommentRow = {
-  id: string
-  user_id: string
-  trip_id: number
-  body: string
-  created_at: string
-}
-
-// A local shape rather than an extension of comments/types.ts's Comment: that type backs a
-// single flight page, which already knows its own tripId from the URL and has no use for it on
-// each comment. This caller (account-activity, across many flights at once) is the one place
-// tripId actually needs to travel with a comment, so it gets its own type here instead of
-// widening Comment for every other caller.
+// Its own type rather than a widened Comment: a flight page already knows its tripId from the
+// URL, so only this many-flights caller (account-activity) needs it on each comment.
 export type CommentWithTripId = {
   id: string
   tripId: number
@@ -24,65 +14,36 @@ export type CommentWithTripId = {
   displayName: string | null
 }
 
-function toCommentWithTripId(row: CommentRow, displayNames: Map<string, string | null>): CommentWithTripId {
-  return {
-    id: row.id,
-    tripId: row.trip_id,
-    userId: row.user_id,
-    body: row.body,
-    createdAt: row.created_at,
-    displayName: displayNames.get(row.user_id) ?? null,
-  }
-}
-
-// Business logic: every (non-deleted, same RLS policy as get-comments.ts) comment across a set
-// of flights, against an injected Supabase client (same testability convention as
-// get-comments.ts). Built for account-activity: "who commented on any of my flights" needs one
-// query across every tripId a pilot has flown, not one getComments call per flight.
+// Every visible comment across a pilot's flights in one query, for account-activity. Same public
+// read rule as getComments (deleted comments hidden from everyone), but newest first: this is an
+// activity feed, not a thread read top to bottom.
 //
-// Newest first, unlike get-comments.ts's oldest-first: that ordering exists so a comment thread
-// reads top-to-bottom as a conversation. This is an activity feed ("who's said something about my
-// flights recently"), where the most recent comment is what a pilot actually wants to see first.
-//
-// Empty tripIds short-circuits before querying — same convention as getDisplayNames/
-// getFlightlogPilotIds: "no flights to check comments for" (a pilot with zero logged flights)
-// is a normal case, not an error, and `.in('trip_id', [])` would be a wasted round trip to learn
-// what's already known.
-//
-// A query error throws a CommentsQueryError rather than returning [] (#159), the same
-// distinguishable-failure shape get-comments.ts uses — a denied or misconfigured RLS policy used
-// to be indistinguishable from "none of these flights have comments". This function's one
-// caller, account-activity/index.tsx's CommentsOnMyFlights, already sits behind a
-// SectionErrorBoundary (added for getPilotLogbook's flightlog.org round trip); that same
-// boundary now also catches this throw, so the section renders its real error state instead of
-// a silently empty list.
-//
-// Unlike get-comments.ts, this function does NOT catch and recast attachDisplayNames's own
-// ProfilesQueryError (#160) into a CommentsQueryError. That recast exists there specifically to
-// satisfy loadCommentsForFlight's type-discriminating catch (`instanceof CommentsQueryError`);
-// this function's caller has no equivalent discrimination — SectionErrorBoundary is a plain React
-// error boundary that catches any thrown error the same way, comments-table failure or
-// display-name-lookup failure alike, and its fallback text is deliberately generic rather than
-// enumerating specific causes (see index.tsx's own doc comment on that fallback string).
-// Recasting here would add a layer with no observable difference in behavior.
-export async function getCommentsForTripIds(supabase: SupabaseClient, tripIds: number[]): Promise<CommentWithTripId[]> {
+// A query error throws a CommentsQueryError (#159); the caller's SectionErrorBoundary renders it.
+export async function getCommentsForTripIds(db: Database, tripIds: number[]): Promise<CommentWithTripId[]> {
   if (tripIds.length === 0) return []
 
-  const { data, error } = await supabase
-    .from('comments')
-    .select('id, user_id, trip_id, body, created_at')
-    .in('trip_id', tripIds)
-    .order('created_at', { ascending: false })
-
-  if (error) {
+  const rows = await findVisibleCommentsOnTrips(db, tripIds).catch((error: unknown) => {
     console.error('[comments] failed to load comments for trip ids:', error)
     throw new CommentsQueryError(
-      `Failed to load comments for ${tripIds.length} trip ${tripIds.length === 1 ? 'id' : 'ids'}: ${error.message}`,
+      `Failed to load comments for ${tripIds.length} trip ${tripIds.length === 1 ? 'id' : 'ids'}`,
       { cause: error },
     )
-  }
+  })
+  return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }))
+}
 
-  // Display-name lookup, and why it's two queries rather than a PostgREST embed, lives in
-  // attachDisplayNames.
-  return attachDisplayNames(supabase, data as CommentRow[], toCommentWithTripId)
+function findVisibleCommentsOnTrips(db: Database, tripIds: number[]) {
+  return db
+    .select({
+      id: comments.id,
+      tripId: comments.tripId,
+      userId: comments.userId,
+      body: comments.body,
+      createdAt: comments.createdAt,
+      displayName: profiles.displayName,
+    })
+    .from(comments)
+    .leftJoin(profiles, eq(profiles.userId, comments.userId))
+    .where(and(inArray(comments.tripId, tripIds), isNull(comments.deletedAt)))
+    .orderBy(desc(comments.createdAt))
 }
