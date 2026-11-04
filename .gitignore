@@ -56,6 +56,3 @@ next-env.d.ts
 
 # autopilot run state
 .autopilot/
-
-# supabase cli
-/supabase/.temp/
