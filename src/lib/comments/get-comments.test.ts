@@ -1,67 +1,70 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
-import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { profiles } from '@/lib/db/schema'
+import {
+  createTestComment,
+  createTestDatabase,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { CommentsQueryError } from './comments-query-error'
-
-const mockAttachDisplayNames = vi.fn()
-
-vi.mock('@/lib/profiles/attach-display-names', () => ({
-  attachDisplayNames: (...args: unknown[]) => mockAttachDisplayNames(...args),
-}))
-
 import { getComments } from './get-comments'
 
+let database: TestDatabase
+
+beforeAll(async () => {
+  database = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await database.client.close()
+})
+
 describe('getComments', () => {
-  it('resolves display names for the queried rows via attachDisplayNames', async () => {
-    const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client } = fakeSupabaseQuery({ data: rows, error: null })
-    mockAttachDisplayNames.mockResolvedValue([
-      { id: 'comment-1', userId: 'user-1', body: 'nice flight', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
-    ])
+  it("returns only the given flight's comments, oldest first, with each author's display name or null", async () => {
+    const namedAuthorId = await createTestUser(database.client)
+    const unnamedAuthorId = await createTestUser(database.client)
+    await database.db.insert(profiles).values({ userId: namedAuthorId, displayName: 'Alex' })
+    const newestId = await createTestComment(database.db, {
+      userId: unnamedAuthorId,
+      tripId: 101,
+      body: 'second',
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+    })
+    const oldestId = await createTestComment(database.db, {
+      userId: namedAuthorId,
+      tripId: 101,
+      body: 'first',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    })
+    await createTestComment(database.db, { userId: namedAuthorId, tripId: 102 })
 
-    const result = await getComments(client, 4549)
-
-    expect(mockAttachDisplayNames).toHaveBeenCalledWith(client, rows, expect.any(Function))
-    expect(result).toEqual([
-      { id: 'comment-1', userId: 'user-1', body: 'nice flight', createdAt: '2026-08-01T00:00:00Z', displayName: 'Alice' },
+    expect(await getComments(database.db, 101)).toEqual([
+      { id: oldestId, userId: namedAuthorId, body: 'first', createdAt: '2026-01-01T00:00:00.000Z', displayName: 'Alex' },
+      { id: newestId, userId: unnamedAuthorId, body: 'second', createdAt: '2026-01-02T00:00:00.000Z', displayName: null },
     ])
   })
 
-  it('throws, distinguishably from an empty list, when the query errors, preserving the original error as cause', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { message: 'permission denied for table comments' }
-    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
+  // Former RLS read policy: a deleted comment is hidden from every reader, its author included.
+  it('never returns a soft-deleted comment', async () => {
+    const authorId = await createTestUser(database.client)
+    const visibleId = await createTestComment(database.db, { userId: authorId, tripId: 103 })
+    await createTestComment(database.db, { userId: authorId, tripId: 103, deletedAt: new Date() })
 
-    const error = await getComments(client, 4549).catch((thrown: unknown) => thrown)
+    const visibleComments = await getComments(database.db, 103)
+
+    expect(visibleComments.map((comment) => comment.id)).toEqual([visibleId])
+  })
+
+  it('throws a CommentsQueryError, not an empty list, when the query fails, keeping the driver error as cause', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
+
+    const error = await getComments(unmigrated.db, 101).catch((thrown: unknown) => thrown)
 
     expect(error).toBeInstanceOf(CommentsQueryError)
-    expect((error as CommentsQueryError).cause).toBe(queryError)
-    expect(mockAttachDisplayNames).not.toHaveBeenCalled()
-    consoleError.mockRestore()
-  })
-
-  // A ProfilesQueryError from attachDisplayNames (i.e. the getDisplayNames read failed, not the
-  // comments read) must still resolve to a CommentsQueryError here, not propagate as-is: this
-  // function's one caller, loadCommentsForFlight, only catches CommentsQueryError by type, so an
-  // uncaught ProfilesQueryError would crash the whole flight page instead of degrading it.
-  it('recasts a ProfilesQueryError from attachDisplayNames into a CommentsQueryError, preserving it as cause', async () => {
-    const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client } = fakeSupabaseQuery({ data: rows, error: null })
-    const profilesError = new ProfilesQueryError('Failed to load display names for 1 user id: boom')
-    mockAttachDisplayNames.mockRejectedValue(profilesError)
-
-    const error = await getComments(client, 4549).catch((thrown: unknown) => thrown)
-
-    expect(error).toBeInstanceOf(CommentsQueryError)
-    expect((error as CommentsQueryError).cause).toBe(profilesError)
-  })
-
-  it('lets a non-ProfilesQueryError throw from attachDisplayNames propagate unchanged', async () => {
-    const rows = [{ id: 'comment-1', user_id: 'user-1', body: 'nice flight', created_at: '2026-08-01T00:00:00Z' }]
-    const { client } = fakeSupabaseQuery({ data: rows, error: null })
-    const mappingBug = new TypeError('boom')
-    mockAttachDisplayNames.mockRejectedValue(mappingBug)
-
-    await expect(getComments(client, 4549)).rejects.toBe(mappingBug)
+    expect((error as CommentsQueryError).cause).toBeInstanceOf(Error)
+    await unmigrated.client.close()
   })
 })

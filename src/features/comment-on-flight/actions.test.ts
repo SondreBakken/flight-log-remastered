@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-const mockCreateClient = vi.fn()
+const mockDb = { name: 'db' }
 const mockGetCurrentUserId = vi.fn()
 const mockPostComment = vi.fn()
 const mockDeleteComment = vi.fn()
@@ -10,8 +10,8 @@ vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => mockCreateClient(),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => mockDb,
 }))
 
 vi.mock('@/lib/comments/post-comment', () => ({
@@ -35,14 +35,6 @@ function formDataWithBody(body: string | undefined): FormData {
   return formData
 }
 
-beforeEach(() => {
-  mockCreateClient.mockResolvedValue({})
-})
-
-afterEach(() => {
-  vi.spyOn(console, 'error').mockRestore()
-})
-
 describe('submitComment', () => {
   it('rejects with a sign-in prompt, never reaching postComment, when there is no session', async () => {
     mockGetCurrentUserId.mockResolvedValue(null)
@@ -53,11 +45,11 @@ describe('submitComment', () => {
     expect(mockPostComment).not.toHaveBeenCalled()
   })
 
-  it('rejects without touching Supabase at all when the body field is missing (a malformed direct POST)', async () => {
+  it('rejects without posting when the body field is missing (a malformed direct POST)', async () => {
     const state = await submitComment(1, { status: 'idle' }, formDataWithBody(undefined))
 
     expect(state).toEqual({ status: 'error', message: 'Write something before posting.' })
-    expect(mockCreateClient).not.toHaveBeenCalled()
+    expect(mockPostComment).not.toHaveBeenCalled()
   })
 
   it('passes the authenticated userId, the bound tripId, and the submitted body to postComment', async () => {
@@ -66,10 +58,20 @@ describe('submitComment', () => {
 
     await submitComment(42, { status: 'idle' }, formDataWithBody('nice flight'))
 
-    expect(mockPostComment).toHaveBeenCalledWith(
-      expect.anything(),
-      { tripId: 42, userId: 'user-abc', body: 'nice flight' },
-    )
+    expect(mockPostComment).toHaveBeenCalledWith(mockDb, { tripId: 42, userId: 'user-abc', body: 'nice flight' })
+  })
+
+  // Former RLS insert policy: a comment is only ever written as the signed-in user.
+  it('posts as the session user, ignoring a user id the client slips into the form', async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
+    mockPostComment.mockResolvedValue({ kind: 'posted' })
+    const formData = formDataWithBody('nice flight')
+    formData.set('userId', 'someone-else')
+    formData.set('user_id', 'someone-else')
+
+    await submitComment(42, { status: 'idle' }, formData)
+
+    expect(mockPostComment).toHaveBeenCalledWith(mockDb, { tripId: 42, userId: 'user-abc', body: 'nice flight' })
   })
 
   it('revalidates the flight page and reports success when postComment succeeds', async () => {
@@ -92,17 +94,6 @@ describe('submitComment', () => {
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
-  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreateClient.mockImplementation(() => {
-      throw new Error('Supabase is not configured')
-    })
-
-    const state = await submitComment(1, { status: 'idle' }, formDataWithBody('hello'))
-
-    expect(state).toEqual({ status: 'error', message: 'Something went wrong posting your comment. Try again.' })
-    expect(mockPostComment).not.toHaveBeenCalled()
-  })
 })
 
 describe('deleteCommentAction', () => {
@@ -121,7 +112,7 @@ describe('deleteCommentAction', () => {
 
     await deleteCommentAction(42, 'comment-1')
 
-    expect(mockDeleteComment).toHaveBeenCalledWith(expect.anything(), { id: 'comment-1', userId: 'user-abc' })
+    expect(mockDeleteComment).toHaveBeenCalledWith(mockDb, { id: 'comment-1', userId: 'user-abc' })
   })
 
   it('revalidates the flight page and reports success when deleteComment deletes the comment', async () => {
@@ -154,17 +145,6 @@ describe('deleteCommentAction', () => {
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
-  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreateClient.mockImplementation(() => {
-      throw new Error('Supabase is not configured')
-    })
-
-    const result = await deleteCommentAction(1, 'comment-1')
-
-    expect(result).toEqual({ status: 'error', message: 'Something went wrong deleting your comment. Try again.' })
-    expect(mockDeleteComment).not.toHaveBeenCalled()
-  })
 })
 
 describe('commentFormStateFor', () => {

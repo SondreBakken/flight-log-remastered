@@ -14,7 +14,7 @@ vi.mock('@/lib/flightlog/config', () => ({ flightlogFlightUrl: vi.fn(() => 'http
 vi.mock('@/features/show-flight-track', () => ({
   default: ({ track }: { track: Track }) => <div data-testid="flight-track">track {track.tripId}</div>,
 }))
-// CommentsOnFlight is an async server component that talks to Supabase — irrelevant to what
+// CommentsOnFlight is an async server component that talks to the database — irrelevant to what
 // Flight decides to render around it, so it's replaced with a synchronous marker.
 vi.mock('@/features/comment-on-flight', () => ({
   default: ({ tripId }: { tripId: number }) => <div data-testid="comments-on-flight">comments {tripId}</div>,

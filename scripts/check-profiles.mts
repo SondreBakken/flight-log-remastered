@@ -29,10 +29,8 @@ function assert(condition: boolean, label: string): void {
 //
 // getDisplayNames/updateDisplayName both take an injected SupabaseClient (see their own doc
 // comments) specifically so this script can drive them against a hand-built fake instead of a
-// live database — same reasoning and shape as scripts/check-comments.mts and
-// scripts/check-follow-store.mts's own fakes: a plain object implementing just the chain each
-// function actually calls (from/select/in/upsert), matching how the real postgrest-js builder
-// resolves.
+// live database: a plain object implementing just the chain each function actually calls
+// (from/select/in/upsert), matching how the real postgrest-js builder resolves.
 
 // display_name and flightlog_pilot_id are both optional here (rather than two separate fake
 // row types) so this one fake backs both get-display-names.ts/update-display-name.ts's tests
@@ -44,8 +42,7 @@ type FakeProfileRow = { user_id: string; display_name?: string | null; flightlog
 // Projects a row down to exactly the columns a `.select('a, b, c')` call asked for, mirroring
 // PostgREST's own column-list behavior. Without this, narrowing or dropping a select's column
 // list in the real implementation would still return full rows here and pass green — a select
-// mistake is otherwise invisible to this fake. Same fix as scripts/check-account-activity.mts's
-// and scripts/check-comments.mts's own project().
+// mistake is otherwise invisible to this fake.
 function project<T extends Record<string, unknown>>(row: T, columns: string): T {
   const keys = columns.split(',').map((column) => column.trim())
   const picked = {} as Record<string, unknown>
