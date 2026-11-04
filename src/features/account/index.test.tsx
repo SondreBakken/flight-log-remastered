@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { PilotVerification } from '@/lib/profiles/get-own-pilot-verification'
 import type { Profile } from '@/lib/profiles/get-profile'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 import AccountSettings from './index'
 
 const mockGetCurrentUserId = vi.fn<() => Promise<string | null>>()
 const mockGetProfile = vi.fn<(db: unknown, userId: string) => Promise<Profile>>()
-const mockMaybeSingle = vi.fn()
+const mockGetOwnPilotVerification = vi.fn<(db: unknown, userId: string) => Promise<PilotVerification>>()
+const mockRefresh = vi.fn()
 const mockStartPilotVerificationAction = vi.fn()
 const mockConfirmPilotVerificationAction = vi.fn()
 const mockSaveFlightlogPilotId = vi.fn()
@@ -23,12 +25,12 @@ vi.mock('@/lib/profiles/get-profile', () => ({
   getProfile: (db: unknown, userId: string) => mockGetProfile(db, userId),
 }))
 
-// use-own-pilot-verification-status.ts still reads verifications through Supabase in the browser
-// (#268): its createClient().from(...).select(...).eq(...).maybeSingle() chain, stubbed inline.
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle }) }) }),
-  }),
+vi.mock('@/lib/profiles/get-own-pilot-verification', () => ({
+  getOwnPilotVerification: (db: unknown, userId: string) => mockGetOwnPilotVerification(db, userId),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh }),
 }))
 
 vi.mock('./actions', () => ({
@@ -41,26 +43,17 @@ vi.mock('./actions', () => ({
 const EMPTY_PROFILE: Profile = { displayName: null, flightlogPilotId: null }
 const LINKED_PROFILE: Profile = { displayName: null, flightlogPilotId: 12677 }
 
-const PENDING_VERIFICATION = {
-  data: {
-    status: 'pending',
-    otp_expires_at: '2026-08-13T10:32:00.000Z',
-    email: 'pilot@example.com',
-    flightlog_pilot_id: 12677,
-    created_at: '2026-08-13T10:22:00.000Z',
-  },
-  error: null,
-}
-
-const VERIFIED = {
-  data: { status: 'verified', otp_expires_at: null, email: 'pilot@example.com', flightlog_pilot_id: 12677, created_at: '2026-08-13T10:22:00.000Z' },
-  error: null,
+const PENDING_VERIFICATION: PilotVerification = {
+  kind: 'pending',
+  email: 'pilot@example.com',
+  otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'),
 }
 
 beforeEach(() => {
   mockGetCurrentUserId.mockResolvedValue('user-abc')
   mockGetProfile.mockReset().mockResolvedValue(EMPTY_PROFILE)
-  mockMaybeSingle.mockReset().mockResolvedValue({ data: null, error: null })
+  mockGetOwnPilotVerification.mockReset().mockResolvedValue({ kind: 'none' })
+  mockRefresh.mockReset()
   mockStartPilotVerificationAction.mockReset()
   mockConfirmPilotVerificationAction.mockReset()
   mockSaveFlightlogPilotId.mockReset()
@@ -136,72 +129,83 @@ describe('AccountSettings', () => {
 
     await renderAccountSettings()
 
-    expect(await screen.findByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
-    expect(mockMaybeSingle).toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
+    expect(mockGetOwnPilotVerification).toHaveBeenCalledWith(expect.anything(), 'user-abc')
   })
 
   it('renders the confirm-code form, with the pending email, once a verification is pending', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
-    mockMaybeSingle.mockResolvedValue(PENDING_VERIFICATION)
+    mockGetOwnPilotVerification.mockResolvedValue(PENDING_VERIFICATION)
 
     await renderAccountSettings()
 
-    expect(await screen.findByText(/pilot@example.com/)).toBeTruthy()
+    expect(screen.getByText(/pilot@example.com/)).toBeTruthy()
     expect(screen.getByLabelText('Verification code')).toBeTruthy()
   })
 
   it('renders a "Re-verify" trigger, with a warning, once the pilot id is already verified', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
-    mockMaybeSingle.mockResolvedValue(VERIFIED)
+    mockGetOwnPilotVerification.mockResolvedValue({ kind: 'verified' })
 
     await renderAccountSettings()
 
-    expect(await screen.findByRole('button', { name: 'Re-verify' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Re-verify' })).toBeTruthy()
     expect(screen.getByText(/temporarily un-verifies your pilot id/)).toBeTruthy()
   })
 
-  it('re-fetches pilot verification status after starting verification, flipping to the pending confirm-code form', async () => {
+  it('shows a load-failure notice, not a start trigger, when the verification lookup fails', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
-    mockMaybeSingle.mockResolvedValueOnce({ data: null, error: null }).mockResolvedValueOnce(PENDING_VERIFICATION)
+    mockGetOwnPilotVerification.mockRejectedValue(new ProfilesQueryError('verification query failed'))
+
+    await renderAccountSettings()
+
+    expect(screen.getByText(/Couldn't load your pilot id verification status/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Verify your pilot id' })).toBeNull()
+  })
+
+  it('lets a verification lookup failure that is not a ProfilesQueryError propagate', async () => {
+    mockGetOwnPilotVerification.mockRejectedValue(new TypeError('mapping bug'))
+
+    await expect(AccountSettings()).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('refreshes the server-rendered settings after starting verification', async () => {
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
     mockStartPilotVerificationAction.mockResolvedValue({ status: 'success' })
 
     await renderAccountSettings()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Verify your pilot id' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify your pilot id' }))
 
-    expect(await screen.findByText(/pilot@example.com/)).toBeTruthy()
-    expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
   })
 
-  it('re-fetches pilot verification status after a successful confirm, leaving the pending view', async () => {
+  it('refreshes the server-rendered settings after a successful confirm', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
-    mockMaybeSingle.mockResolvedValueOnce(PENDING_VERIFICATION).mockResolvedValueOnce(VERIFIED)
+    mockGetOwnPilotVerification.mockResolvedValue(PENDING_VERIFICATION)
     mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
 
     await renderAccountSettings()
 
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
-    expect(await screen.findByRole('button', { name: 'Re-verify' })).toBeTruthy()
-    expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
   })
 
   // The invalidate_verification_on_pilot_id_change trigger deletes the verification when the
   // pilot id changes; PilotIdForm's onSaved is the only way the client learns of it.
-  it('re-fetches pilot verification status after successfully relinking the pilot id', async () => {
+  it('refreshes the server-rendered settings after successfully relinking the pilot id', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
-    mockMaybeSingle.mockResolvedValueOnce(VERIFIED).mockResolvedValueOnce({ data: null, error: null })
+    mockGetOwnPilotVerification.mockResolvedValue({ kind: 'verified' })
     mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
 
     await renderAccountSettings()
 
-    await screen.findByRole('button', { name: 'Re-verify' })
     fireEvent.change(screen.getByLabelText('flightlog.org pilot id'), { target: { value: '99999' } })
     fireEvent.click(within(formOf('flightlog.org pilot id')).getByRole('button', { name: 'Save' }))
 
     await screen.findByText('Saved.')
-    expect(await screen.findByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
-    expect(mockMaybeSingle).toHaveBeenCalledTimes(2)
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
   })
 })

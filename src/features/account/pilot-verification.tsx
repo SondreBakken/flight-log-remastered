@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { startPilotVerificationAction } from './actions'
 import { ConfirmPilotVerificationForm } from './confirm-pilot-verification-form'
-import type { OwnPilotVerificationStatusState } from './use-own-pilot-verification-status'
+import type { PilotVerification as OwnPilotVerification } from '@/lib/profiles/get-own-pilot-verification'
 import type { StartPilotVerificationState } from './start-pilot-verification-state'
 
 // #208: startPilotVerificationAction has no cancellation mechanism (it's a plain server action
@@ -15,11 +15,13 @@ import type { StartPilotVerificationState } from './start-pilot-verification-sta
 const START_VERIFICATION_TIMEOUT_MS = 15_000
 const START_VERIFICATION_TIMEOUT_MESSAGE = 'This is taking longer than expected. You can try again.'
 
+// 'error': the server-side lookup failed, which must not read as 'none' and invite a restart.
+export type OwnPilotVerificationState = OwnPilotVerification | { kind: 'error' }
+
 type PilotVerificationProps = {
-  status: OwnPilotVerificationStatusState
-  // Bumps use-own-pilot-verification-status.ts's refreshKey in signed-in-account-settings.tsx once a start-verification
-  // or a successful confirm settles — see that hook's own doc comment for why this hook has no
-  // other way to learn a row was written or changed.
+  status: OwnPilotVerificationState
+  // Re-renders the server component that reads `status`, once a start-verification or a
+  // successful confirm settles; nothing else tells it a row was written or changed.
   onStatusChanged: () => void
 }
 
@@ -85,14 +87,11 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   // extra render pass and react-hooks/set-state-in-effect's own lint warning a useEffect version
   // would trigger here.
   //
-  // useOwnPilotVerificationStatus holds its PREVIOUS state during a refetch rather than
-  // transitioning through 'loading' (see that hook's own doc comment) — so without this, stale
-  // local state would linger the instant the request promise resolves, well before the refresh it
-  // triggered has actually landed. Since the hook only ever calls setState with a brand-new object
-  // (stateFromRow always returns a fresh literal), any change to `status`'s identity — regardless
-  // of whether its VALUE also changed — is proof a fetch actually resolved, which is exactly the
-  // signal needed to know a refresh actually landed. Two independent things key off that same
-  // signal below:
+  // A refresh keeps the PREVIOUS `status` on screen until the re-rendered server component
+  // arrives, without passing through a loading state — so without this, stale local state would
+  // linger the instant the request promise resolves, well before the refresh it triggered has
+  // actually landed. Every refresh deserializes a brand-new `status` object, so any change to its
+  // identity — regardless of whether its VALUE also changed — is proof a refresh landed.
   //
   // Both phase-reset and message-clearing key off this same fresh-identity signal, not a narrower
   // status.kind-only comparison: the "Send a new code" trigger inside the already-'pending' view
@@ -123,8 +122,6 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
     const landedOnUnrelatedKind = status.kind !== 'pending' && status.kind !== prevKind
     if (landedOnUnrelatedKind || (status.kind === 'pending' && !message?.survivesLandingOnPending)) setMessage(null)
   }
-
-  if (status.kind === 'loading') return null
 
   if (status.kind === 'error') {
     // Mirrors PilotIdForm's own pilotIdLoadFailed convention: a distinct, visible failure state
@@ -194,8 +191,8 @@ export function PilotVerification({ status, onStatusChanged }: PilotVerification
   )
 }
 
-function formatExpiry(otpExpiresAt: string): string {
-  return new Date(otpExpiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+function formatExpiry(otpExpiresAt: Date): string {
+  return otpExpiresAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 // startPilotVerificationAction takes no arguments — like followPilotAction/unfollowPilotAction

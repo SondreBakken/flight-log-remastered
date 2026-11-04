@@ -10,8 +10,8 @@ type ConfirmPilotVerificationFormProps = {
   // Called once, right after a submit resolves to 'success' — not on mount, and not again on a
   // later unrelated re-render, since the effect below only fires when `state` itself changes and
   // useActionState never re-emits the same resolved state object for two different renders.
-  // pilot-verification.tsx threads this to the same refreshKey bump used after starting
-  // verification: without it, a successful confirm leaves the pending view (expiry copy + this
+  // pilot-verification.tsx threads this to the same refresh used after starting verification:
+  // without it, a successful confirm leaves the pending view (expiry copy + this
   // same code input) on screen indefinitely, and resubmitting the same code hits the RPC's own
   // replay protection (its hash was already cleared on the first, successful call) and reports it
   // as "incorrect or expired" — true of the second submission, misleading about the first.

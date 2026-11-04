@@ -1,24 +1,28 @@
 'use client'
 
-import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Profile } from '@/lib/profiles/get-profile'
-import { useOwnPilotVerificationStatus } from './use-own-pilot-verification-status'
 import { AccountForm } from './account-form'
 import { PilotIdForm } from './pilot-id-form'
-import { PilotVerification } from './pilot-verification'
+import { PilotVerification, type OwnPilotVerificationState } from './pilot-verification'
 
 export type OwnProfileState = { kind: 'loaded'; profile: Profile } | { kind: 'error' }
+
+type SignedInAccountSettingsProps = {
+  ownProfile: OwnProfileState
+  ownVerification: OwnPilotVerificationState
+}
 
 // PilotIdForm is a sibling of AccountForm, not a second field on it: the two settings fail
 // independently and each binds its own useActionState. PilotVerification is a third sibling,
 // rendered only once a pilot id is linked, since there is nothing to verify before that.
-export function SignedInAccountSettings({ userId, ownProfile }: { userId: string; ownProfile: OwnProfileState }) {
-  // Bumped whenever something outside useOwnPilotVerificationStatus may have changed the user's
-  // verification: starting it, confirming a code, or relinking the pilot id (the
-  // invalidate_verification_on_pilot_id_change trigger deletes the verification on that write).
-  const [verificationRefreshKey, setVerificationRefreshKey] = useState(0)
-  const refreshVerificationStatus = () => setVerificationRefreshKey((key) => key + 1)
-  const ownVerificationStatus = useOwnPilotVerificationStatus(userId, verificationRefreshKey)
+export function SignedInAccountSettings({ ownProfile, ownVerification }: SignedInAccountSettingsProps) {
+  const router = useRouter()
+  // The profile and verification are server-rendered props, so anything that may have changed
+  // them re-renders the server component: starting verification, confirming a code, or relinking
+  // the pilot id (the invalidate_verification_on_pilot_id_change trigger deletes the
+  // verification on that write).
+  const refreshAccountSettings = () => router.refresh()
 
   const profile = ownProfile.kind === 'loaded' ? ownProfile.profile : undefined
   const profileLoadFailed = ownProfile.kind === 'error'
@@ -28,11 +32,11 @@ export function SignedInAccountSettings({ userId, ownProfile }: { userId: string
       <AccountForm displayNameLoadFailed={profileLoadFailed} initialDisplayName={profile?.displayName} />
       <PilotIdForm
         initialPilotId={profile?.flightlogPilotId}
-        onSaved={refreshVerificationStatus}
+        onSaved={refreshAccountSettings}
         pilotIdLoadFailed={profileLoadFailed}
       />
       {profile?.flightlogPilotId != null && (
-        <PilotVerification onStatusChanged={refreshVerificationStatus} status={ownVerificationStatus} />
+        <PilotVerification onStatusChanged={refreshAccountSettings} status={ownVerification} />
       )}
     </div>
   )
