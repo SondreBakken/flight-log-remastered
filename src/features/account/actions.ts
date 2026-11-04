@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { updateDisplayName } from '@/lib/profiles/update-display-name'
 import { updateFlightlogPilotId } from '@/lib/profiles/update-flightlog-pilot-id'
@@ -26,7 +27,7 @@ const VERIFICATION_GENERIC_ERROR_MESSAGE = 'Something went wrong starting pilot 
 const CONFIRM_VERIFICATION_SIGN_IN_MESSAGE = 'Sign in to confirm your flightlog.org pilot id verification.'
 
 // Mirrors comment-on-flight/actions.ts's submitComment: try/catch around createClient() so a
-// missing Supabase config becomes a generic error rather than a crash, and getUser() re-derives
+// missing Supabase config becomes a generic error rather than a crash, and getCurrentUserId() re-derives
 // who's asking rather than trusting a client-supplied id — this is reachable directly via POST,
 // not just through account-form.tsx's form.
 //
@@ -46,16 +47,14 @@ export async function saveDisplayName(_prevState: AccountFormState, formData: Fo
     return { status: 'error', message: GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await updateDisplayName(supabase, { userId: user.id, displayName })
+  const result = await updateDisplayName(supabase, { userId, displayName })
   return accountFormStateFor(result)
 }
 
-// Same try/catch-then-getUser shape as saveDisplayName above, plus an isValidPilotId format
+// Same try/catch-then-getCurrentUserId shape as saveDisplayName above, plus an isValidPilotId format
 // check up front — this rejects garbage input (empty, non-numeric, negative) without spending a
 // live flightlog.org request on it; pilotExists would reject the same input anyway (it runs the
 // identical check internally), this just avoids paying for the round trip twice for what's
@@ -74,12 +73,10 @@ export async function saveFlightlogPilotId(_prevState: PilotIdFormState, formDat
     return pilotIdFormStateFor({ kind: 'db-error', message: PILOT_ID_GENERIC_ERROR_MESSAGE })
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: PILOT_ID_SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: PILOT_ID_SIGN_IN_MESSAGE }
 
-  const result = await updateFlightlogPilotId(supabase, { userId: user.id, pilotId }, pilotExists)
+  const result = await updateFlightlogPilotId(supabase, { userId, pilotId }, pilotExists)
   return pilotIdFormStateFor(result)
 }
 
@@ -87,8 +84,8 @@ export async function saveFlightlogPilotId(_prevState: PilotIdFormState, formDat
 // unfollowPilotAction, everything this needs comes from the session, so it's called directly
 // (a client-side transition), not through useActionState/FormData.
 //
-// Same trust chain as saveDisplayName/saveFlightlogPilotId above: user.id is derived from the
-// session-scoped client's own getUser(), never trusted from the caller, and that id is the only
+// Same trust chain as saveDisplayName/saveFlightlogPilotId above: userId is derived from the
+// session (getCurrentUserId), never trusted from the caller, and that id is the only
 // identity ever passed to issuePilotVerification's service-role RPC — see that function's own
 // doc comment on why only a service_role-gated caller may supply target_user_id at all (#172
 // round 5's resolution of #172 round 3's stale identity concern, see #176's issue comments).
@@ -139,21 +136,19 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
     return { status: 'error', message: VERIFICATION_GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: VERIFICATION_SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: VERIFICATION_SIGN_IN_MESSAGE }
 
   try {
-    const pilotIds = await getFlightlogPilotIds(supabase, [user.id])
-    const pilotId = pilotIds.get(user.id)
+    const pilotIds = await getFlightlogPilotIds(supabase, [userId])
+    const pilotId = pilotIds.get(userId)
     if (pilotId == null) return startPilotVerificationStateFor({ kind: 'no-linked-pilot-id' })
 
     const emailOutcome = await getPilotEmail(pilotId)
     if (emailOutcome.status === 'not-found') return startPilotVerificationStateFor({ kind: 'pilot-not-found' })
     if (emailOutcome.status === 'no-email') return startPilotVerificationStateFor({ kind: 'no-email' })
 
-    const issued = await issuePilotVerification(adminClient, user.id, emailOutcome.email)
+    const issued = await issuePilotVerification(adminClient, userId, emailOutcome.email)
     if (issued.kind === 'no-linked-pilot-id') return startPilotVerificationStateFor({ kind: 'no-linked-pilot-id' })
     if (issued.kind === 'rate-limited') return startPilotVerificationStateFor({ kind: 'rate-limited' })
     if (issued.boundPilotId !== pilotId) return startPilotVerificationStateFor({ kind: 'pilot-id-changed' })
@@ -176,7 +171,7 @@ export async function startPilotVerificationAction(): Promise<StartPilotVerifica
 // confirm-pilot-verification-form.tsx), unlike startPilotVerificationAction above — this one has
 // an actual field (the code) worth wiring through FormData/useActionState the normal way.
 //
-// Same try/catch-then-getUser shape as saveFlightlogPilotId above. Delegates the RPC call to
+// Same try/catch-then-getCurrentUserId shape as saveFlightlogPilotId above. Delegates the RPC call to
 // confirmPilotVerification (src/lib/profiles/confirm-pilot-verification.ts), which calls
 // confirm_pilot_verification via the normal session-scoped client (createClient()), never
 // createAdminClient(): that RPC is authenticated-callable and derives auth.uid() from the caller's
@@ -214,10 +209,8 @@ export async function confirmPilotVerificationAction(
     return confirmPilotVerificationStateFor({ kind: 'db-error' })
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: CONFIRM_VERIFICATION_SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: CONFIRM_VERIFICATION_SIGN_IN_MESSAGE }
 
   try {
     const result = await confirmPilotVerification(supabase, code)

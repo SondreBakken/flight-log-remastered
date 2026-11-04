@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetSupabaseEnv = vi.fn()
 const mockCreateClient = vi.fn()
-const mockGetUser = vi.fn()
+const mockGetCurrentUserId = vi.fn()
 const mockGetFollowedPilotIds = vi.fn()
 
 vi.mock('@/lib/supabase/env', () => ({
   getSupabaseEnv: () => mockGetSupabaseEnv(),
+}))
+
+vi.mock('@/lib/auth/current-user', () => ({
+  getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -27,7 +31,7 @@ import { FollowsQueryError } from './follows-query-error'
 
 beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://example.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
+  mockCreateClient.mockResolvedValue({})
 })
 
 afterEach(() => {
@@ -45,7 +49,7 @@ describe('resolveViewerFollowState', () => {
   })
 
   it('reports signed-out, never reaching getFollowedPilotIds, when there is no session', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetCurrentUserId.mockResolvedValue(null)
 
     const state = await resolveViewerFollowState([4549])
 
@@ -54,7 +58,7 @@ describe('resolveViewerFollowState', () => {
   })
 
   it('passes the authenticated userId and the given candidate ids to getFollowedPilotIds — never a client-supplied identity', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockResolvedValue(new Set([4549]))
 
     await resolveViewerFollowState([4549, 12677])
@@ -63,7 +67,7 @@ describe('resolveViewerFollowState', () => {
   })
 
   it('passes candidatePilotIds through as undefined when omitted, for an unscoped "every followed pilot" read', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockResolvedValue(new Set())
 
     await resolveViewerFollowState()
@@ -72,7 +76,7 @@ describe('resolveViewerFollowState', () => {
   })
 
   it('reports a resolved status with the resolved followed ids as a plain array', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockResolvedValue(new Set([4549, 12677]))
 
     const state = await resolveViewerFollowState([4549, 12677])
@@ -84,7 +88,7 @@ describe('resolveViewerFollowState', () => {
 
   it('degrades to an explicit follows-unavailable status, without crashing, when getFollowedPilotIds throws a FollowsQueryError', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new FollowsQueryError('follows query failed'))
 
     const state = await resolveViewerFollowState([4549])
@@ -94,7 +98,7 @@ describe('resolveViewerFollowState', () => {
   })
 
   it('rethrows, rather than degrading, when getFollowedPilotIds throws something other than a FollowsQueryError', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new TypeError('data was null'))
 
     await expect(resolveViewerFollowState([4549])).rejects.toThrow(TypeError)
@@ -134,7 +138,7 @@ describe('toFollowButtonState', () => {
 
 describe('resolveFollowButtonState', () => {
   it('composes resolveViewerFollowState and toFollowButtonState into the one call site adornment pages use', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockResolvedValue(new Set([4549]))
 
     const result = await resolveFollowButtonState([4549])
@@ -144,7 +148,7 @@ describe('resolveFollowButtonState', () => {
 
   it('degrades a follows query failure to the same isSignedIn: true, no-follows shape toFollowButtonState gives, without crashing the caller', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new FollowsQueryError('follows query failed'))
 
     const result = await resolveFollowButtonState([4549])

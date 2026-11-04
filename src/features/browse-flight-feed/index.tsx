@@ -1,7 +1,7 @@
 import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 import { FlightFeedView } from './flight-feed-view'
 
-// Re-exported so scripts/check-feed.mts and index.test.tsx can keep importing them from this
+// Re-exported so index.test.tsx can keep importing them from this
 // module's own path — same barrel shape as before the flight-feed-view.tsx split.
 export { FeedView, FlightFeedView } from './flight-feed-view'
 

@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { updateCertificateLevel } from '@/lib/profiles/update-certificate-level'
 import { updateCertificateChecklistItem } from '@/lib/profiles/update-certificate-checklist-item'
 import type { CertificateLevel } from '@/lib/certificates/types'
@@ -24,12 +25,10 @@ export async function saveCertificateLevelAction(level: CertificateLevel): Promi
     return { status: 'error', message: GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await updateCertificateLevel(supabase, { userId: user.id, level })
+  const result = await updateCertificateLevel(supabase, { userId, level })
   if (result.kind === 'db-error') return { status: 'error', message: result.message }
   return { status: 'success' }
 }
@@ -47,12 +46,10 @@ export async function toggleCertificateChecklistItemAction(
     return { status: 'error', message: CHECKLIST_GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: CHECKLIST_SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: CHECKLIST_SIGN_IN_MESSAGE }
 
-  const result = await updateCertificateChecklistItem(supabase, { userId: user.id, level, requirementId, checked })
+  const result = await updateCertificateChecklistItem(supabase, { userId, level, requirementId, checked })
   if (result.kind === 'db-error') return { status: 'error', message: result.message }
   return { status: 'success' }
 }

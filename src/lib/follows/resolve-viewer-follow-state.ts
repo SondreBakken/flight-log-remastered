@@ -1,5 +1,6 @@
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getFollowedPilotIds } from './get-followed-pilot-ids'
 import { FollowsQueryError } from './follows-query-error'
 import { toFollowButtonState, type ViewerFollowState } from './viewer-follow-state'
@@ -34,13 +35,11 @@ export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): P
   if (!getSupabaseEnv()) return SIGNED_OUT_STATE
 
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return SIGNED_OUT_STATE
+  const userId = await getCurrentUserId()
+  if (!userId) return SIGNED_OUT_STATE
 
   try {
-    const followedPilotIds = await getFollowedPilotIds(supabase, user.id, candidatePilotIds)
+    const followedPilotIds = await getFollowedPilotIds(supabase, userId, candidatePilotIds)
     return { status: 'resolved', followedPilotIds: [...followedPilotIds] }
   } catch (error) {
     if (!(error instanceof FollowsQueryError)) throw error

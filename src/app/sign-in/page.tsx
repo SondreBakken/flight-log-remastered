@@ -15,7 +15,7 @@ export default function SignInPage() {
         <p className="text-sm opacity-70">We&rsquo;ll email you a link, no password needed.</p>
       </header>
       {/* SignIn reads the `error` query param via useSearchParams (to surface a failed
-          magic-link exchange, see app/auth/callback/route.ts) — that needs a Suspense
+          magic-link verify, see features/sign-in) — that needs a Suspense
           boundary to keep the rest of this route prerenderable; see the useSearchParams doc
           comment in node_modules/next/dist/docs on "Missing Suspense boundary". */}
       <Suspense fallback={<SignInSkeleton />}>

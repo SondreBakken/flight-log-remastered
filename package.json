@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:auth-schema": "auth generate --config src/lib/db/better-auth-schema.config.ts --adapter drizzle --dialect postgresql --output src/lib/db/auth-schema.ts --yes",
+    "db:auth-schema": "auth generate --config src/lib/auth/schema.config.ts --adapter drizzle --dialect postgresql --output src/lib/db/auth-schema.ts --yes",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/db-migrate.mts",
     "check:verify-waits": "tsx scripts/check-verify-waits.mts",

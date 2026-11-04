@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ShieldAlert } from 'lucide-react'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
 import { getVerifiedPilotIds } from '@/lib/profiles/get-verified-pilot-ids'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
@@ -31,11 +32,9 @@ export default async function AccountActivity() {
   if (!getSupabaseEnv()) return null
 
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const userId = await getCurrentUserId()
 
-  if (!user) return <SignInPrompt />
+  if (!userId) return <SignInPrompt />
 
   // getFlightlogPilotIds can throw a ProfilesQueryError on an unexpected failure (#163, same bug
   // class as #160's fix to getDisplayNames) rather than resolving to an empty Map. Unlike
@@ -48,8 +47,8 @@ export default async function AccountActivity() {
   // LinkPilotPrompt's "link your pilot id" copy for the wrong reason.
   let pilotId: number | null
   try {
-    const pilotIds = await getFlightlogPilotIds(supabase, [user.id])
-    pilotId = pilotIds.get(user.id) ?? null
+    const pilotIds = await getFlightlogPilotIds(supabase, [userId])
+    pilotId = pilotIds.get(userId) ?? null
   } catch (error) {
     if (error instanceof ProfilesQueryError) return <PilotIdLoadErrorPrompt />
     throw error

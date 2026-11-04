@@ -119,17 +119,15 @@ no running app at all, because the thing it proves is a PostgREST-level RLS poli
 rendered UI. `verify-map.mts`
 and `verify-feed.mts` are the only two that run against `pnpm dev`. `verify-feed.mts` seeds its
 signed-in scenarios (pilot-with-track, pilot-without-track, failure-surfacing) through a real
-authenticated Supabase session rather than the deleted localStorage follow-store — a service-role
-admin client (`src/lib/supabase/admin.ts`, #131) mints a single-use OTP for a stable test user via
-`generateLink`, and a browser-side module (bundled with esbuild, run in-page via
-`page.addScriptTag`) constructs the app's own `createBrowserClient` and calls `verifyOtp` with it,
-which is what makes `@supabase/ssr` write the real session cookie. No visit to `/auth/callback` is
-involved: a magic-link redirect through that route needs the PKCE code-verifier cookie a real
-email click sets before the browser ever navigates there, which Playwright driving the link
-directly never has. The script then writes/clears rows directly in the `follows` table between
-scenarios. See the module doc comment
-at the top of `scripts/verify-feed.mts` for the full mechanism. Because it needs Supabase
-credentials in its own Node process and imports a `server-only`-gated module, run it with:
+authenticated session rather than the deleted localStorage follow-store: it writes a stable test
+user and a single-use magic-link token straight into the app's Postgres (`DATABASE_URL`), then
+opens Better Auth's own `/api/auth/magic-link/verify` URL in the page, which sets the real session
+cookie. No email is sent. The script then writes/clears rows directly in the `follows` table
+between scenarios through a Supabase service-role client; until #266 moves `follows` to Postgres,
+those rows cannot be keyed on the Better Auth user, so the follow-seeding scenarios fail. See the
+module doc comment at the top of `scripts/verify-feed.mts` for the full mechanism. Because it
+needs `DATABASE_URL` and Supabase credentials in its own Node process and imports a
+`server-only`-gated module, run it with:
 
 ```bash
 pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts

@@ -3,23 +3,31 @@
 import { useState, type FormEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { authClient } from '@/lib/auth/client'
 
 type SignInStatus = { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent'; email: string } | { kind: 'error'; message: string }
 
-// Keyed on the callback route's own `?error=` values (see app/auth/callback/route.ts) — the
-// callback only ever sets one today, but a lookup keeps the mapping between "what the
-// callback reports" and "what the visitor reads" in one place rather than an inline string
-// compare, and gives a clear seam for a second value later.
+// Keyed on the `?error=` values Better Auth's magic-link verify endpoint appends to
+// errorCallbackURL. The link carries its own token, so it works on any device or browser.
 const CALLBACK_ERROR_MESSAGES: Record<string, string> = {
-  'auth-code-exchange-failed':
-    "That sign-in link didn't work. It may have expired, already been used, or been opened on a different device or browser than the one you requested it from — request a new one below.",
+  INVALID_TOKEN:
+    "That sign-in link didn't work. It may have expired or already been used. Request a new one below.",
 }
 
 function errorFromCallback(searchParams: URLSearchParams): SignInStatus | null {
   const code = searchParams.get('error')
   if (!code) return null
   return { kind: 'error', message: CALLBACK_ERROR_MESSAGES[code] ?? 'Sign-in failed. Try again.' }
+}
+
+// Relative URLs: Better Auth resolves them against BETTER_AUTH_URL, the public origin. A network
+// failure rejects instead of returning an error, so it is folded into the same shape.
+async function requestMagicLink(email: string): Promise<{ error: unknown }> {
+  try {
+    return await authClient.signIn.magicLink({ email, callbackURL: '/', errorCallbackURL: '/sign-in' })
+  } catch (error) {
+    return { error }
+  }
 }
 
 export default function SignIn() {
@@ -33,27 +41,10 @@ export default function SignIn() {
 
     setStatus({ kind: 'sending' })
 
-    let supabase: ReturnType<typeof createClient>
-    try {
-      supabase = createClient()
-    } catch (error) {
-      console.error('[sign-in] Supabase is not configured:', error)
-      setStatus({ kind: 'error', message: 'Sign-in is not available right now. Please try again later.' })
-      return
-    }
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        // The callback route (src/app/auth/callback/route.ts) exchanges the magic-link code
-        // for a session — this has to be an absolute URL the email client can follow, so it's
-        // built from wherever this page is actually being served rather than hardcoded.
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    const { error } = await requestMagicLink(email)
 
     if (error) {
-      console.error('[sign-in] signInWithOtp failed:', error)
+      console.error('[sign-in] magic link request failed:', error)
       setStatus({ kind: 'error', message: 'Something went wrong sending the sign-in link. Try again.' })
       return
     }

@@ -18,8 +18,7 @@ export type PilotEmailOutcome = { status: 'found'; email: string } | { status: '
 // Deliberately NOT on Pilot/getPilotLogbook: Pilot flows straight into a public API response
 // (RecentFlightsSuccessBody — see contract.ts and route.ts under
 // app/api/pilots/[userId]/recent-flights) and into browse-pilot-logbook's page props. That route
-// has no auth check of its own, and src/proxy.ts's matcher explicitly excludes `api/` — so it is
-// served to ANY unauthenticated caller who knows a pilot id, not just a signed-in visitor
+// has no auth check of its own, so it is served to ANY unauthenticated caller who knows a pilot id, not just a signed-in visitor
 // following that pilot. Folding email onto Pilot would leak every pilot's email address to
 // literally anyone who can guess a numeric id, which only strengthens the case for keeping this
 // a separate, narrower read path that only a caller who explicitly asks for an email (the OTP

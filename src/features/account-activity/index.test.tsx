@@ -4,7 +4,7 @@ import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
 const mockGetSupabaseEnv = vi.fn()
 const mockCreateClient = vi.fn()
-const mockGetUser = vi.fn()
+const mockGetCurrentUserId = vi.fn()
 const mockGetFlightlogPilotIds = vi.fn()
 const mockGetVerifiedPilotIds = vi.fn()
 const mockGetFollowersForPilot = vi.fn()
@@ -13,6 +13,10 @@ const mockGetCommentsForTripIds = vi.fn()
 
 vi.mock('@/lib/supabase/env', () => ({
   getSupabaseEnv: () => mockGetSupabaseEnv(),
+}))
+
+vi.mock('@/lib/auth/current-user', () => ({
+  getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -52,8 +56,8 @@ const UNVERIFIED_NOTE_TEXT = /That link is currently unverified and self-declare
 // their rendered content is never asserted on by this suite.
 beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
-  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+  mockCreateClient.mockResolvedValue({})
+  mockGetCurrentUserId.mockResolvedValue('user-abc')
   mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
   mockGetVerifiedPilotIds.mockResolvedValue(new Set())
   mockGetFollowersForPilot.mockResolvedValue([])

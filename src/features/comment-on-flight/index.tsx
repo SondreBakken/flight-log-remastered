@@ -1,5 +1,6 @@
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { loadCommentsForFlight, type CommentsForFlight } from '@/lib/comments/load-comments-for-flight'
 import { CommentComposer } from './comment-composer'
 import { CommentItem } from './comment-item'
@@ -7,7 +8,7 @@ import { CommentItem } from './comment-item'
 type CommentsOnFlightProps = { tripId: number }
 
 // Renders nothing at all when Supabase isn't provisioned in this environment — same
-// no-op-not-crash rule as AuthStatus and updateSession (see lib/supabase/env.ts's doc comment
+// no-op-not-crash rule as resolveViewerFollowState (see lib/supabase/env.ts's doc comment
 // on getSupabaseEnv vs requireSupabaseEnv): comments are additive to the flight page, not
 // load-bearing for it, so a missing integration should never take the whole page down.
 //
@@ -26,7 +27,7 @@ export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps
   const supabase = await createClient()
   const [commentsResult, viewerUserId] = await Promise.all([
     loadCommentsForFlight(supabase, tripId),
-    getViewerUserId(supabase),
+    getCurrentUserId(),
   ])
 
   return (
@@ -36,17 +37,6 @@ export default async function CommentsOnFlight({ tripId }: CommentsOnFlightProps
       <CommentComposer tripId={tripId} />
     </section>
   )
-}
-
-// Server-side, once per page render, not client-side via a per-item auth subscription (see
-// comment-item.tsx's doc comment) — this component already fetches comments live for this
-// request (loadCommentsForFlight, above) and sits in its own Suspense boundary on the flight
-// page, so resolving the viewer here doesn't add a new dynamic hole; it's already one.
-async function getViewerUserId(supabase: Awaited<ReturnType<typeof createClient>>): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user?.id ?? null
 }
 
 type CommentListProps = { commentsResult: CommentsForFlight; tripId: number; viewerUserId: string | null }

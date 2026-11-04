@@ -1,41 +1,57 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockSignOut = vi.fn()
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { signOut: mockSignOut } }),
+vi.mock('@/lib/auth/server', () => ({
+  getAuth: () => ({ api: { signOut: mockSignOut } }),
 }))
 
 import { POST } from './route'
 
+const PUBLIC_ORIGIN = 'https://flightlog.example'
+
+// request.url carries the internal origin the server sees behind the TLS proxy, not the public one.
 function postFrom(headers: Record<string, string>) {
-  return POST(new Request('http://localhost/api/auth/sign-out', { method: 'POST', headers }))
+  return POST(new Request('http://internal:8080/api/auth/sign-out', { method: 'POST', headers }))
 }
 
+beforeEach(() => {
+  vi.stubEnv('BETTER_AUTH_URL', PUBLIC_ORIGIN)
+  mockSignOut.mockReset()
+  mockSignOut.mockResolvedValue({ success: true })
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('POST /api/auth/sign-out', () => {
-  it('signs out with local scope, not the default global scope, so other devices stay signed in', async () => {
-    mockSignOut.mockResolvedValue({ error: null })
+  it("signs out the session the request's own headers carry", async () => {
+    await postFrom({ 'sec-fetch-site': 'same-origin', cookie: 'better-auth.session_token=abc' })
 
-    await postFrom({ 'sec-fetch-site': 'same-origin' })
-
-    expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' })
+    expect(mockSignOut).toHaveBeenCalledTimes(1)
+    const [{ headers }] = mockSignOut.mock.calls[0] as [{ headers: Headers }]
+    expect(headers.get('cookie')).toBe('better-auth.session_token=abc')
   })
 
-  it('redirects home with a 303 on a same-origin request', async () => {
-    mockSignOut.mockResolvedValue({ error: null })
-
+  it('redirects to the public origin, not the internal request origin, with a 303', async () => {
     const response = await postFrom({ 'sec-fetch-site': 'same-origin' })
 
     expect(response.status).toBe(303)
-    expect(response.headers.get('location')).toBe('http://localhost/')
+    expect(response.headers.get('location')).toBe(`${PUBLIC_ORIGIN}/`)
   })
 
-  it('treats a matching Origin header as same-origin when Sec-Fetch-Site is absent', async () => {
-    mockSignOut.mockResolvedValue({ error: null })
-
-    const response = await postFrom({ origin: 'http://localhost' })
+  it('treats an Origin header matching the public origin as same-origin when Sec-Fetch-Site is absent', async () => {
+    const response = await postFrom({ origin: PUBLIC_ORIGIN })
 
     expect(response.status).toBe(303)
     expect(mockSignOut).toHaveBeenCalled()
+  })
+
+  it('rejects an Origin header matching only the internal request origin', async () => {
+    const response = await postFrom({ origin: 'http://internal:8080' })
+
+    expect(response.status).toBe(403)
+    expect(mockSignOut).not.toHaveBeenCalled()
   })
 
   it('rejects a cross-site request (Sec-Fetch-Site: cross-site) with 403, without calling signOut', async () => {

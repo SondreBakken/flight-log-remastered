@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { followPilot } from '@/lib/follows/follow-pilot'
 import { unfollowPilot } from '@/lib/follows/unfollow-pilot'
 import type { PilotId } from '@/lib/flightlog/types'
@@ -13,7 +14,7 @@ const UNFOLLOW_GENERIC_ERROR_MESSAGE = 'Something went wrong unfollowing this pi
 
 // Called directly from index.tsx's button (a client-side transition, not a form — see
 // comment-item.tsx's own doc comment for the same pattern), so this takes a plain argument
-// rather than FormData. isSignedIn gating in index.tsx is display-only; getUser() here is the
+// rather than FormData. isSignedIn gating in index.tsx is display-only; getCurrentUserId() here is the
 // actual re-derivation of who's asking, same rule as every other write in this app — a follow
 // row is always inserted under the caller's own session id, never a client-supplied one.
 //
@@ -31,12 +32,10 @@ export async function followPilotAction(pilotId: PilotId): Promise<FollowActionR
     return { status: 'error', message: FOLLOW_GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await followPilot(supabase, { userId: user.id, pilotId })
+  const result = await followPilot(supabase, { userId, pilotId })
   if (result.kind === 'db-error') return { status: 'error', message: FOLLOW_GENERIC_ERROR_MESSAGE }
 
   return { status: 'success' }
@@ -51,12 +50,10 @@ export async function unfollowPilotAction(pilotId: PilotId): Promise<FollowActio
     return { status: 'error', message: UNFOLLOW_GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await unfollowPilot(supabase, { userId: user.id, pilotId })
+  const result = await unfollowPilot(supabase, { userId, pilotId })
   if (result.kind === 'db-error') return { status: 'error', message: UNFOLLOW_GENERIC_ERROR_MESSAGE }
 
   return { status: 'success' }

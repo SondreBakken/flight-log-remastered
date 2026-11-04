@@ -1,5 +1,6 @@
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import type { CertificateChecklist, CertificateLevel } from '@/lib/certificates/types'
 import type { PilotId } from '@/lib/flightlog/types'
 import { getCertificateProgressByPilotId } from './get-certificate-progress-by-pilot-id'
@@ -29,14 +30,12 @@ export async function resolveCertificateProgressState(pilotId: PilotId): Promise
   try {
     const progress = await getCertificateProgressByPilotId(supabase, pilotId)
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const userId = await getCurrentUserId()
 
     let isOwner = false
-    if (user) {
-      const pilotIds = await getFlightlogPilotIds(supabase, [user.id])
-      isOwner = pilotIds.get(user.id) === pilotId
+    if (userId) {
+      const pilotIds = await getFlightlogPilotIds(supabase, [userId])
+      isOwner = pilotIds.get(userId) === pilotId
     }
 
     return {

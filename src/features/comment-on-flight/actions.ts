@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { postComment } from '@/lib/comments/post-comment'
 import { deleteComment } from '@/lib/comments/delete-comment'
 import { commentFormStateFor, type CommentFormState } from './comment-form-state'
@@ -36,14 +37,12 @@ export async function submitComment(
   }
 
   // Reachable directly via POST, not just through this form (see the Server Actions security
-  // guide) — getUser() re-verifies the session with the Auth server rather than trusting an
+  // guide) — getCurrentUserId() looks the session up in the database rather than trusting an
   // unverified cookie, and the resulting id is what's inserted, never anything the client sends.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await postComment(supabase, { tripId, userId: user.id, body })
+  const result = await postComment(supabase, { tripId, userId, body })
   if (result.kind === 'posted') revalidatePath(`/flights/${tripId}`)
 
   return commentFormStateFor(result)
@@ -54,7 +53,7 @@ export type DeleteCommentActionResult = { status: 'success' } | { status: 'error
 // Called directly from comment-item.tsx's delete button (a client-side transition, not a form —
 // see the Server Actions guide's "invoke ... from an event handler ... wrapped in
 // startTransition"), so unlike submitComment this takes plain arguments rather than FormData.
-// isOwnComment gating in comment-item.tsx is display-only; getUser() here is the actual
+// isOwnComment gating in comment-item.tsx is display-only; getCurrentUserId() here is the actual
 // re-derivation of who's asking, same rule as submitComment.
 export async function deleteCommentAction(tripId: number, commentId: string): Promise<DeleteCommentActionResult> {
   let supabase: Awaited<ReturnType<typeof createClient>>
@@ -65,12 +64,10 @@ export async function deleteCommentAction(tripId: number, commentId: string): Pr
     return { status: 'error', message: DELETE_GENERIC_ERROR_MESSAGE }
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { status: 'error', message: DELETE_SIGN_IN_MESSAGE }
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: DELETE_SIGN_IN_MESSAGE }
 
-  const result = await deleteComment(supabase, { id: commentId, userId: user.id })
+  const result = await deleteComment(supabase, { id: commentId, userId })
   if (result.kind === 'db-error') return { status: 'error', message: DELETE_GENERIC_ERROR_MESSAGE }
 
   // 'not-found' covers both an already-deleted comment and someone else's (see delete-comment.ts)

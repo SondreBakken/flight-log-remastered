@@ -30,8 +30,11 @@ export function useOwnDisplayName(userId: string): OwnDisplayNameState {
   useEffect(() => {
     let cancelled = false
 
-    const supabase = createClient()
-    getDisplayNames(supabase, [userId])
+    // createClient() throws when Supabase is unconfigured. Called inside the chain, that lands in
+    // the 'error' state instead of crashing the tree, now that a Better Auth session can exist
+    // without Supabase.
+    Promise.resolve()
+      .then(() => getDisplayNames(createClient(), [userId]))
       .then((names) => {
         if (!cancelled) setState({ kind: 'loaded', displayName: names.get(userId) ?? null })
       })
