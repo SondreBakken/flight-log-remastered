@@ -1,6 +1,6 @@
 // node:crypto already fails to resolve in a client bundle, but that gives a confusing bundler
 // error rather than this repo's usual clear, intentional one — 'server-only' makes the failure
-// mode match every other server-only module here (see admin.ts's own doc comment).
+// mode match every other server-only module here.
 import 'server-only'
 
 import { randomInt } from 'node:crypto'

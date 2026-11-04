@@ -7,13 +7,13 @@ import 'server-only'
 import { Resend } from 'resend'
 
 // The narrow slice of Resend's client this module actually calls, mirroring the injected
-// SupabaseClient convention (see issue-pilot-verification.ts): callers pass a real client in
+// Database convention (see issue-pilot-verification.ts): callers pass a real client in
 // production and a fake one in tests, so a send can be asserted without a real network call.
 export type VerificationEmailClient = { send: Resend['emails']['send'] }
 
-// Read lazily, inside a function call, never at module top level — see admin.ts's doc comment
-// for why the env read has to stay behind a function call (also lets tests reach it via
-// vi.stubEnv, which a module-load-time const never would).
+// Read lazily, inside a function call, never at module top level: `next build` evaluates this
+// module without the runtime env present, and a call-time read also lets tests reach it via
+// vi.stubEnv, which a module-load-time const never would.
 function verificationFromAddress(): string {
   return process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flight Log <verify@flightlog.app>'
 }
@@ -22,9 +22,8 @@ function isVerificationEmailEnabled(): boolean {
   return process.env.FLIGHTLOG_VERIFICATION_EMAIL_ENABLED === 'true'
 }
 
-// Constructed lazily from RESEND_API_KEY, only on the flag-on path — mirrors createAdminClient's
-// lazy-read convention in src/lib/supabase/admin.ts, so an unset key never surfaces while the
-// feature stays gated off.
+// Constructed lazily from RESEND_API_KEY, only on the flag-on path, so an unset key never
+// surfaces while the feature stays gated off.
 function createResendClient(): VerificationEmailClient {
   return new Resend(process.env.RESEND_API_KEY).emails
 }

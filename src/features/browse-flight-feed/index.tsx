@@ -13,7 +13,7 @@ type FlightFeedProps = {
   defaultPilotId: number
 }
 
-// The follow list moved server-side in #115 (supabase/migrations/20260810020000_create_follows.sql)
+// The follow list moved server-side in #115 (now the follows table, drizzle/0001_domain_schema.sql)
 // — this is now an async Server Component, the same "resolve identity server-side once, pass a
 // prop down" shape as CommentsOnFlight (src/features/comment-on-flight/index.tsx), rather than
 // the client-driven, localStorage-reading component this used to be.

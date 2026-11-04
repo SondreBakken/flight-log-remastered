@@ -379,7 +379,7 @@ await withFreshStore(
 
 // =====================================================================================
 // Cross-store integration: unfollowing must drop the pilot's watermark. The follow list itself
-// moved server-side in #115 (supabase/migrations/20260810020000_create_follows.sql); this
+// moved server-side in #115 (now the follows table, drizzle/0001_domain_schema.sql); this
 // watermark clear is the one piece of the old unfollow sequence that stayed client-side (the
 // watermark is still localStorage-backed, unrelated to #115's own scope), now composed directly
 // in the FollowButton component's own click handler (src/components/follow-button/index.tsx,

@@ -13,7 +13,7 @@ type FollowButtonProps = {
   pilotId: PilotId
   variant: FollowButtonVariant
   // Both resolved once server-side per page (see resolve-viewer-follow-state.ts), not read here
-  // via a client-side auth subscription or Supabase query — this component's only own state is
+  // via a client-side auth subscription or database query — this component's only own state is
   // the optimistic flip below, seeded from isFollowed.
   isFollowed: boolean
   isSignedIn: boolean
