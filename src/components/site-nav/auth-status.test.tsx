@@ -4,18 +4,14 @@ import type { SignedInUserState } from '@/lib/auth/use-signed-in-user'
 import AuthStatus from './auth-status'
 
 const mockUseSignedInUser = vi.fn<() => SignedInUserState>()
-const mockGetFlightlogPilotIds = vi.fn()
+const mockFetchOwnPilotId = vi.fn()
 
 vi.mock('@/lib/auth/use-signed-in-user', () => ({
   useSignedInUser: () => mockUseSignedInUser(),
 }))
 
-vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({}),
-}))
-
-vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
-  getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
+vi.mock('./fetch-own-pilot-id', () => ({
+  fetchOwnPilotId: () => mockFetchOwnPilotId(),
 }))
 
 const SIGNED_IN: SignedInUserState = { kind: 'signed-in', userId: 'user-1', email: 'pilot@example.com' }
@@ -23,7 +19,7 @@ const SIGNED_IN: SignedInUserState = { kind: 'signed-in', userId: 'user-1', emai
 beforeEach(() => {
   // Default: no pilot id linked, so tests asserting on the account link / sign-out control
   // (which predate the "My flights" link below) don't also have to account for it.
-  mockGetFlightlogPilotIds.mockResolvedValue(new Map())
+  mockFetchOwnPilotId.mockResolvedValue(null)
 })
 
 describe('AuthStatus', () => {
@@ -101,7 +97,7 @@ describe('AuthStatus', () => {
   })
 
   it('links to the pilot page once a linked pilot id resolves (#243)', async () => {
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-1', 12677]]))
+    mockFetchOwnPilotId.mockResolvedValue(12677)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
 
     render(<AuthStatus />)
@@ -111,18 +107,18 @@ describe('AuthStatus', () => {
   })
 
   it('does not show a "My flights" link when no pilot id is linked', async () => {
-    mockGetFlightlogPilotIds.mockResolvedValue(new Map())
+    mockFetchOwnPilotId.mockResolvedValue(null)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
 
     render(<AuthStatus />)
 
-    await waitFor(() => expect(mockGetFlightlogPilotIds).toHaveBeenCalled())
+    await waitFor(() => expect(mockFetchOwnPilotId).toHaveBeenCalled())
     expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
   })
 
   it('surfaces a failed pilot id lookup instead of silently hiding the link', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockGetFlightlogPilotIds.mockRejectedValue(new Error('profiles query failed'))
+    mockFetchOwnPilotId.mockRejectedValue(new Error('/api/account/pilot-id answered 503'))
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
 
     render(<AuthStatus />)

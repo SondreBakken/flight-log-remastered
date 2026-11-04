@@ -17,7 +17,7 @@ const START_VERIFICATION_TIMEOUT_MESSAGE = 'This is taking longer than expected.
 
 type PilotVerificationProps = {
   status: OwnPilotVerificationStatusState
-  // Bumps use-own-pilot-verification-status.ts's refreshKey in index.tsx once a start-verification
+  // Bumps use-own-pilot-verification-status.ts's refreshKey in signed-in-account-settings.tsx once a start-verification
   // or a successful confirm settles — see that hook's own doc comment for why this hook has no
   // other way to learn a row was written or changed.
   onStatusChanged: () => void
@@ -51,8 +51,8 @@ const MESSAGE_TEXT_STYLES: Record<NonNullable<TriggerMessage>['kind'], string> =
 // `phase` state below for why this lives one level up instead of inside StartVerificationTrigger.
 type TriggerPhase = 'idle' | 'requesting' | 'awaiting-refresh'
 
-// Third sibling alongside AccountForm/PilotIdForm in index.tsx. Only rendered there once a pilot
-// id is actually linked (see SignedInAccountForm's own doc comment) — startPilotVerificationAction
+// Third sibling alongside AccountForm/PilotIdForm in signed-in-account-settings.tsx. Only rendered there once a pilot
+// id is actually linked (see SignedInAccountSettings's own doc comment) — startPilotVerificationAction
 // already rejects a missing link server-side too, so this is a UX gate, not the only one.
 export function PilotVerification({ status, onStatusChanged }: PilotVerificationProps) {
   // Lives here, not inside StartVerificationTrigger, so it survives that component unmounting and

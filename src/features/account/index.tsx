@@ -1,78 +1,38 @@
-'use client'
-
-import { useState } from 'react'
 import Link from 'next/link'
-import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
-import { useOwnDisplayName } from './use-own-display-name'
-import { useOwnFlightlogPilotId } from './use-own-flightlog-pilot-id'
-import { useOwnPilotVerificationStatus } from './use-own-pilot-verification-status'
-import { AccountForm } from './account-form'
-import { PilotIdForm } from './pilot-id-form'
-import { PilotVerification } from './pilot-verification'
+import { getCurrentUserId } from '@/lib/auth/current-user'
+import { getDb } from '@/lib/db/client'
+import { getProfile } from '@/lib/profiles/get-profile'
+import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+import { SignedInAccountSettings, type OwnProfileState } from './signed-in-account-settings'
 
-// Signed-out visitor sees a sign-in prompt instead of the form — same three-state pattern as
-// comment-on-flight/comment-composer.tsx (see its own doc comment): the auth state has to be
-// read client-side, and this app deliberately has no server-side redirect-if-signed-out
-// convention (see app/sign-in/page.tsx's own doc comment on staying static under Cache
-// Components), so account/page.tsx stays a plain static shell and this client component handles
-// the gating.
-export default function AccountSettings() {
-  const authState = useSignedInUser()
+// Server Component, rendered inside account/page.tsx's Suspense boundary so the page shell stays
+// prerendered: the session and the signed-in user's own profile are read here, on the server,
+// and handed to the forms as their initial values.
+export default async function AccountSettings() {
+  const userId = await getCurrentUserId()
+  if (!userId) return <SignInPrompt />
 
-  if (authState.kind === 'loading') return null
-
-  if (authState.kind === 'signed-out') {
-    return (
-      <p className="text-sm opacity-70">
-        <Link className="underline underline-offset-2" href="/sign-in">
-          Sign in
-        </Link>{' '}
-        to set a display name.
-      </p>
-    )
-  }
-
-  return <SignedInAccountForm userId={authState.userId} />
+  return <SignedInAccountSettings ownProfile={await loadOwnProfile(userId)} userId={userId} />
 }
 
-// Split out from the branch above so useOwnDisplayName/useOwnFlightlogPilotId/
-// useOwnPilotVerificationStatus (which need a userId) are only ever called once authState has
-// actually narrowed to 'signed-in' — hooks can't be called conditionally in the branch itself.
-//
-// PilotIdForm renders as a sibling to AccountForm, not a merged form (see PilotIdForm's own doc
-// comment): the two settings have independent failure modes and each binds its own
-// useActionState. PilotVerification (#177) is a third sibling for the same reason, plus a
-// dependency AccountForm/PilotIdForm don't have on each other: verifying a pilot id only makes
-// sense once one is actually linked, so it's gated on ownFlightlogPilotId having loaded a
-// non-null id — the same condition PilotIdForm's own prefill already depends on, just also used
-// here to decide whether to render at all rather than only what to prefill.
-function SignedInAccountForm({ userId }: { userId: string }) {
-  const ownDisplayName = useOwnDisplayName(userId)
-  const ownFlightlogPilotId = useOwnFlightlogPilotId(userId)
-  // Bumped whenever anything could have changed the caller's profile_verifications row from
-  // outside useOwnPilotVerificationStatus's own control — starting verification, confirming a
-  // code, or relinking the pilot id (invalidate_verification_on_pilot_id_change deletes the row
-  // server-side on that trigger). See that hook's own doc comment on why it has no other way to
-  // learn about any of those writes from a plain client-side action call, or from a sibling
-  // form's own useActionState, with nothing bound to its own re-render.
-  const [verificationRefreshKey, setVerificationRefreshKey] = useState(0)
-  const refreshVerificationStatus = () => setVerificationRefreshKey((key) => key + 1)
-  const ownVerificationStatus = useOwnPilotVerificationStatus(userId, verificationRefreshKey)
+// A failed lookup becomes its own state rather than an empty profile: the forms then disable
+// themselves instead of prefilling blanks a save would write over the real values with.
+async function loadOwnProfile(userId: string): Promise<OwnProfileState> {
+  try {
+    return { kind: 'loaded', profile: await getProfile(getDb(), userId) }
+  } catch (error) {
+    if (!(error instanceof ProfilesQueryError)) throw error
+    return { kind: 'error' }
+  }
+}
 
+function SignInPrompt() {
   return (
-    <div className="flex flex-col gap-6">
-      <AccountForm
-        displayNameLoadFailed={ownDisplayName.kind === 'error'}
-        initialDisplayName={ownDisplayName.kind === 'loaded' ? ownDisplayName.displayName : undefined}
-      />
-      <PilotIdForm
-        initialPilotId={ownFlightlogPilotId.kind === 'loaded' ? ownFlightlogPilotId.pilotId : undefined}
-        onSaved={refreshVerificationStatus}
-        pilotIdLoadFailed={ownFlightlogPilotId.kind === 'error'}
-      />
-      {ownFlightlogPilotId.kind === 'loaded' && ownFlightlogPilotId.pilotId != null && (
-        <PilotVerification onStatusChanged={refreshVerificationStatus} status={ownVerificationStatus} />
-      )}
-    </div>
+    <p className="text-sm opacity-70">
+      <Link className="underline underline-offset-2" href="/sign-in">
+        Sign in
+      </Link>{' '}
+      to set a display name.
+    </p>
   )
 }
