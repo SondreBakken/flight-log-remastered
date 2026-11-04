@@ -25,7 +25,7 @@ describe('GET /api/health', () => {
     expect(mockConnection).toHaveBeenCalled()
   })
 
-  // A flightlog.org WAF block or a Supabase outage must not fail a deploy's health check.
+  // A flightlog.org WAF block or a database outage must not fail a deploy's health check.
   it('makes no outbound fetch', async () => {
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)

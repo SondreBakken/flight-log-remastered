@@ -411,7 +411,7 @@ await withFreshStore(
 
 // =====================================================================================
 // Cross-store integration: unfollowing must drop the pilot's seen-trip entry. The follow list
-// itself moved server-side in #115 (supabase/migrations/20260810020000_create_follows.sql);
+// itself moved server-side in #115 (now the follows table, drizzle/0001_domain_schema.sql);
 // this seen-trip clear (and the watermark clear, its own counterpart in
 // check-watermark-store.mts) is the piece of the old unfollow sequence that stayed client-side
 // — both stores are still localStorage-backed, unrelated to #115's own scope — now composed

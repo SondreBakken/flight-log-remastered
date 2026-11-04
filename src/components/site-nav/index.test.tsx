@@ -5,7 +5,7 @@ import SiteNav from './index'
 // AuthStatus has its own colocated test (auth-status.test.tsx) covering its signed-in/signed-out
 // states. Stubbing it out here keeps this test focused on what it already promises in its name
 // — the nav links render regardless of other page state — without also having to stand up a
-// Supabase client mock this test has no other use for.
+// signed-in user mock this test has no other use for.
 vi.mock('./auth-status', () => ({ default: () => null }))
 
 describe('SiteNav', () => {

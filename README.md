@@ -17,7 +17,7 @@ pnpm test                                 # Vitest: components, jsdom + React Te
 pnpm lint                                 # ESLint
 ```
 
-Verify scripts (most driving a real browser, one driving Supabase directly) and the full testing
+Verify scripts (driving a real browser against a running app) and the full testing
 story (checks, pins, fixture regeneration) live in [`docs/testing.md`](docs/testing.md).
 
 ## Routes
