@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCreateClient = vi.fn()
-const mockGetUser = vi.fn()
+const mockGetCurrentUserId = vi.fn()
 const mockFollowPilot = vi.fn()
 const mockUnfollowPilot = vi.fn()
+
+vi.mock('@/lib/auth/current-user', () => ({
+  getCurrentUserId: () => mockGetCurrentUserId(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () => mockCreateClient(),
@@ -20,7 +24,7 @@ vi.mock('@/lib/follows/unfollow-pilot', () => ({
 import { followPilotAction, unfollowPilotAction } from './actions'
 
 beforeEach(() => {
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
+  mockCreateClient.mockResolvedValue({})
 })
 
 afterEach(() => {
@@ -29,7 +33,7 @@ afterEach(() => {
 
 describe('followPilotAction', () => {
   it('rejects with a sign-in prompt, never reaching followPilot, when there is no session', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetCurrentUserId.mockResolvedValue(null)
 
     const result = await followPilotAction(4549)
 
@@ -38,7 +42,7 @@ describe('followPilotAction', () => {
   })
 
   it('passes the authenticated userId and the given pilotId to followPilot — never a client-supplied identity', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'followed' })
 
     await followPilotAction(4549)
@@ -47,7 +51,7 @@ describe('followPilotAction', () => {
   })
 
   it('reports success when followPilot succeeds', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'followed' })
 
     const result = await followPilotAction(4549)
@@ -56,7 +60,7 @@ describe('followPilotAction', () => {
   })
 
   it('surfaces a generic error when followPilot hits a db error', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
 
     const result = await followPilotAction(4549)
@@ -79,7 +83,7 @@ describe('followPilotAction', () => {
 
 describe('unfollowPilotAction', () => {
   it('rejects with a sign-in prompt, never reaching unfollowPilot, when there is no session', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetCurrentUserId.mockResolvedValue(null)
 
     const result = await unfollowPilotAction(4549)
 
@@ -88,7 +92,7 @@ describe('unfollowPilotAction', () => {
   })
 
   it('passes the authenticated userId and the given pilotId to unfollowPilot — never a client-supplied identity', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'unfollowed' })
 
     await unfollowPilotAction(4549)
@@ -97,7 +101,7 @@ describe('unfollowPilotAction', () => {
   })
 
   it('reports success when unfollowPilot succeeds', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'unfollowed' })
 
     const result = await unfollowPilotAction(4549)
@@ -106,7 +110,7 @@ describe('unfollowPilotAction', () => {
   })
 
   it('surfaces a generic error when unfollowPilot hits a db error', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
 
     const result = await unfollowPilotAction(4549)

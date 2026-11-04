@@ -9,7 +9,7 @@ export type OwnPilotIdState = { kind: 'loading' } | { kind: 'loaded'; pilotId: n
 
 // Kept as its own copy rather than imported from features/account/use-own-flightlog-pilot-id.ts
 // (which it otherwise mirrors exactly) — components/site-nav must not depend on a feature's
-// internals, same independence use-signed-in-user.ts already documents across features.
+// internals.
 // Only ever called with a userId once AuthStatus has resolved to 'signed-in'.
 export function useOwnPilotId(userId: string): OwnPilotIdState {
   const [state, setState] = useState<OwnPilotIdState>({ kind: 'loading' })
@@ -17,8 +17,11 @@ export function useOwnPilotId(userId: string): OwnPilotIdState {
   useEffect(() => {
     let cancelled = false
 
-    const supabase = createClient()
-    getFlightlogPilotIds(supabase, [userId])
+    // createClient() throws when Supabase is unconfigured. Called inside the chain, that lands in
+    // the 'error' state instead of crashing the tree, now that a Better Auth session can exist
+    // without Supabase.
+    Promise.resolve()
+      .then(() => getFlightlogPilotIds(createClient(), [userId]))
       .then((pilotIds) => {
         if (!cancelled) setState({ kind: 'loaded', pilotId: pilotIds.get(userId) ?? null })
       })

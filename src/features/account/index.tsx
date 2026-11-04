@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useSignedInUser } from './use-signed-in-user'
+import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
 import { useOwnDisplayName } from './use-own-display-name'
 import { useOwnFlightlogPilotId } from './use-own-flightlog-pilot-id'
 import { useOwnPilotVerificationStatus } from './use-own-pilot-verification-status'

@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCreateClient = vi.fn()
-const mockGetUser = vi.fn()
+const mockGetCurrentUserId = vi.fn()
 const mockPostComment = vi.fn()
 const mockDeleteComment = vi.fn()
 const mockRevalidatePath = vi.fn()
+
+vi.mock('@/lib/auth/current-user', () => ({
+  getCurrentUserId: () => mockGetCurrentUserId(),
+}))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: () => mockCreateClient(),
@@ -32,7 +36,7 @@ function formDataWithBody(body: string | undefined): FormData {
 }
 
 beforeEach(() => {
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
+  mockCreateClient.mockResolvedValue({})
 })
 
 afterEach(() => {
@@ -41,7 +45,7 @@ afterEach(() => {
 
 describe('submitComment', () => {
   it('rejects with a sign-in prompt, never reaching postComment, when there is no session', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetCurrentUserId.mockResolvedValue(null)
 
     const state = await submitComment(1, { status: 'idle' }, formDataWithBody('hello'))
 
@@ -57,7 +61,7 @@ describe('submitComment', () => {
   })
 
   it('passes the authenticated userId, the bound tripId, and the submitted body to postComment', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockPostComment.mockResolvedValue({ kind: 'posted' })
 
     await submitComment(42, { status: 'idle' }, formDataWithBody('nice flight'))
@@ -69,7 +73,7 @@ describe('submitComment', () => {
   })
 
   it('revalidates the flight page and reports success when postComment succeeds', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockPostComment.mockResolvedValue({ kind: 'posted' })
 
     const state = await submitComment(42, { status: 'idle' }, formDataWithBody('nice flight'))
@@ -79,7 +83,7 @@ describe('submitComment', () => {
   })
 
   it('does not revalidate and surfaces the rate-limit error when postComment rejects the post', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockPostComment.mockResolvedValue({ kind: 'rate-limited' })
 
     const state = await submitComment(42, { status: 'idle' }, formDataWithBody('one too many'))
@@ -103,7 +107,7 @@ describe('submitComment', () => {
 
 describe('deleteCommentAction', () => {
   it('rejects with a sign-in prompt, never reaching deleteComment, when there is no session', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetCurrentUserId.mockResolvedValue(null)
 
     const result = await deleteCommentAction(1, 'comment-1')
 
@@ -112,7 +116,7 @@ describe('deleteCommentAction', () => {
   })
 
   it('passes the authenticated userId and the given commentId to deleteComment', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockDeleteComment.mockResolvedValue({ kind: 'deleted' })
 
     await deleteCommentAction(42, 'comment-1')
@@ -121,7 +125,7 @@ describe('deleteCommentAction', () => {
   })
 
   it('revalidates the flight page and reports success when deleteComment deletes the comment', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockDeleteComment.mockResolvedValue({ kind: 'deleted' })
 
     const result = await deleteCommentAction(42, 'comment-1')
@@ -131,7 +135,7 @@ describe('deleteCommentAction', () => {
   })
 
   it('still reports success and revalidates when deleteComment finds nothing to delete (already gone or not the author)', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockDeleteComment.mockResolvedValue({ kind: 'not-found' })
 
     const result = await deleteCommentAction(42, 'comment-1')
@@ -141,7 +145,7 @@ describe('deleteCommentAction', () => {
   })
 
   it('does not revalidate and surfaces a generic error when deleteComment hits a db error', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-abc' } } })
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockDeleteComment.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
 
     const result = await deleteCommentAction(42, 'comment-1')

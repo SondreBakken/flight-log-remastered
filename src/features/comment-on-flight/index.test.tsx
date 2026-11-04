@@ -5,11 +5,15 @@ import type { Comment } from '@/lib/comments/types'
 
 const mockGetSupabaseEnv = vi.fn()
 const mockCreateClient = vi.fn()
-const mockGetUser = vi.fn()
+const mockGetCurrentUserId = vi.fn()
 const mockGetComments = vi.fn()
 
 vi.mock('@/lib/supabase/env', () => ({
   getSupabaseEnv: () => mockGetSupabaseEnv(),
+}))
+
+vi.mock('@/lib/auth/current-user', () => ({
+  getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -47,8 +51,8 @@ async function renderSection(tripId = 1) {
 
 beforeEach(() => {
   mockGetSupabaseEnv.mockReturnValue({ url: 'https://example.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({ auth: { getUser: mockGetUser } })
-  mockGetUser.mockResolvedValue({ data: { user: null } })
+  mockCreateClient.mockResolvedValue({})
+  mockGetCurrentUserId.mockResolvedValue(null)
 })
 
 describe('CommentsOnFlight', () => {

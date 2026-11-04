@@ -8,7 +8,7 @@ import { deleteCommentAction } from './actions'
 type CommentItemProps = { comment: Comment; isOwnComment: boolean; tripId: number }
 
 // isOwnComment arrives as a plain prop, resolved once server-side in index.tsx — not from a
-// hook called here, which would open one Supabase auth subscription per rendered comment. The
+// hook called here, which would subscribe to the session once per rendered comment. The
 // delete button is the only reason this is a client component at all: it needs an onClick
 // handler, wrapped in a transition, to call the Server Action directly (see the Server Actions
 // guide's "invoke ... from an event handler ... wrapped in startTransition").

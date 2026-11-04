@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getAuth } from '@/lib/auth/server'
+import { getPublicOrigin } from '@/lib/auth/public-origin'
 
 // A plain HTML form POST (see auth-status.tsx) carries no CSRF token, so the only thing
 // standing between this route and a cross-site page that silently signs a visitor out is
@@ -13,22 +14,19 @@ function isSameOriginRequest(request: Request): boolean {
   const origin = request.headers.get('origin')
   if (!origin) return false
 
-  return origin === new URL(request.url).origin
+  return origin === getPublicOrigin()
 }
 
-// A route handler, not a server action — this repo has no server actions yet, and its one
-// precedent for the choice (api/pilots/[userId]/recent-flights/route.ts) already established
-// route handlers as the convention here for a POST-and-redirect flow.
+// This static route shadows Better Auth's own /api/auth/sign-out under the [...all] catch-all on
+// purpose: that endpoint answers JSON, while the nav's plain form post needs a redirect back home.
+// Better Auth deletes only the session this request carries, so other devices stay signed in; the
+// nextCookies plugin writes the cleared session cookie onto this response.
 export async function POST(request: Request): Promise<Response> {
   if (!isSameOriginRequest(request)) {
     return NextResponse.json({ error: 'cross-origin sign-out request rejected' }, { status: 403 })
   }
 
-  const supabase = await createClient()
-  // scope: 'local' revokes only the session this request carries — the default ('global')
-  // signs the visitor out on every device they're signed in on, which is not what clicking
-  // "Sign out" on one device implies.
-  await supabase.auth.signOut({ scope: 'local' })
+  await getAuth().api.signOut({ headers: request.headers })
 
-  return NextResponse.redirect(new URL('/', request.url), { status: 303 })
+  return NextResponse.redirect(new URL('/', getPublicOrigin()), { status: 303 })
 }

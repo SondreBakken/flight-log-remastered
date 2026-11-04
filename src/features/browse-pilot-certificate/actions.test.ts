@@ -1,24 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
+vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }))
+vi.mock('@/lib/auth/current-user', () => ({ getCurrentUserId: vi.fn() }))
 vi.mock('@/lib/profiles/update-certificate-level', () => ({ updateCertificateLevel: vi.fn() }))
 vi.mock('@/lib/profiles/update-certificate-checklist-item', () => ({ updateCertificateChecklistItem: vi.fn() }))
 
-import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserId } from '@/lib/auth/current-user'
 import { updateCertificateLevel } from '@/lib/profiles/update-certificate-level'
 import { updateCertificateChecklistItem } from '@/lib/profiles/update-certificate-checklist-item'
 import { saveCertificateLevelAction, toggleCertificateChecklistItemAction } from './actions'
 
-const mockedCreateClient = vi.mocked(createClient)
+const mockedGetCurrentUserId = vi.mocked(getCurrentUserId)
 const mockedUpdateCertificateLevel = vi.mocked(updateCertificateLevel)
 const mockedUpdateCertificateChecklistItem = vi.mocked(updateCertificateChecklistItem)
 
-function fakeSupabaseClient(userId: string | null) {
-  return { auth: { getUser: vi.fn().mockResolvedValue({ data: { user: userId ? { id: userId } : null } }) } }
-}
 
 beforeEach(() => {
-  mockedCreateClient.mockResolvedValue(fakeSupabaseClient('user-1') as unknown as Awaited<ReturnType<typeof createClient>>)
+  mockedGetCurrentUserId.mockResolvedValue('user-1')
 })
 
 describe('saveCertificateLevelAction', () => {
@@ -32,7 +30,7 @@ describe('saveCertificateLevelAction', () => {
   })
 
   it('returns an error when signed out, without calling updateCertificateLevel', async () => {
-    mockedCreateClient.mockResolvedValue(fakeSupabaseClient(null) as unknown as Awaited<ReturnType<typeof createClient>>)
+    mockedGetCurrentUserId.mockResolvedValue(null)
 
     const result = await saveCertificateLevelAction('PP3')
 
@@ -65,7 +63,7 @@ describe('toggleCertificateChecklistItemAction', () => {
   })
 
   it('returns an error when signed out, without calling updateCertificateChecklistItem', async () => {
-    mockedCreateClient.mockResolvedValue(fakeSupabaseClient(null) as unknown as Awaited<ReturnType<typeof createClient>>)
+    mockedGetCurrentUserId.mockResolvedValue(null)
 
     const result = await toggleCertificateChecklistItemAction('PP4', 'safety-course', true)
 

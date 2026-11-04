@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { SignedInUserState } from '@/lib/auth/use-signed-in-user'
 import AccountSettings from './index'
 
-const mockOnAuthStateChange = vi.fn()
-const mockGetSupabaseEnv = vi.fn()
+const mockUseSignedInUser = vi.fn<() => SignedInUserState>()
 const mockGetDisplayNames = vi.fn()
 const mockGetFlightlogPilotIds = vi.fn()
 const mockMaybeSingle = vi.fn()
@@ -13,7 +13,6 @@ const mockSaveFlightlogPilotId = vi.fn()
 
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
-    auth: { onAuthStateChange: mockOnAuthStateChange },
     // use-own-pilot-verification-status.ts's own createClient().from(...).select(...).eq(...)
     // .maybeSingle() chain, queried directly (not through a lib/profiles/*.ts helper like
     // getFlightlogPilotIds below) — stubbed inline here rather than via a separate module mock.
@@ -21,8 +20,8 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }))
 
-vi.mock('@/lib/supabase/env', () => ({
-  getSupabaseEnv: () => mockGetSupabaseEnv(),
+vi.mock('@/lib/auth/use-signed-in-user', () => ({
+  useSignedInUser: () => mockUseSignedInUser(),
 }))
 
 vi.mock('@/lib/profiles/get-display-names', () => ({
@@ -31,7 +30,7 @@ vi.mock('@/lib/profiles/get-display-names', () => ({
 
 // PilotIdForm's own prefill hook, mirroring get-display-names.ts's mock above — without this,
 // useOwnFlightlogPilotId's createClient().from(...) call would hit the client mock above, which
-// only stubs .auth, not a query builder.
+// only stubs a narrow query builder.
 vi.mock('@/lib/profiles/get-flightlog-pilot-ids', () => ({
   getFlightlogPilotIds: (...args: unknown[]) => mockGetFlightlogPilotIds(...args),
 }))
@@ -43,24 +42,7 @@ vi.mock('./actions', () => ({
   confirmPilotVerificationAction: (...args: unknown[]) => mockConfirmPilotVerificationAction(...args),
 }))
 
-// Same seam as comment-on-flight/comment-composer.test.tsx (use-signed-in-user.ts mirrors
-// AuthStatus's own subscription pattern) — captures the callback registered with
-// onAuthStateChange so tests can drive it the way the real Supabase client would.
-function stubAuthStateChange() {
-  const unsubscribe = vi.fn()
-  mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe } } })
-  return unsubscribe
-}
-
-function emitAuthStateChange(session: { user: { id: string } } | null) {
-  const onChange = mockOnAuthStateChange.mock.calls[0][0] as (event: string, session: unknown) => void
-  act(() => {
-    onChange('SIGNED_IN', session)
-  })
-}
-
 beforeEach(() => {
-  mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
   mockGetDisplayNames.mockResolvedValue(new Map())
   mockGetFlightlogPilotIds.mockResolvedValue(new Map())
   mockMaybeSingle.mockResolvedValue({ data: null, error: null })
@@ -72,10 +54,9 @@ beforeEach(() => {
 describe('AccountSettings', () => {
   it('prefills the display-name input with the signed-in user\'s existing name, once it loads', async () => {
     mockGetDisplayNames.mockResolvedValue(new Map([['user-abc', 'Alex']]))
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByDisplayValue('Alex')).toBeTruthy()
     expect(mockGetDisplayNames).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
@@ -83,20 +64,18 @@ describe('AccountSettings', () => {
 
   it("prefills the flightlog pilot id input with the signed-in user's existing pilot id, once it loads", async () => {
     mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByDisplayValue('12677')).toBeTruthy()
     expect(mockGetFlightlogPilotIds).toHaveBeenCalledWith(expect.anything(), ['user-abc'])
   })
 
   it('leaves the input blank, enabled, and without the error notice when the signed-in user has no display name yet', async () => {
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('Display name')
     // Pins that the 'loaded' (no name set) state actually differs from 'error' below, not just
@@ -113,10 +92,9 @@ describe('AccountSettings', () => {
   // this, the pilot-id error test below would still pass even if the no-error case wrongly
   // rendered as failed too.
   it('leaves the pilot-id input blank, enabled, and without the error notice when the signed-in user has no pilot id linked yet', async () => {
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('flightlog.org pilot id')
     expect(screen.getByLabelText('flightlog.org pilot id')).toHaveProperty('value', '')
@@ -127,10 +105,9 @@ describe('AccountSettings', () => {
   it('shows an inline notice and disables the field when the display-name lookup fails, rather than rendering it identically to still-loading', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetDisplayNames.mockRejectedValue(new Error('profiles query failed'))
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByText(/Couldn't load your current display name/)).toBeTruthy()
     expect(screen.getByLabelText('Display name')).toHaveProperty('disabled', true)
@@ -148,10 +125,9 @@ describe('AccountSettings', () => {
   it('shows an inline notice and disables the field when the pilot-id lookup fails, rather than rendering it identically to still-loading', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetFlightlogPilotIds.mockRejectedValue(new Error('profiles query failed'))
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByText(/Couldn't load your current flightlog.org pilot id/)).toBeTruthy()
     expect(screen.getByLabelText('flightlog.org pilot id')).toHaveProperty('disabled', true)
@@ -164,10 +140,9 @@ describe('AccountSettings', () => {
   })
 
   it('shows a sign-in prompt, not the form, for a signed-out visitor, without fetching a display name', async () => {
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-out' })
 
     render(<AccountSettings />)
-    emitAuthStateChange(null)
 
     const link = await screen.findByRole('link', { name: 'Sign in' })
     expect(link.getAttribute('href')).toBe('/sign-in')
@@ -178,10 +153,9 @@ describe('AccountSettings', () => {
   // the block is genuinely absent (not just its trigger hidden some other way) when
   // ownFlightlogPilotId has loaded with no id set — the common case for a first-time visitor.
   it('does not render the pilot-verification block when the signed-in user has no pilot id linked', async () => {
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('flightlog.org pilot id')
     expect(screen.queryByRole('button', { name: 'Verify your pilot id' })).toBeNull()
@@ -189,11 +163,10 @@ describe('AccountSettings', () => {
   })
 
   it('does not render the pilot-verification block while the pilot-id lookup is still loading', async () => {
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
     mockGetFlightlogPilotIds.mockReturnValue(new Promise(() => {}))
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByLabelText('flightlog.org pilot id')
     expect(screen.queryByRole('button', { name: 'Verify your pilot id' })).toBeNull()
@@ -201,10 +174,9 @@ describe('AccountSettings', () => {
 
   it('renders a "Verify your pilot id" trigger once a pilot id is linked and no verification is in flight', async () => {
     mockGetFlightlogPilotIds.mockResolvedValue(new Map([['user-abc', 12677]]))
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByRole('button', { name: 'Verify your pilot id' })).toBeTruthy()
     expect(mockMaybeSingle).toHaveBeenCalled()
@@ -222,10 +194,9 @@ describe('AccountSettings', () => {
       },
       error: null,
     })
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByText(/pilot@example.com/)).toBeTruthy()
     expect(screen.getByLabelText('Verification code')).toBeTruthy()
@@ -243,10 +214,9 @@ describe('AccountSettings', () => {
       },
       error: null,
     })
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     expect(await screen.findByRole('button', { name: 'Re-verify' })).toBeTruthy()
     expect(screen.getByText(/temporarily un-verifies your pilot id/)).toBeTruthy()
@@ -270,10 +240,9 @@ describe('AccountSettings', () => {
         error: null,
       })
     mockStartPilotVerificationAction.mockResolvedValue({ status: 'success' })
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     const trigger = await screen.findByRole('button', { name: 'Verify your pilot id' })
     fireEvent.click(trigger)
@@ -303,10 +272,9 @@ describe('AccountSettings', () => {
         error: null,
       })
     mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
@@ -329,10 +297,9 @@ describe('AccountSettings', () => {
       })
       .mockResolvedValueOnce({ data: null, error: null })
     mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
-    stubAuthStateChange()
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-in', userId: 'user-abc', email: 'pilot@example.com' })
 
     render(<AccountSettings />)
-    emitAuthStateChange({ user: { id: 'user-abc' } })
 
     await screen.findByRole('button', { name: 'Re-verify' })
     fireEvent.change(screen.getByLabelText('flightlog.org pilot id'), { target: { value: '99999' } })

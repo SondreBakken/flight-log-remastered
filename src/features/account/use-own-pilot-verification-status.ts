@@ -45,14 +45,17 @@ export function useOwnPilotVerificationStatus(userId: string, refreshKey = 0): O
   useEffect(() => {
     let cancelled = false
 
-    const supabase = createClient()
-    // Wrapped in Promise.resolve(): the Supabase query builder's own .then() returns a bare
-    // PromiseLike, not a full Promise, so it has no .catch of its own to chain — Promise.resolve()
-    // upgrades it to a real Promise first, the same way get-flightlog-pilot-ids.ts's plain
-    // async/await implicitly does for its own await'ed call.
-    Promise.resolve(
-      supabase.from('profile_verifications').select('status, otp_expires_at, email, flightlog_pilot_id, created_at').eq('user_id', userId).maybeSingle(),
-    )
+    // createClient() throws when Supabase is unconfigured. Called inside the chain, that lands in
+    // the 'error' state instead of crashing the tree, now that a Better Auth session can exist
+    // without Supabase.
+    Promise.resolve()
+      .then(() =>
+        createClient()
+          .from('profile_verifications')
+          .select('status, otp_expires_at, email, flightlog_pilot_id, created_at')
+          .eq('user_id', userId)
+          .maybeSingle(),
+      )
       .then(({ data, error }: { data: VerificationRow | null; error: { message: string } | null }) => {
         if (cancelled) return
         if (error) {

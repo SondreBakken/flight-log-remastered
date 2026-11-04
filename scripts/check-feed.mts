@@ -21,7 +21,7 @@ import {
 } from '../src/features/browse-flight-feed/feed'
 import { CONCURRENCY_LIMIT } from '../src/features/browse-flight-feed/use-flight-feed'
 import { fetchPilotFeed } from '../src/features/browse-flight-feed/fetch-pilot-feed'
-import { FeedView, FlightFeedView } from '../src/features/browse-flight-feed'
+import { FeedView, FlightFeedView } from '../src/features/browse-flight-feed/flight-feed-view'
 import { runWithConcurrencyLimit, type Settled } from '../src/lib/concurrency/with-limit'
 import type { Flight, Pilot, TrackIndexEntry } from '../src/lib/flightlog/types'
 
