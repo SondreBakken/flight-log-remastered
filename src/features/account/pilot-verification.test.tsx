@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { PilotVerification } from './pilot-verification'
-import type { OwnPilotVerificationStatusState } from './use-own-pilot-verification-status'
+import { PilotVerification, type OwnPilotVerificationState } from './pilot-verification'
 
 const mockStartPilotVerificationAction = vi.fn()
 
@@ -17,12 +16,7 @@ beforeEach(() => {
   mockStartPilotVerificationAction.mockReset()
 })
 
-describe('PilotVerification, loading/error', () => {
-  it('renders nothing while status is loading', () => {
-    const { container } = render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'loading' }} />)
-    expect(container.textContent).toBe('')
-  })
-
+describe('PilotVerification, error', () => {
   it('shows a distinct failure notice, not a blank or "none" render, when status is error', () => {
     render(<PilotVerification onStatusChanged={vi.fn()} status={{ kind: 'error' }} />)
     expect(screen.getByText(/Couldn't load your pilot id verification status/)).toBeTruthy()
@@ -63,10 +57,10 @@ describe('PilotVerification, none', () => {
     await screen.findByText('Verify your pilot id')
   })
 
-  // Pins the double-start race fix: useOwnPilotVerificationStatus holds its previous state during
-  // a refetch (no intermediate 'loading'), so re-enabling the button the instant the request
-  // promise resolves — before the refresh it triggered has actually landed — would let a second
-  // click re-run a live flightlog.org scrape and re-send a real email. The button must stay
+  // Pins the double-start race fix: a refresh keeps the previous status on screen until the
+  // re-rendered server component arrives (no intermediate loading state), so re-enabling the
+  // button the instant the request promise resolves — before the refresh it triggered has
+  // actually landed — would let a second click re-run a live flightlog.org scrape and re-send a real email. The button must stay
   // disabled until the parent actually passes a new `status` object (simulated here by rerendering
   // with one), not merely until the request settles.
   it('keeps the button disabled after the request settles, only re-enabling once a new status object lands', async () => {
@@ -111,7 +105,7 @@ describe('PilotVerification, none', () => {
     rerender(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 
@@ -158,7 +152,7 @@ describe('PilotVerification, none', () => {
     rerender(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 
@@ -248,7 +242,7 @@ describe('PilotVerification, none', () => {
     rerender(
       <PilotVerification
         onStatusChanged={vi.fn()}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 
@@ -474,7 +468,7 @@ describe('PilotVerification, start-verification timeout (#208)', () => {
     rerender(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 
@@ -492,7 +486,7 @@ describe('PilotVerification, start-verification timeout (#208)', () => {
     const { rerender } = render(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T10:32:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Send a new code' }))
@@ -506,7 +500,7 @@ describe('PilotVerification, start-verification timeout (#208)', () => {
     rerender(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T11:00:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T11:00:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 
@@ -584,9 +578,9 @@ describe('PilotVerification, verified', () => {
 })
 
 describe('PilotVerification, pending', () => {
-  const pendingStatus: OwnPilotVerificationStatusState = {
+  const pendingStatus: OwnPilotVerificationState = {
     kind: 'pending',
-    otpExpiresAt: '2026-08-13T10:32:00.000Z',
+    otpExpiresAt: new Date('2026-08-13T10:32:00.000Z'),
     email: 'pilot@example.com',
   }
 
@@ -656,7 +650,7 @@ describe('PilotVerification, pending', () => {
     rerender(
       <PilotVerification
         onStatusChanged={onStatusChanged}
-        status={{ kind: 'pending', otpExpiresAt: '2026-08-13T11:00:00.000Z', email: 'pilot@example.com' }}
+        status={{ kind: 'pending', otpExpiresAt: new Date('2026-08-13T11:00:00.000Z'), email: 'pilot@example.com' }}
       />,
     )
 

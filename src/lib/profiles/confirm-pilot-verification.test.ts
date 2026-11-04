@@ -1,63 +1,78 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ProfilesQueryError } from './profiles-query-error'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-// confirm-pilot-verification.ts imports 'server-only' directly, which throws on plain import
-// outside a react-server bundling context — mock it so this test can exercise the module's own
-// contract (same convention as issue-pilot-verification.test.ts).
 vi.mock('server-only', () => ({}))
 
+import {
+  createTestDatabase,
+  createTestProfile,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  findTestVerification,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { confirmPilotVerification } from './confirm-pilot-verification'
+import { issuePilotVerification } from './issue-pilot-verification'
+import { ProfilesQueryError } from './profiles-query-error'
 
-// Local, minimal fake for the one method this module calls (`.rpc`) — mirrors
-// issue-pilot-verification.test.ts's own fakeSupabaseRpc.
-function fakeSupabaseRpc(result: { data: unknown; error: unknown }) {
-  const rpc = vi.fn(() => Promise.resolve(result))
-  const client = { rpc } as unknown as SupabaseClient
-  return { client, rpc }
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
+
+async function createUserWithIssuedCode(pilotId: number): Promise<{ userId: string; code: string }> {
+  const userId = await createTestUser(testDatabase.client)
+  await createTestProfile(testDatabase.db, { userId, flightlogPilotId: pilotId })
+  const result = await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
+  if (result.kind !== 'issued') throw new Error(`expected an issued code, got ${result.kind}`)
+  return { userId, code: result.code }
+}
+
+function wrongCodeFor(code: string): string {
+  return code === '000000' ? '111111' : '000000'
 }
 
 describe('confirmPilotVerification', () => {
-  it('calls the RPC with the exact parameter name and returns confirmed on a true result', async () => {
-    const { client, rpc } = fakeSupabaseRpc({ data: true, error: null })
+  it("confirms the user's own pending verification with the issued code", async () => {
+    const { userId, code } = await createUserWithIssuedCode(5001)
 
-    const result = await confirmPilotVerification(client, '123456')
-
-    expect(result).toEqual({ kind: 'confirmed' })
-    expect(rpc).toHaveBeenCalledWith('confirm_pilot_verification', { submitted_code: '123456' })
+    expect(await confirmPilotVerification(testDatabase.db, userId, code)).toEqual({ kind: 'confirmed' })
+    expect((await findTestVerification(testDatabase.db, userId))?.status).toBe('verified')
   })
 
-  it('returns incorrect-or-expired on a false result, not an error', async () => {
-    const { client } = fakeSupabaseRpc({ data: false, error: null })
+  it('reports incorrect-or-expired for a wrong code', async () => {
+    const { userId, code } = await createUserWithIssuedCode(5002)
 
-    const result = await confirmPilotVerification(client, '000000')
-
-    expect(result).toEqual({ kind: 'incorrect-or-expired' })
+    expect(await confirmPilotVerification(testDatabase.db, userId, wrongCodeFor(code))).toEqual({ kind: 'incorrect-or-expired' })
   })
 
-  it('returns a distinguishable locked-out outcome, not a thrown error, when the RPC raises AL001', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = fakeSupabaseRpc({
-      data: null,
-      error: { code: 'AL001', message: 'too many failed verification attempts; request a new code' },
-    })
+  it("cannot confirm another user's verification, even with that user's code", async () => {
+    const owner = await createUserWithIssuedCode(5003)
+    const otherUserId = await createTestUser(testDatabase.client)
 
-    const result = await confirmPilotVerification(client, '000000')
-
-    expect(result).toEqual({ kind: 'locked-out' })
-    consoleError.mockRestore()
+    expect(await confirmPilotVerification(testDatabase.db, otherUserId, owner.code)).toEqual({ kind: 'incorrect-or-expired' })
+    expect((await findTestVerification(testDatabase.db, owner.userId))?.status).toBe('pending')
   })
 
-  it('throws a ProfilesQueryError, preserving the original error as cause, on a genuine unexpected RPC error', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { code: '57014', message: 'canceling statement due to statement timeout' }
-    const { client } = fakeSupabaseRpc({ data: null, error: queryError })
+  it('maps AL001 to locked-out after five failed attempts, even for the right code', async () => {
+    const { userId, code } = await createUserWithIssuedCode(5004)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await confirmPilotVerification(testDatabase.db, userId, wrongCodeFor(code))
+    }
 
-    const error = await confirmPilotVerification(client, '123456').catch((thrown: unknown) => thrown)
+    expect(await confirmPilotVerification(testDatabase.db, userId, code)).toEqual({ kind: 'locked-out' })
+  })
 
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).cause).toBe(queryError)
+  it('throws a ProfilesQueryError for any other database failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
 
-    consoleError.mockRestore()
+    await expect(confirmPilotVerification(unmigrated.db, 'user-abc', '123456')).rejects.toBeInstanceOf(ProfilesQueryError)
+    await unmigrated.client.close()
   })
 })

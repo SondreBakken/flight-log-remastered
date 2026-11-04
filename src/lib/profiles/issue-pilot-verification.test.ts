@@ -1,91 +1,96 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ProfilesQueryError } from './profiles-query-error'
+// @vitest-environment node
+import { createHash } from 'node:crypto'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-// issue-pilot-verification.ts imports 'server-only' directly, which throws on plain import
-// outside a react-server bundling context — mock it so this test can exercise the module's own
-// contract (same convention as send-verification-email.test.ts / admin.test.ts).
+// generate-otp-code.ts guards node:crypto with 'server-only', which throws outside a react-server bundle.
 vi.mock('server-only', () => ({}))
 
+import {
+  createTestDatabase,
+  createTestProfile,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  findTestVerification,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { issuePilotVerification } from './issue-pilot-verification'
+import { ProfilesQueryError } from './profiles-query-error'
 
-// Local, minimal fake for the one method this module calls (`.rpc`) — narrower than
-// fake-supabase-query.ts's `.from(...)` chain builder, which this module never touches, so that
-// helper (shared by comments/follows tests) isn't reused here. Mirrors this repo's own
-// "inject a narrow interface over just the call it needs" convention.
-function fakeSupabaseRpc(result: { data: unknown; error: unknown }) {
-  const rpc = vi.fn(() => Promise.resolve(result))
-  const client = { rpc } as unknown as SupabaseClient
-  return { client, rpc }
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
+
+async function createLinkedUser(pilotId: number): Promise<string> {
+  const userId = await createTestUser(testDatabase.client)
+  await createTestProfile(testDatabase.db, { userId, flightlogPilotId: pilotId })
+  return userId
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 describe('issuePilotVerification', () => {
-  it('generates a code, calls the RPC with the exact parameter names, and returns the same code', async () => {
-    const { client, rpc } = fakeSupabaseRpc({ data: 4549, error: null })
+  it("issues a six-digit code bound to the user's linked pilot id and stores it pending", async () => {
+    const userId = await createLinkedUser(4549)
 
-    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
+    const result = await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
 
-    expect(result.kind).toBe('issued')
-    const issuedCode = result.kind === 'issued' ? result.code : null
-    expect(issuedCode).toMatch(/^\d{6}$/)
-
-    expect(rpc).toHaveBeenCalledWith('issue_pilot_verification', {
-      target_user_id: 'user-1',
-      scraped_email: 'pilot@example.com',
-      code: issuedCode,
+    expect(result).toEqual({ kind: 'issued', code: expect.stringMatching(/^\d{6}$/), boundPilotId: 4549 })
+    expect(await findTestVerification(testDatabase.db, userId)).toMatchObject({
+      status: 'pending',
+      flightlogPilotId: 4549,
+      email: 'pilot@example.test',
     })
   })
 
-  it('returns the RPC-reported bound pilot id alongside the code, not just success/failure', async () => {
-    const { client } = fakeSupabaseRpc({ data: 4549, error: null })
+  it('stores only the hash of the code and returns no hash to the caller', async () => {
+    const userId = await createLinkedUser(4550)
 
-    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
+    const result = await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
+    if (result.kind !== 'issued') throw new Error(`expected an issued code, got ${result.kind}`)
 
-    expect(result.kind).toBe('issued')
-    expect(result.kind === 'issued' ? result.boundPilotId : null).toBe(4549)
+    const storedHash = (await findTestVerification(testDatabase.db, userId))?.otpCodeHash
+    expect(storedHash).toBe(sha256Hex(result.code))
+    expect(Object.keys(result).sort()).toEqual(['boundPilotId', 'code', 'kind'])
+    expect(JSON.stringify(result)).not.toContain(storedHash)
   })
 
-  it('returns a distinguishable no-linked-pilot-id outcome, not a thrown error, when the RPC raises P0001', async () => {
-    const { client } = fakeSupabaseRpc({
-      data: null,
-      error: { code: 'P0001', message: 'no flightlog pilot id linked to the target profile' },
-    })
+  it("writes only the given user's verification, leaving another user's untouched", async () => {
+    const userId = await createLinkedUser(4551)
+    const otherUserId = await createLinkedUser(4552)
+    await issuePilotVerification(testDatabase.db, otherUserId, 'other@example.test')
+    const otherBefore = await findTestVerification(testDatabase.db, otherUserId)
 
-    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
+    await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
 
-    expect(result).toEqual({ kind: 'no-linked-pilot-id' })
+    expect(await findTestVerification(testDatabase.db, otherUserId)).toEqual(otherBefore)
   })
 
-  it('returns a distinguishable rate-limited outcome, not a thrown error, when the RPC raises RL001', async () => {
-    const { client } = fakeSupabaseRpc({
-      data: null,
-      error: { code: 'RL001', message: 'a verification code was issued too recently; wait before requesting another' },
-    })
+  it('maps P0001 to no-linked-pilot-id when the user has no pilot id linked', async () => {
+    const userId = await createTestUser(testDatabase.client)
 
-    const result = await issuePilotVerification(client, 'user-1', 'pilot@example.com')
-
-    expect(result).toEqual({ kind: 'rate-limited' })
+    expect(await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')).toEqual({ kind: 'no-linked-pilot-id' })
   })
 
-  it('throws a ProfilesQueryError, preserving the original error as cause, on a genuine unexpected RPC error', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { code: '57014', message: 'canceling statement due to statement timeout' }
-    const { client } = fakeSupabaseRpc({ data: null, error: queryError })
+  it('maps RL001 to rate-limited when a code was issued within the last minute', async () => {
+    const userId = await createLinkedUser(4553)
+    await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
 
-    const error = await issuePilotVerification(client, 'user-1', 'pilot@example.com').catch((thrown: unknown) => thrown)
-
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).cause).toBe(queryError)
-
-    consoleError.mockRestore()
+    expect(await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')).toEqual({ kind: 'rate-limited' })
   })
 
-  it('throws a ProfilesQueryError naming the migration, rather than silently treating it as a pilot-id mismatch, when the RPC has no error but returns non-numeric data (the old `returns void` function still live because 20260813010000 hasn\'t been applied yet)', async () => {
-    const { client } = fakeSupabaseRpc({ data: null, error: null })
+  it('throws a ProfilesQueryError for any other database failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
 
-    const error = await issuePilotVerification(client, 'user-1', 'pilot@example.com').catch((thrown: unknown) => thrown)
-
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).message).toContain('20260813010000_fix_issue_pilot_verification_toctou.sql')
+    await expect(issuePilotVerification(unmigrated.db, 'user-abc', 'pilot@example.test')).rejects.toBeInstanceOf(ProfilesQueryError)
+    await unmigrated.client.close()
   })
 })

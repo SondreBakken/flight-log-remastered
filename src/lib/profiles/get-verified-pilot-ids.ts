@@ -1,46 +1,32 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ProfilesQueryError } from './profiles-query-error'
+import { and, eq, inArray } from 'drizzle-orm'
+import type { Database } from '@/lib/db/client'
+import { profileVerifications } from '@/lib/db/schema'
 import type { PilotId } from '@/lib/flightlog/types'
+import { ProfilesQueryError } from './profiles-query-error'
 
-type VerificationRow = { flightlog_pilot_id: PilotId; status: string }
-
-// Business logic: which of a set of flightlog.org pilot ids currently have a 'verified'
-// profile_verifications row, against an injected Supabase client (same testability convention,
-// and same array-in/Set-out shape, as getFollowedPilotIds — a missing id is simply absent from
-// the returned Set, callers read that identically to an explicit unverified row).
-//
-// Deliberately keyed on flightlog_pilot_id, not user_id, unlike use-own-pilot-verification-status.ts
-// (built for #177's account-settings page, which only ever needs "is the signed-in viewer
-// themselves verified"). account-activity (#188) asks a different question — "is THIS pilot-id
-// link verified" — for pilot ids it renders, not for the viewer's own identity. In practice the
-// two answers coincide today: this table's RLS policy (see
-// 20260813000000_create_profile_verifications.sql's own doc comment) is `auth.uid() = user_id`,
-// owner-only in every direction, so the querying session can only ever see its own row regardless
-// of which column this filters by. Filtering by pilot id anyway keeps this helper's contract
-// honest about what it answers, and is what actually lets a future caller batch several displayed
-// pilot ids in one round trip — RLS, not this query shape, is what limits today's callers to
-// one visible row.
-//
-// No special-cased soft-degrade for a missing table — mirrors
-// use-own-pilot-verification-status.ts's own choice not to special-case this same table's
-// absence: any query failure throws.
-export async function getVerifiedPilotIds(supabase: SupabaseClient, pilotIds: PilotId[]): Promise<Set<PilotId>> {
+// Which of pilotIds the viewer holds a verified link to. viewerUserId must be the session's own
+// id: verification rows are private to their owner, and with RLS gone the user_id filter is what
+// keeps this from reporting every user's verified pilot ids. Whether a pilot is verified at all,
+// by anyone, is the public isPilotVerified lookup.
+export async function getVerifiedPilotIds(db: Database, viewerUserId: string, pilotIds: PilotId[]): Promise<Set<PilotId>> {
   if (pilotIds.length === 0) return new Set()
 
-  const { data, error } = await supabase
-    .from('profile_verifications')
-    .select('flightlog_pilot_id, status')
-    .in('flightlog_pilot_id', pilotIds)
-
-  if (error) {
+  const rows = await findVerifiedPilotIds(db, viewerUserId, pilotIds).catch((error: unknown) => {
     console.error('[profiles] failed to load pilot verification statuses:', error)
-    throw new ProfilesQueryError(
-      `Failed to load pilot verification statuses for ${pilotIds.length} pilot ${pilotIds.length === 1 ? 'id' : 'ids'}: ${error.message}`,
-      { cause: error },
-    )
-  }
+    throw new ProfilesQueryError(`Failed to load the verified pilot ids of user ${viewerUserId}`, { cause: error })
+  })
+  return new Set(rows.map((row) => row.flightlogPilotId))
+}
 
-  return new Set(
-    (data as VerificationRow[]).filter((row) => row.status === 'verified').map((row) => row.flightlog_pilot_id),
-  )
+function findVerifiedPilotIds(db: Database, viewerUserId: string, pilotIds: PilotId[]) {
+  return db
+    .select({ flightlogPilotId: profileVerifications.flightlogPilotId })
+    .from(profileVerifications)
+    .where(
+      and(
+        eq(profileVerifications.userId, viewerUserId),
+        inArray(profileVerifications.flightlogPilotId, pilotIds),
+        eq(profileVerifications.status, 'verified'),
+      ),
+    )
 }

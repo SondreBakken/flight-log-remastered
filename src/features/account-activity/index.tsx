@@ -1,8 +1,6 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { ShieldAlert } from 'lucide-react'
-import { getSupabaseEnv } from '@/lib/supabase/env'
-import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getDb } from '@/lib/db/client'
 import { getProfile, type Profile } from '@/lib/profiles/get-profile'
@@ -40,7 +38,7 @@ export default async function AccountActivity() {
   const pilotId = profile.flightlogPilotId
   if (pilotId == null) return <LinkPilotPrompt />
 
-  const isPilotVerified = await isPilotIdVerified(pilotId)
+  const isPilotVerified = await isOwnPilotIdVerified(userId, pilotId)
 
   return (
     <div className="flex flex-col gap-8">
@@ -68,14 +66,12 @@ export default async function AccountActivity() {
 // Fail-safe, not fail-closed-to-an-error-page: a verification-status lookup failure here isn't
 // treated as page-breaking the way a failed pilotId lookup above is (see AccountActivity's own
 // catch around getProfile) — it only ever gates one note's visibility, not which of
-// this component's four branches renders. Defaulting to false on failure, or when Supabase (which
-// still holds verifications until #268) isn't provisioned, keeps that note visible rather than
-// risking the opposite: a broken query silently hiding a real "this link is unverified" disclaimer.
-async function isPilotIdVerified(pilotId: PilotId): Promise<boolean> {
-  if (!getSupabaseEnv()) return false
-
+// this component's four branches renders. Defaulting to false on failure keeps that note visible
+// rather than risking the opposite: a broken query silently hiding a real "this link is
+// unverified" disclaimer.
+async function isOwnPilotIdVerified(userId: string, pilotId: PilotId): Promise<boolean> {
   try {
-    const verifiedPilotIds = await getVerifiedPilotIds(await createClient(), [pilotId])
+    const verifiedPilotIds = await getVerifiedPilotIds(getDb(), userId, [pilotId])
     return verifiedPilotIds.has(pilotId)
   } catch (error) {
     if (!(error instanceof ProfilesQueryError)) throw error
