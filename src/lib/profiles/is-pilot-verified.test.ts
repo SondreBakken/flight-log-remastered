@@ -1,40 +1,50 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ProfilesQueryError } from './profiles-query-error'
-import { isPilotVerified } from './is-pilot-verified'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-function fakeSupabaseRpc(result: { data: unknown; error: unknown }) {
-  const rpc = vi.fn(() => Promise.resolve(result))
-  const client = { rpc } as unknown as SupabaseClient
-  return { client, rpc }
-}
+import {
+  createTestDatabase,
+  createTestUser,
+  createTestVerification,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
+import { isPilotVerified } from './is-pilot-verified'
+import { ProfilesQueryError } from './profiles-query-error'
+
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
 
 describe('isPilotVerified', () => {
-  it('calls the RPC with the exact parameter name and returns true for a verified pilot', async () => {
-    const { client, rpc } = fakeSupabaseRpc({ data: true, error: null })
+  it("is true for a pilot someone else verified, since it is a public lookup that needs no viewer", async () => {
+    const ownerUserId = await createTestUser(testDatabase.client)
+    await createTestVerification(testDatabase.db, { userId: ownerUserId, status: 'verified', flightlogPilotId: 8001, email: 'pilot@example.test' })
 
-    const verified = await isPilotVerified(client, 12677)
-
-    expect(verified).toBe(true)
-    expect(rpc).toHaveBeenCalledWith('is_pilot_verified', { target_pilot_id: 12677 })
+    expect(await isPilotVerified(testDatabase.db, 8001)).toBe(true)
   })
 
-  it('returns false for a pilot without a verified link', async () => {
-    const { client } = fakeSupabaseRpc({ data: false, error: null })
+  it('is false while the verification is still pending', async () => {
+    const ownerUserId = await createTestUser(testDatabase.client)
+    await createTestVerification(testDatabase.db, { userId: ownerUserId, status: 'pending', flightlogPilotId: 8002, email: 'pilot@example.test' })
 
-    expect(await isPilotVerified(client, 12677)).toBe(false)
+    expect(await isPilotVerified(testDatabase.db, 8002)).toBe(false)
   })
 
-  it('throws a ProfilesQueryError preserving the original error as cause on an RPC error', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const rpcError = { message: 'function public.is_pilot_verified(integer) does not exist' }
-    const { client } = fakeSupabaseRpc({ data: null, error: rpcError })
+  it('is false for a pilot nobody has verified', async () => {
+    expect(await isPilotVerified(testDatabase.db, 8003)).toBe(false)
+  })
 
-    const error = await isPilotVerified(client, 12677).catch((thrown: unknown) => thrown)
+  it('throws a ProfilesQueryError when the lookup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
 
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).cause).toBe(rpcError)
-
-    consoleError.mockRestore()
+    await expect(isPilotVerified(unmigrated.db, 8004)).rejects.toBeInstanceOf(ProfilesQueryError)
+    await unmigrated.client.close()
   })
 })

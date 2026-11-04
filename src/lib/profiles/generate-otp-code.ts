@@ -5,7 +5,7 @@ import 'server-only'
 
 import { randomInt } from 'node:crypto'
 
-// Generic/utility: pure, no Supabase/HTTP/state, so it lives outside issue-pilot-verification.ts
+// Generic/utility: pure, no database/HTTP/state, so it lives outside issue-pilot-verification.ts
 // (its only caller today) rather than inline inside it — same "pure logic outside the
 // side-effectful module" split this repo already draws elsewhere (e.g. parse-pilot-email.ts
 // living apart from get-pilot-email.ts).

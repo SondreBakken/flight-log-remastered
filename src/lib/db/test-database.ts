@@ -57,6 +57,20 @@ export async function createTestProfile(db: TestDatabase['db'], profile: TestPro
   await db.insert(schema.profiles).values(profile)
 }
 
+export type TestVerification = typeof schema.profileVerifications.$inferInsert
+
+export async function createTestVerification(db: TestDatabase['db'], verification: TestVerification): Promise<void> {
+  await db.insert(schema.profileVerifications).values(verification)
+}
+
+export async function findTestVerification(
+  db: TestDatabase['db'],
+  userId: string,
+): Promise<typeof schema.profileVerifications.$inferSelect | undefined> {
+  const [row] = await db.select().from(schema.profileVerifications).where(eq(schema.profileVerifications.userId, userId))
+  return row
+}
+
 export async function findTestProfile(db: TestDatabase['db'], userId: string): Promise<typeof schema.profiles.$inferSelect | undefined> {
   const [row] = await db.select().from(schema.profiles).where(eq(schema.profiles.userId, userId))
   return row

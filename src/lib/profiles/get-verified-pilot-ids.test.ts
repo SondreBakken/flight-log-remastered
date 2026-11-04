@@ -1,52 +1,64 @@
-import { describe, expect, it, vi } from 'vitest'
-import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
-import { ProfilesQueryError } from './profiles-query-error'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+
+import {
+  createTestDatabase,
+  createTestUser,
+  createTestVerification,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
 import { getVerifiedPilotIds } from './get-verified-pilot-ids'
+import { ProfilesQueryError } from './profiles-query-error'
+
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
+
+async function createVerifiedUser(pilotId: number, status = 'verified'): Promise<string> {
+  const userId = await createTestUser(testDatabase.client)
+  await createTestVerification(testDatabase.db, { userId, status, flightlogPilotId: pilotId, email: 'pilot@example.test' })
+  return userId
+}
 
 describe('getVerifiedPilotIds', () => {
-  it('resolves to a Set containing only the pilot ids with a verified row', async () => {
-    const rows = [
-      { flightlog_pilot_id: 12677, status: 'verified' },
-      { flightlog_pilot_id: 4549, status: 'pending' },
-    ]
-    const { client, builder } = fakeSupabaseQuery({ data: rows, error: null })
+  it("returns the viewer's own verified pilot id", async () => {
+    const viewerUserId = await createVerifiedUser(7001)
 
-    const result = await getVerifiedPilotIds(client, [12677, 4549])
-
-    expect(builder.in).toHaveBeenCalledWith('flightlog_pilot_id', [12677, 4549])
-    expect(result).toEqual(new Set([12677]))
+    expect(await getVerifiedPilotIds(testDatabase.db, viewerUserId, [7001])).toEqual(new Set([7001]))
   })
 
-  // A pilot id with no profile_verifications row at all never appears in the returned rows in
-  // the first place (nothing to filter out) — this pins that the Set stays empty, not that
-  // filtering merely excludes a present-but-null status.
-  it('omits a pilot id with no verification row at all, rather than erroring', async () => {
-    const { client } = fakeSupabaseQuery({ data: [], error: null })
+  it('leaves out a pilot id whose verification is still pending', async () => {
+    const viewerUserId = await createVerifiedUser(7002, 'pending')
 
-    const result = await getVerifiedPilotIds(client, [12677])
-
-    expect(result).toEqual(new Set())
+    expect(await getVerifiedPilotIds(testDatabase.db, viewerUserId, [7002])).toEqual(new Set())
   })
 
-  it('short-circuits to an empty Set without querying when pilotIds is empty', async () => {
-    const { client } = fakeSupabaseQuery({ data: null, error: null })
+  it("never reports another user's verified pilot id to the viewer", async () => {
+    const viewerUserId = await createTestUser(testDatabase.client)
+    await createVerifiedUser(7003)
 
-    const result = await getVerifiedPilotIds(client, [])
-
-    expect(result).toEqual(new Set())
-    expect(client.from).not.toHaveBeenCalled()
+    expect(await getVerifiedPilotIds(testDatabase.db, viewerUserId, [7003])).toEqual(new Set())
   })
 
-  it('throws a ProfilesQueryError, distinguishably from an empty Set, on a query error, preserving the original error as cause', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { message: 'permission denied for table profile_verifications' }
-    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
+  it('returns an empty set without querying for no pilot ids', async () => {
+    const unmigrated = createUnmigratedTestDatabase()
 
-    const error = await getVerifiedPilotIds(client, [12677]).catch((thrown: unknown) => thrown)
+    expect(await getVerifiedPilotIds(unmigrated.db, 'user-abc', [])).toEqual(new Set())
+    await unmigrated.client.close()
+  })
 
-    expect(error).toBeInstanceOf(ProfilesQueryError)
-    expect((error as ProfilesQueryError).cause).toBe(queryError)
+  it('throws a ProfilesQueryError when the query fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
 
-    consoleError.mockRestore()
+    await expect(getVerifiedPilotIds(unmigrated.db, 'user-abc', [7004])).rejects.toBeInstanceOf(ProfilesQueryError)
+    await unmigrated.client.close()
   })
 })

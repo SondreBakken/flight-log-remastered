@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
 
-const mockGetSupabaseEnv = vi.fn()
-const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
 const mockGetProfile = vi.fn()
 const mockGetVerifiedPilotIds = vi.fn()
@@ -11,16 +9,8 @@ const mockGetFollowersForPilot = vi.fn()
 const mockGetPilotLogbook = vi.fn()
 const mockGetCommentsForTripIds = vi.fn()
 
-vi.mock('@/lib/supabase/env', () => ({
-  getSupabaseEnv: () => mockGetSupabaseEnv(),
-}))
-
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
-}))
-
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => mockCreateClient(),
 }))
 
 vi.mock('@/lib/db/client', () => ({
@@ -59,8 +49,6 @@ const UNVERIFIED_NOTE_TEXT = /That link is currently unverified and self-declare
 // renders synchronously, so these two sections' own mocks only need to resolve without throwing —
 // their rendered content is never asserted on by this suite.
 beforeEach(() => {
-  mockGetSupabaseEnv.mockReturnValue({ url: 'https://project.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({})
   mockGetCurrentUserId.mockResolvedValue('user-abc')
   mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 12677 })
   mockGetVerifiedPilotIds.mockResolvedValue(new Set())
@@ -74,13 +62,18 @@ async function renderActivity() {
 }
 
 describe('AccountActivity', () => {
+  it("asks only about the session user's own verification of the linked pilot id", async () => {
+    await renderActivity()
+
+    expect(mockGetVerifiedPilotIds).toHaveBeenCalledWith(expect.anything(), 'user-abc', [12677])
+  })
+
   it('shows the unverified-link note when the linked pilot id has no verified row', async () => {
     mockGetVerifiedPilotIds.mockResolvedValue(new Set())
 
     await renderActivity()
 
     expect(screen.getByText(UNVERIFIED_NOTE_TEXT)).toBeTruthy()
-    expect(mockGetVerifiedPilotIds).toHaveBeenCalledWith(expect.anything(), [12677])
   })
 
   // Distinct from the "no row at all" case above only in what the mock represents (a pending, not
@@ -104,7 +97,7 @@ describe('AccountActivity', () => {
     expect(screen.queryByText(UNVERIFIED_NOTE_TEXT)).toBeNull()
   })
 
-  // Fail-safe default (see isPilotIdVerified's own doc comment in index.tsx): a broken
+  // Fail-safe default (see isOwnPilotIdVerified's own doc comment in index.tsx): a broken
   // verification lookup must never silently suppress the disclaimer, and must not take down the
   // whole page the way a failed pilot-id lookup does.
   it('keeps showing the unverified-link note, without crashing the page, when the verification lookup itself fails', async () => {
@@ -115,15 +108,6 @@ describe('AccountActivity', () => {
 
     expect(screen.getByText(UNVERIFIED_NOTE_TEXT)).toBeTruthy()
     consoleError.mockRestore()
-  })
-
-  it('keeps showing the unverified-link note, without querying verifications, when Supabase is not provisioned', async () => {
-    mockGetSupabaseEnv.mockReturnValue(null)
-
-    await renderActivity()
-
-    expect(screen.getByText(UNVERIFIED_NOTE_TEXT)).toBeTruthy()
-    expect(mockGetVerifiedPilotIds).not.toHaveBeenCalled()
   })
 
   it('does not query verification status for a signed-in user with no pilot id linked', async () => {

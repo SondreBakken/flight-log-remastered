@@ -1,16 +1,16 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { ProfilesQueryError } from './profiles-query-error'
+import { sql } from 'drizzle-orm'
+import type { Database } from '@/lib/db/client'
 import type { PilotId } from '@/lib/flightlog/types'
+import { ProfilesQueryError } from './profiles-query-error'
 
-// Goes through the is_pilot_verified RPC, not getVerifiedPilotIds: profile_verifications is
-// owner-only under RLS, so a direct select only ever sees the viewer's own row.
-export async function isPilotVerified(supabase: SupabaseClient, pilotId: PilotId): Promise<boolean> {
-  const { data, error } = await supabase.rpc('is_pilot_verified', { target_pilot_id: pilotId })
-
-  if (error) {
+// Public lookup for any viewer, signed in or not: is_pilot_verified answers yes or no without
+// exposing whose verification it is or anything else on the row.
+export async function isPilotVerified(db: Database, pilotId: PilotId): Promise<boolean> {
+  try {
+    const result = await db.execute<{ verified: boolean }>(sql`select is_pilot_verified(${pilotId}) as verified`)
+    return result.rows[0].verified
+  } catch (error) {
     console.error('[profiles] failed to load pilot verified status:', error)
-    throw new ProfilesQueryError(`Failed to load verified status for pilot ${pilotId}: ${error.message}`, { cause: error })
+    throw new ProfilesQueryError(`Failed to load verified status for pilot ${pilotId}`, { cause: error })
   }
-
-  return data === true
 }
