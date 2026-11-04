@@ -1,44 +1,68 @@
-import { describe, expect, it, vi } from 'vitest'
-import { getFollowedPilotIds } from './get-followed-pilot-ids'
-import { fakeSupabaseQuery } from '@/lib/testing/fake-supabase-query'
+// @vitest-environment node
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+
+import {
+  createTestDatabase,
+  createTestUser,
+  createUnmigratedTestDatabase,
+  type TestDatabase,
+} from '@/lib/db/test-database'
+import { followPilot } from './follow-pilot'
 import { FollowsQueryError } from './follows-query-error'
+import { getFollowedPilotIds } from './get-followed-pilot-ids'
+
+let testDatabase: TestDatabase
+
+beforeAll(async () => {
+  testDatabase = await createTestDatabase()
+})
+
+afterAll(async () => {
+  await testDatabase.client.close()
+})
+
+async function createUserFollowing(pilotIds: number[]): Promise<string> {
+  const userId = await createTestUser(testDatabase.client)
+  for (const pilotId of pilotIds) await followPilot(testDatabase.db, { userId, pilotId })
+  return userId
+}
 
 describe('getFollowedPilotIds', () => {
-  it('returns the queried pilot ids as a Set', async () => {
-    const { client } = fakeSupabaseQuery({ data: [{ pilot_id: 4549 }, { pilot_id: 12677 }], error: null })
+  it('returns every pilot the user follows when no candidates are given', async () => {
+    const userId = await createUserFollowing([4549, 12677])
 
-    const result = await getFollowedPilotIds(client, 'user-abc')
-
-    expect(result).toEqual(new Set([4549, 12677]))
+    expect(await getFollowedPilotIds(testDatabase.db, userId)).toEqual(new Set([4549, 12677]))
   })
 
-  it('short-circuits to an empty Set without querying when candidatePilotIds is an empty array', async () => {
-    const { client } = fakeSupabaseQuery({ data: null, error: null })
+  it("never returns another user's follows", async () => {
+    await createUserFollowing([4549, 777])
+    const userId = await createUserFollowing([12677])
 
-    const result = await getFollowedPilotIds(client, 'user-abc', [])
-
-    expect(result).toEqual(new Set())
-    expect(client.from).not.toHaveBeenCalled()
+    expect(await getFollowedPilotIds(testDatabase.db, userId)).toEqual(new Set([12677]))
+    expect(await getFollowedPilotIds(testDatabase.db, userId, [4549, 777, 12677])).toEqual(new Set([12677]))
   })
 
-  it('scopes the query with .in() when candidatePilotIds is given', async () => {
-    const { client, builder } = fakeSupabaseQuery({ data: [], error: null })
+  it('narrows the result to the candidate pilot ids', async () => {
+    const userId = await createUserFollowing([4549, 12677, 888])
 
-    await getFollowedPilotIds(client, 'user-abc', [4549, 12677])
-
-    expect(builder.in).toHaveBeenCalledWith('pilot_id', [4549, 12677])
+    expect(await getFollowedPilotIds(testDatabase.db, userId, [4549, 999])).toEqual(new Set([4549]))
   })
 
-  it('throws, distinguishably from an empty Set, when the query errors, preserving the original error as cause', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const queryError = { message: 'permission denied for table follows' }
-    const { client } = fakeSupabaseQuery({ data: null, error: queryError })
+  it('returns an empty Set for an empty candidate list', async () => {
+    const userId = await createUserFollowing([4549])
 
-    const error = await getFollowedPilotIds(client, 'user-abc').catch((thrown: unknown) => thrown)
+    expect(await getFollowedPilotIds(testDatabase.db, userId, [])).toEqual(new Set())
+  })
+
+  it('throws a FollowsQueryError carrying the driver error as cause when the query fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const unmigrated = createUnmigratedTestDatabase()
+
+    const error = await getFollowedPilotIds(unmigrated.db, 'user-abc').catch((thrown: unknown) => thrown)
 
     expect(error).toBeInstanceOf(FollowsQueryError)
     expect((error as FollowsQueryError).message).toMatch(/user-abc/)
-    expect((error as FollowsQueryError).cause).toBe(queryError)
-    consoleError.mockRestore()
+    expect((error as FollowsQueryError).cause).toBeInstanceOf(Error)
+    await unmigrated.client.close()
   })
 })

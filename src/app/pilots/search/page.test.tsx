@@ -6,6 +6,10 @@ import { describe, expect, it, vi } from 'vitest'
 // trip that guard. Same shape as countries/[countryId]/page.test.tsx's mocking of
 // getClubs/getCountries, one level deeper because this route also exercises the real guard.
 vi.mock('server-only', () => ({}))
+// The real resolver reads the session from request headers, which do not exist outside a request.
+vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
+  resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),
+}))
 vi.mock('@/lib/flightlog/pilot-search', async () => {
   const actual = await vi.importActual<typeof import('@/lib/flightlog/pilot-search')>(
     '@/lib/flightlog/pilot-search',

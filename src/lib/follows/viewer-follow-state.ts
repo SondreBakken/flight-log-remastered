@@ -7,10 +7,10 @@ import type { PilotId } from '@/lib/flightlog/types'
 // follow-up). Every caller now matches on `status` instead of reading followedPilotIds and
 // hoping a dropped flag would have warned it otherwise.
 //
-// Split into its own module, separate from resolve-viewer-follow-state.ts's actual Supabase I/O:
+// Split into its own module, separate from resolve-viewer-follow-state.ts's database I/O:
 // flight-feed-view.tsx is a 'use client' component that needs this type and followedPilotIdsOf at
 // runtime (not just as an erased type-only import), and resolve-viewer-follow-state.ts transitively
-// imports @/lib/supabase/server's `next/headers` — a server-only module a client bundle must never
+// imports `next/headers` and the database client, server-only modules a client bundle must never
 // pull in. Keeping the pure pieces here, with no I/O imports at all, is what makes that safe.
 export type ViewerFollowState =
   | { status: 'signed-out' }

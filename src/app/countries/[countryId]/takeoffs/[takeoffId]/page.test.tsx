@@ -13,6 +13,11 @@ vi.mock('@/lib/flightlog/takeoffs', () => ({ getTakeoffs: vi.fn() }))
 // implementation is never needed, only importable without crashing.
 vi.mock('@/lib/flightlog/config', () => ({ flightlogTakeoffUrl: vi.fn(() => 'https://flightlog.org/stub') }))
 
+// The real resolver reads the session from request headers, which do not exist outside a request.
+vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
+  resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),
+}))
+
 import { getCountries } from '@/lib/flightlog/countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'

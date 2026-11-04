@@ -1,10 +1,12 @@
 import 'server-only'
 
-import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 
 import * as schema from './schema'
 
-export type Database = NodePgDatabase<typeof schema>
+// Driver-agnostic, so domain functions take the node-postgres pool in the app and PGlite in tests.
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
 
 let database: Database | undefined
 

@@ -1,43 +1,30 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { and, eq, inArray } from 'drizzle-orm'
+import { follows } from '@/lib/db/schema'
+import type { Database } from '@/lib/db/client'
 import { FollowsQueryError } from './follows-query-error'
 import type { PilotId } from '@/lib/flightlog/types'
 
-type FollowRow = { pilot_id: PilotId }
-
-// Business logic: which of the caller's followed pilots are relevant to the current page,
-// against an injected Supabase client (same testability convention as get-comments.ts).
+// candidatePilotIds narrows the read to the pilots a page renders. Omitted entirely, it returns
+// every pilot the user follows, which is what the flight feed needs; an empty array is a
+// different case ("nothing to check") and short-circuits without a query.
 //
-// candidatePilotIds narrows the query to only the pilots a given page actually renders (see
-// resolve-viewer-follow-state.ts) — cheap even against browse-club's 1200+-member rosters,
-// rather than pulling every followed row and filtering client-side. Omitted entirely (not just
-// an empty array — see the empty-array short-circuit below, which is a different case: "no
-// candidates to check" is not "no filter at all"), it returns every pilot the caller follows,
-// which is what the flight feed needs (it has no fixed candidate list — it IS the list).
-//
-// A query error throws a FollowsQueryError rather than returning an empty Set (#155), the same
-// distinguishable-failure shape getFollowersForPilot uses — a denied or misconfigured RLS policy
-// used to be indistinguishable from "follows nobody". The distinct error class is what lets
-// resolveViewerFollowState (this function's one caller) catch specifically this failure and turn
-// it into an explicit signal, without also swallowing an unrelated bug; see its own doc comment
-// for that split.
+// A query error throws a FollowsQueryError rather than returning an empty Set (#155), so a broken
+// read is never mistaken for "follows nobody".
 export async function getFollowedPilotIds(
-  supabase: SupabaseClient,
+  db: Database,
   userId: string,
   candidatePilotIds?: PilotId[],
 ): Promise<Set<PilotId>> {
   if (candidatePilotIds && candidatePilotIds.length === 0) return new Set()
 
-  let query = supabase.from('follows').select('pilot_id').eq('user_id', userId)
-  if (candidatePilotIds) query = query.in('pilot_id', candidatePilotIds)
-
-  const { data, error } = await query
-
-  if (error) {
+  try {
+    const rows = await db
+      .select({ pilotId: follows.pilotId })
+      .from(follows)
+      .where(and(eq(follows.userId, userId), candidatePilotIds && inArray(follows.pilotId, candidatePilotIds)))
+    return new Set(rows.map((row) => row.pilotId))
+  } catch (error) {
     console.error('[follows] failed to load followed pilot ids:', error)
-    throw new FollowsQueryError(`Failed to load followed pilot ids for user ${userId}: ${error.message}`, {
-      cause: error,
-    })
+    throw new FollowsQueryError(`Failed to load followed pilot ids for user ${userId}`, { cause: error })
   }
-
-  return new Set((data as FollowRow[]).map((row) => row.pilot_id))
 }

@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db/client'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { followPilot } from '@/lib/follows/follow-pilot'
 import { unfollowPilot } from '@/lib/follows/unfollow-pilot'
@@ -24,36 +24,20 @@ const UNFOLLOW_GENERIC_ERROR_MESSAGE = 'Something went wrong unfollowing this pi
 // (see index.tsx's own optimistic local state) — the next time any page resolves the viewer's
 // follow state server-side, it reads the row this just wrote.
 export async function followPilotAction(pilotId: PilotId): Promise<FollowActionResult> {
-  let supabase: Awaited<ReturnType<typeof createClient>>
-  try {
-    supabase = await createClient()
-  } catch (error) {
-    console.error('[follows] Supabase is not configured:', error)
-    return { status: 'error', message: FOLLOW_GENERIC_ERROR_MESSAGE }
-  }
-
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await followPilot(supabase, { userId, pilotId })
+  const result = await followPilot(getDb(), { userId, pilotId })
   if (result.kind === 'db-error') return { status: 'error', message: FOLLOW_GENERIC_ERROR_MESSAGE }
 
   return { status: 'success' }
 }
 
 export async function unfollowPilotAction(pilotId: PilotId): Promise<FollowActionResult> {
-  let supabase: Awaited<ReturnType<typeof createClient>>
-  try {
-    supabase = await createClient()
-  } catch (error) {
-    console.error('[follows] Supabase is not configured:', error)
-    return { status: 'error', message: UNFOLLOW_GENERIC_ERROR_MESSAGE }
-  }
-
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await unfollowPilot(supabase, { userId, pilotId })
+  const result = await unfollowPilot(getDb(), { userId, pilotId })
   if (result.kind === 'db-error') return { status: 'error', message: UNFOLLOW_GENERIC_ERROR_MESSAGE }
 
   return { status: 'success' }

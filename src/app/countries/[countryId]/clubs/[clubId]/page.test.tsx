@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/flightlog/club', () => ({ getClub: vi.fn() }))
 vi.mock('@/lib/flightlog/club-stats', () => ({ getClubStats: vi.fn() }))
 vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+// The real resolver reads the session from request headers, which do not exist outside a request.
+vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
+  resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),
+}))
 
 import { getClub } from '@/lib/flightlog/club'
 import { getClubStats } from '@/lib/flightlog/club-stats'
