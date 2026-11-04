@@ -1,8 +1,5 @@
 // @vitest-environment node
 import { PGlite } from '@electric-sql/pglite'
-import { drizzle } from 'drizzle-orm/pglite'
-import { migrate } from 'drizzle-orm/pglite/migrator'
-import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockSendMagicLinkEmail = vi.fn()
@@ -10,6 +7,7 @@ vi.mock('@/lib/email/send-magic-link-email', () => ({
   sendMagicLinkEmail: (...args: unknown[]) => mockSendMagicLinkEmail(...args),
 }))
 
+import { createTestDatabase } from '@/lib/db/test-database'
 import { createAuth } from './server'
 
 const PUBLIC_ORIGIN = 'https://flightlog.example'
@@ -21,10 +19,9 @@ let auth: ReturnType<typeof createAuth>
 // The real auth options and drizzle/ migrations against in-process Postgres, so this exercises
 // the same tables and plugins production runs, without a server.
 beforeAll(async () => {
-  client = new PGlite()
-  const db = drizzle({ client })
-  await migrate(db, { migrationsFolder: join(import.meta.dirname, '..', '..', '..', 'drizzle') })
-  auth = createAuth(db, PUBLIC_ORIGIN)
+  const testDatabase = await createTestDatabase()
+  client = testDatabase.client
+  auth = createAuth(testDatabase.db, PUBLIC_ORIGIN)
 })
 
 afterAll(async () => {
