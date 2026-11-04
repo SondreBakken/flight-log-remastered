@@ -5,6 +5,7 @@ import { ShieldAlert } from 'lucide-react'
 import { getSupabaseEnv } from '@/lib/supabase/env'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserId } from '@/lib/auth/current-user'
+import { getDb } from '@/lib/db/client'
 import { getFlightlogPilotIds } from '@/lib/profiles/get-flightlog-pilot-ids'
 import { getVerifiedPilotIds } from '@/lib/profiles/get-verified-pilot-ids'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
@@ -63,7 +64,7 @@ export default async function AccountActivity() {
       {!isPilotVerified && <UnverifiedLinkNote />}
       <SectionErrorBoundary fallback="Couldn't load followers right now.">
         <Suspense fallback={<FollowersSkeleton />}>
-          <Followers supabase={supabase} pilotId={pilotId} />
+          <Followers viewerUserId={userId} pilotId={pilotId} />
         </Suspense>
       </SectionErrorBoundary>
       {/* Names the content (comments on your flights), not a count of causes: this boundary can't
@@ -113,8 +114,8 @@ type PilotSectionProps = { supabase: SupabaseClient; pilotId: PilotId }
 // instance rather than relying on this sibling split alone for fault isolation (see that
 // boundary's own fallback prop, below, for why CommentsOnMyFlights's fallback names its content
 // rather than a fixed set of causes).
-async function Followers({ supabase, pilotId }: PilotSectionProps) {
-  const followers = await getFollowersForPilot(supabase, pilotId)
+async function Followers({ viewerUserId, pilotId }: { viewerUserId: string; pilotId: PilotId }) {
+  const followers = await getFollowersForPilot(getDb(), viewerUserId, pilotId)
   return <FollowersSection followers={followers} />
 }
 

@@ -1,5 +1,4 @@
-import { getSupabaseEnv } from '@/lib/supabase/env'
-import { createClient } from '@/lib/supabase/server'
+import { getDb } from '@/lib/db/client'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { getFollowedPilotIds } from './get-followed-pilot-ids'
 import { FollowsQueryError } from './follows-query-error'
@@ -13,10 +12,6 @@ const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 // Resolved once per page render, the same "resolve identity server-side once, pass a boolean
 // prop down" shape comment-on-flight/index.tsx established for isOwnComment — never a
 // per-button client-side auth subscription.
-//
-// Renders as signed-out (not a crash) when Supabase isn't provisioned in this environment, same
-// no-op-not-crash rule as CommentsOnFlight (see env.ts's doc comment on getSupabaseEnv vs
-// requireSupabaseEnv) — a follow button is additive UI, not load-bearing for the page it sits on.
 //
 // candidatePilotIds narrows the query to the pilots a given page actually renders; omit it
 // entirely (as browse-flight-feed does) to get every pilot the viewer follows — see
@@ -32,14 +27,11 @@ const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 // error state, rather than trusting an empty followedPilotIds at face value. Only FollowsQueryError
 // is caught here; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
 export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): Promise<ViewerFollowState> {
-  if (!getSupabaseEnv()) return SIGNED_OUT_STATE
-
-  const supabase = await createClient()
   const userId = await getCurrentUserId()
   if (!userId) return SIGNED_OUT_STATE
 
   try {
-    const followedPilotIds = await getFollowedPilotIds(supabase, userId, candidatePilotIds)
+    const followedPilotIds = await getFollowedPilotIds(getDb(), userId, candidatePilotIds)
     return { status: 'resolved', followedPilotIds: [...followedPilotIds] }
   } catch (error) {
     if (!(error instanceof FollowsQueryError)) throw error

@@ -1,30 +1,21 @@
 // @vitest-environment node
 import { PGlite } from '@electric-sql/pglite'
-import { drizzle } from 'drizzle-orm/pglite'
-import { migrate } from 'drizzle-orm/pglite/migrator'
-import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-// PGlite is in-process Postgres, so the real drizzle/ migrations run here without a server in CI.
+import { createTestDatabase, createTestUser } from './test-database'
+
 let client: PGlite
 
 beforeAll(async () => {
-  client = new PGlite()
-  await migrate(drizzle({ client }), { migrationsFolder: join(import.meta.dirname, '..', '..', '..', 'drizzle') })
+  ;({ client } = await createTestDatabase())
 })
 
 afterAll(async () => {
   await client.close()
 })
 
-async function createUser(): Promise<string> {
-  const userId = randomUUID()
-  await client.query(
-    `insert into "user" (id, name, email, updated_at) values ($1, 'Pilot', $2, now())`,
-    [userId, `${userId}@example.test`],
-  )
-  return userId
+function createUser(): Promise<string> {
+  return createTestUser(client)
 }
 
 async function createLinkedPilot(pilotId: number): Promise<string> {

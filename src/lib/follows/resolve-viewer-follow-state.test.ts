@@ -1,20 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const mockGetSupabaseEnv = vi.fn()
-const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
 const mockGetFollowedPilotIds = vi.fn()
-
-vi.mock('@/lib/supabase/env', () => ({
-  getSupabaseEnv: () => mockGetSupabaseEnv(),
-}))
 
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => mockCreateClient(),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => ({}),
 }))
 
 vi.mock('./get-followed-pilot-ids', () => ({
@@ -29,25 +23,11 @@ import {
 } from './resolve-viewer-follow-state'
 import { FollowsQueryError } from './follows-query-error'
 
-beforeEach(() => {
-  mockGetSupabaseEnv.mockReturnValue({ url: 'https://example.supabase.co', anonKey: 'anon-key' })
-  mockCreateClient.mockResolvedValue({})
-})
-
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
 describe('resolveViewerFollowState', () => {
-  it('reports signed-out, without touching Supabase at all, when Supabase is not configured', async () => {
-    mockGetSupabaseEnv.mockReturnValue(null)
-
-    const state = await resolveViewerFollowState([4549])
-
-    expect(state).toEqual({ status: 'signed-out' })
-    expect(mockCreateClient).not.toHaveBeenCalled()
-  })
-
   it('reports signed-out, never reaching getFollowedPilotIds, when there is no session', async () => {
     mockGetCurrentUserId.mockResolvedValue(null)
 

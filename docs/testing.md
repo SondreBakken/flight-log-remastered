@@ -18,7 +18,6 @@ pnpm run check:barogram                   # barogram downsampling and scaling ma
 pnpm run check:track-gradient             # altitude colour ramp and gradient-stop distance math
 pnpm run check:track-hover                # map/chart hover identity (shared index, not seconds)
 pnpm run check:scoring                    # scoring-overlay geometries against saved KML fixtures; SKIPs (exit 0) if fixtures/ is absent
-pnpm run check:follow-store               # follow/unfollow/list-followed-ids logic, stubbed Supabase client
 pnpm run check:follow-button              # follow button presentation (label, aria-pressed, classes) and sign-in-prompt sizing
 pnpm run check:feed                       # recent-flights feed: merge/sort/slice, year derivation, concurrency cap
 pnpm run check:watermark-store            # per-pilot "new since last visit" watermark, pure core + storage adapter
@@ -26,7 +25,7 @@ pnpm run check:seen-trip-store            # per-pilot remembered UNTRACKED trip 
 pnpm run check:request-gate               # outbound request gate: concurrency cap, in-flight tracking
 pnpm run check:comments                   # comment rate-limit/insert/soft-delete logic and result-to-form-state mapping, stubbed Supabase client
 pnpm run check:profiles                   # display-name lookup/upsert logic, stubbed Supabase client
-pnpm run check:account-activity           # followers-for-pilot and comments-for-trip-ids join logic, stubbed Supabase client
+pnpm run check:account-activity           # comments-for-trip-ids join logic, stubbed Supabase client
 pnpm test                                 # Vitest: components, jsdom + React Testing Library
 pnpm lint                                 # ESLint
 pnpm exec tsx scripts/shot.mts <url> <out.png>
@@ -108,46 +107,24 @@ difference property.
 
 `scripts/verify-*.mts` (`verify-map.mts`, `verify-track-gradient.mts`, `verify-track-hover.mts`,
 `verify-scoring.mts`, `verify-feed.mts`, `verify-takeoffs.mts`, `verify-sites-map.mts`,
-`verify-flown-sites.mts`, `verify-shot.mts`, `verify-follows-select-policy.mts`) are a different
+`verify-flown-sites.mts`, `verify-shot.mts`) are a different
 kind of check from everything above: they run against a live target, not the frozen-vs-frozen or
 in-memory fixtures `pnpm run check` covers, so they are deliberately **not** part of `pnpm run
 check` or any other automated gate — there is nothing in this repo that starts a server, waits for
-it, and tears it down again. Run them by hand after touching the relevant feature. Most of them
-drive a real headless browser against a running app; `verify-follows-select-policy.mts` is the one
-exception, covered in its own paragraph below — it drives Supabase directly, with no browser and
-no running app at all, because the thing it proves is a PostgREST-level RLS policy rather than
-rendered UI. `verify-map.mts`
+it, and tears it down again. Run them by hand after touching the relevant feature. They drive a
+real headless browser against a running app. `verify-map.mts`
 and `verify-feed.mts` are the only two that run against `pnpm dev`. `verify-feed.mts` seeds its
 signed-in scenarios (pilot-with-track, pilot-without-track, failure-surfacing) through a real
 authenticated session rather than the deleted localStorage follow-store: it writes a stable test
 user and a single-use magic-link token straight into the app's Postgres (`DATABASE_URL`), then
 opens Better Auth's own `/api/auth/magic-link/verify` URL in the page, which sets the real session
-cookie. No email is sent. The script then writes/clears rows directly in the `follows` table
-between scenarios through a Supabase service-role client; until #266 moves `follows` to Postgres,
-those rows cannot be keyed on the Better Auth user, so the follow-seeding scenarios fail. See the
-module doc comment at the top of `scripts/verify-feed.mts` for the full mechanism. Because it
-needs `DATABASE_URL` and Supabase credentials in its own Node process and imports a
-`server-only`-gated module, run it with:
+cookie. No email is sent. The script then writes/clears that user's rows in the same database's
+`follows` table between scenarios. See the module doc comment at the top of
+`scripts/verify-feed.mts` for the full mechanism. It needs `DATABASE_URL` in its own Node process,
+pointing at the same database as the running app, so run it with:
 
 ```bash
-pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
-```
-
-`verify-follows-select-policy.mts` (#148) proves
-`supabase/migrations/20260812000000_add_follows_select_for_own_pilot.sql`'s additive `follows`
-SELECT policy against a real authenticated Supabase session, but unlike every other script in this
-section it needs no browser and no running app: the thing under test is a PostgREST-level RLS
-policy, not rendered UI, so it's a pure Node script that signs a synthetic user in directly via
-`@supabase/supabase-js`'s own `auth.verifyOtp` (no cookies, no page context — the client is
-created with `persistSession: false`, so its session lives only in memory for this one process)
-and reads `follows` back through that client's own session.
-It provisions its own two dedicated fixture identities via `generateLink`, distinct from
-`verify-feed.mts`'s, and deletes them (rows and auth.users) again at the end of every run rather
-than reusing a stable test user. Same credential/`server-only` requirement as `verify-feed.mts`,
-run it with:
-
-```bash
-pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-follows-select-policy.mts
+pnpm exec tsx --env-file=.env.local scripts/verify-feed.mts
 ```
 
 `verify-takeoffs.mts`, `verify-sites-map.mts` and

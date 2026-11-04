@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-const mockCreateClient = vi.fn()
 const mockGetCurrentUserId = vi.fn()
 const mockFollowPilot = vi.fn()
 const mockUnfollowPilot = vi.fn()
@@ -9,8 +8,8 @@ vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: () => mockCreateClient(),
+vi.mock('@/lib/db/client', () => ({
+  getDb: () => ({}),
 }))
 
 vi.mock('@/lib/follows/follow-pilot', () => ({
@@ -22,14 +21,6 @@ vi.mock('@/lib/follows/unfollow-pilot', () => ({
 }))
 
 import { followPilotAction, unfollowPilotAction } from './actions'
-
-beforeEach(() => {
-  mockCreateClient.mockResolvedValue({})
-})
-
-afterEach(() => {
-  vi.spyOn(console, 'error').mockRestore()
-})
 
 describe('followPilotAction', () => {
   it('rejects with a sign-in prompt, never reaching followPilot, when there is no session', async () => {
@@ -68,17 +59,6 @@ describe('followPilotAction', () => {
     expect(result).toEqual({ status: 'error', message: 'Something went wrong following this pilot. Try again.' })
   })
 
-  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreateClient.mockImplementation(() => {
-      throw new Error('Supabase is not configured')
-    })
-
-    const result = await followPilotAction(4549)
-
-    expect(result).toEqual({ status: 'error', message: 'Something went wrong following this pilot. Try again.' })
-    expect(mockFollowPilot).not.toHaveBeenCalled()
-  })
 })
 
 describe('unfollowPilotAction', () => {
@@ -118,15 +98,4 @@ describe('unfollowPilotAction', () => {
     expect(result).toEqual({ status: 'error', message: 'Something went wrong unfollowing this pilot. Try again.' })
   })
 
-  it('shows a generic error, without crashing, when Supabase is not configured', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockCreateClient.mockImplementation(() => {
-      throw new Error('Supabase is not configured')
-    })
-
-    const result = await unfollowPilotAction(4549)
-
-    expect(result).toEqual({ status: 'error', message: 'Something went wrong unfollowing this pilot. Try again.' })
-    expect(mockUnfollowPilot).not.toHaveBeenCalled()
-  })
 })
