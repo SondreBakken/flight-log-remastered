@@ -1,42 +1,36 @@
-import { execFileSync } from 'node:child_process'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { randomBytes, randomUUID } from 'node:crypto'
+import pg from 'pg'
 import { chromium, type Page } from 'playwright'
 import { checkFollowsTableExists } from './lib/check-follows-table'
 import { createReporter } from './lib/verify-report'
 import { waitForCondition } from './lib/verify-settle'
 import { createAdminClient } from '../src/lib/supabase/admin'
-import { requireSupabaseEnv } from '../src/lib/supabase/env'
 
-// Follow state is seeded through a REAL authenticated Supabase session, not the deleted
-// localStorage follow-store (#115 left this stale; #131/#132 replace it): src/lib/follow-
-// store/storage.ts no longer exists, and the feed (src/features/browse-flight-feed/index.tsx)
-// resolves the viewer's followed pilots from the `follows` table (supabase/migrations/
-// 20260810020000_create_follows.sql), keyed on their Supabase auth session, not localStorage.
-// This script signs in a stable test user for real, then writes/clears rows directly in
-// `follows` between scenarios via the service-role admin client (RLS is owner-only; the
-// service-role key bypasses it by design). Scenario 1 (empty state) runs BEFORE the sign-in
-// step below it, specifically so it stays a genuine signed-out visitor rather than a signed-in
-// user who happens to follow nobody.
+// Follow state is seeded through a REAL authenticated session, not the deleted localStorage
+// follow-store (#115 left this stale; #131/#132 replace it): the feed
+// (src/features/browse-flight-feed/index.tsx) resolves the viewer's followed pilots from the
+// `follows` table, keyed on the signed-in user's id. This script signs in a stable test user for
+// real, then writes/clears rows directly in `follows` between scenarios via the service-role admin
+// client (RLS is owner-only; the service-role key bypasses it by design). Scenario 1 (empty state)
+// runs BEFORE the sign-in step below it, specifically so it stays a genuine signed-out visitor
+// rather than a signed-in user who happens to follow nobody.
 //
-// Signing in does NOT go through the app's /auth/callback route (a magic-link redirect through
-// that route needs the PKCE code-verifier cookie a real email click sets before the browser
-// ever navigates there — Playwright driving `generateLink`'s action_link directly has no such
-// cookie, so the code exchange fails). Instead: `generateLink` (src/lib/supabase/admin.ts, #131)
-// mints a single-use numeric OTP for the test user, and a bundled browser-side module — the
-// app's own createBrowserClient(url, anonKey) (see src/lib/supabase/client.ts) — calls
-// `verifyOtp` with it from INSIDE the page via `page.addScriptTag`. That's what makes
-// @supabase/ssr's storage adapter write the real sb-*-auth-token cookie; there is no
-// server-side equivalent that gets a Playwright BrowserContext into the same state. See
-// signInAsTestUser below for the full mechanism.
+// Signing in goes through Better Auth's own magic-link verify endpoint, the same URL a real email
+// carries: the script writes the test user and a single-use magic-link token straight into the
+// app's Postgres (DATABASE_URL), then the browser opens the verify URL and Better Auth sets the
+// real session cookie. No email is sent. See signInAsTestUser below.
 //
-// Run with:
+// Until #266 ports follows to Postgres, `follows` still lives in Supabase, keyed on Supabase auth
+// user ids, so the follow-seeding scenarios cannot attribute rows to the Better Auth test user.
+//
+// Run with (DATABASE_URL and BETTER_AUTH_URL must point at the same database and origin as the
+// running app):
 //   pnpm exec tsx --env-file=.env.local --conditions=react-server scripts/verify-feed.mts
-// --env-file loads Supabase's service-role credentials into THIS script's own Node process —
-// Next's dev server loads .env.local for itself, not for a separate `tsx` invocation.
-// --conditions=react-server is required because src/lib/supabase/admin.ts imports 'server-only',
-// which throws under plain Node ESM resolution outside Next's own bundler-set condition; the
-// flag makes Node's resolver pick server-only's no-op react-server export instead.
+// --env-file loads DATABASE_URL and Supabase's service-role credentials into THIS script's own
+// Node process — Next's dev server loads .env.local for itself, not for a separate `tsx`
+// invocation. --conditions=react-server is required because src/lib/supabase/admin.ts imports
+// 'server-only', which throws under plain Node ESM resolution outside Next's own bundler-set
+// condition; the flag makes Node's resolver pick server-only's no-op react-server export instead.
 
 // Real pilot ids from the flightlog.org fixture set (see docs/testing.md): 4549 has flights with
 // at least one GPS track (trip 1001428), 12677 has flights but per the scout pass none
@@ -55,98 +49,58 @@ const PILOT_WITHOUT_KNOWN_TRACK = 12677
 const FAILING_PILOT_ID = 555555
 const FAILING_PILOT_MESSAGE = 'could not load recent flights for pilot 555555 (simulated for this check)'
 
-// Obviously-fake, stable across runs: generateLink reuses the same auth.users row for this
-// email every time instead of accumulating a fresh throwaway user per run.
+// Obviously-fake, stable across runs: ensureTestUser reuses the same user row for this email
+// every time instead of accumulating a fresh throwaway user per run.
 const TEST_USER_EMAIL = 'verify-feed-script@example.test'
 
 const { report, finish } = createReporter()
 const adminClient = createAdminClient()
 
-// generateLink neither sends an email nor requires one to already exist — it provisions the
-// auth.users row on first call and returns the same one on every later call for this email, so
-// this doubles as "resolve the test user's id" and "mint this run's sign-in OTP" in one call.
-// email_otp is single-use: this must be called once per script run, not once per scenario.
-async function resolveTestUser(): Promise<{ userId: string; emailOtp: string }> {
-  const { data, error } = await adminClient.auth.admin.generateLink({
-    type: 'magiclink',
-    email: TEST_USER_EMAIL,
-  })
-  if (error || !data.user?.id || !data.properties?.email_otp) {
-    console.error(`could not provision the verify-feed test user via generateLink: ${error?.message ?? 'no user/email_otp returned'}`)
+function requireDatabaseUrl(): string {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) {
+    console.error('DATABASE_URL must be set: verify-feed signs its test user in against the app database.')
     process.exit(1)
   }
-  return { userId: data.user.id, emailOtp: data.properties.email_otp }
+  return databaseUrl
 }
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const appDb = new pg.Client({ connectionString: requireDatabaseUrl() })
+await appDb.connect()
 
-// Bundles a browser-side module that constructs the app's own @supabase/ssr browser client
-// (mirrors src/lib/supabase/client.ts's createBrowserClient(url, anonKey) call) and calls
-// verifyOtp with the one-time code from resolveTestUser. Piped through stdin rather than a temp
-// file: esbuild resolves stdin's bare imports (here, '@supabase/ssr') against `cwd`, so running
-// it with cwd: repoRoot reaches this project's node_modules with nothing written to disk to
-// clean up afterwards.
-function bundleSignInScript(email: string, otp: string): string {
-  const { url: supabaseUrl, anonKey } = requireSupabaseEnv()
-  const entry = `
-import { createBrowserClient } from '@supabase/ssr'
-
-async function signIn() {
-  try {
-    const client = createBrowserClient(${JSON.stringify(supabaseUrl)}, ${JSON.stringify(anonKey)})
-    const { error } = await client.auth.verifyOtp({
-      email: ${JSON.stringify(email)},
-      token: ${JSON.stringify(otp)},
-      type: 'email',
-    })
-    window.__verifyOtpResult = { done: true, error: error ? error.message : null }
-  } catch (err) {
-    window.__verifyOtpResult = { done: true, error: err instanceof Error ? err.message : String(err) }
-  }
-}
-
-signIn()
-`
-  return execFileSync('pnpm', ['exec', 'esbuild', '--bundle', '--format=iife', '--platform=browser'], {
-    cwd: repoRoot,
-    input: entry,
-    encoding: 'utf8',
-  })
-}
-
-type VerifyOtpResult = { done: boolean; error: string | null }
-
-// Signs in for real, in the page, not through any redirect: navigates to the app's own origin
-// first (so the cookie @supabase/ssr sets attaches to the right domain), injects the bundled
-// verifyOtp call, and waits for it to finish before trusting a session exists. Confirmed twice:
-// verifyOtp's own resolved error (the thing that actually gates the cookie write) and, directly,
-// the sb-*-auth-token cookie itself landing in this browser context.
-async function signInAsTestUser(page: Page, email: string, otp: string): Promise<void> {
-  const bundledScript = bundleSignInScript(email, otp)
-
-  await page.goto(url, { waitUntil: 'domcontentloaded' })
-  await page.addScriptTag({ content: bundledScript })
-  const settled = await waitForCondition(
-    page,
-    () => (window as unknown as { __verifyOtpResult?: VerifyOtpResult }).__verifyOtpResult?.done === true,
-    20000,
+async function ensureTestUser(email: string): Promise<string> {
+  await appDb.query(
+    `insert into "user" (id, name, email, email_verified) values ($1, '', $2, true) on conflict (email) do nothing`,
+    [randomUUID(), email],
   )
-  if (!settled) {
-    console.error('verify-feed test user sign-in failed: verifyOtp never completed within the timeout')
-    process.exit(1)
-  }
-  const result = await page.evaluate(
-    () => (window as unknown as { __verifyOtpResult: VerifyOtpResult }).__verifyOtpResult,
-  )
+  const { rows } = await appDb.query<{ id: string }>('select id from "user" where email = $1', [email])
+  return rows[0].id
+}
 
-  if (result.error) {
-    console.error(`verify-feed test user sign-in failed: verifyOtp returned an error: ${result.error}`)
-    process.exit(1)
-  }
+// Mirrors how Better Auth's magicLink plugin stores a token (src/lib/auth/options.ts keeps the
+// plugin's default plain storage): identifier `magic-link:<token>`, value naming the email.
+async function mintMagicLinkToken(email: string): Promise<string> {
+  const token = randomBytes(24).toString('base64url')
+  await appDb.query(
+    `insert into verification (id, identifier, value, expires_at) values ($1, $2, $3, now() + interval '5 minutes')`,
+    [randomUUID(), `magic-link:${token}`, JSON.stringify({ type: 'magic-link', email })],
+  )
+  return token
+}
+
+// Opens the verify URL in the page itself, so the session cookie lands in this browser context the
+// same way a real email click puts it there. Confirmed by the cookie itself, not just the redirect.
+async function signInAsTestUser(page: Page, email: string): Promise<void> {
+  const token = await mintMagicLinkToken(email)
+  const verifyUrl = new URL('/api/auth/magic-link/verify', url)
+  verifyUrl.searchParams.set('token', token)
+  verifyUrl.searchParams.set('callbackURL', '/')
+
+  await page.goto(verifyUrl.toString(), { waitUntil: 'domcontentloaded' })
 
   const cookies = await page.context().cookies()
-  const sessionCookie = cookies.find((c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
-  report(sessionCookie !== undefined, `sign-in: a Supabase session cookie (${sessionCookie?.name ?? 'none found'}) was set after verifyOtp`)
+  const sessionCookie = cookies.find((c) => c.name.endsWith('better-auth.session_token'))
+  report(sessionCookie !== undefined, `sign-in: a Better Auth session cookie (${sessionCookie?.name ?? 'none found'}) was set by the magic-link verify`)
 }
 
 // Replaces the previous `.catch(() => {})` swallowing: a timed-out wait is now itself a
@@ -223,7 +177,7 @@ function reportRowInvariants(rows: RowInfo[], scenarioLabel: string): void {
 }
 
 await checkFollowsTableExists(adminClient)
-const { userId: testUserId, emailOtp } = await resolveTestUser()
+const testUserId = await ensureTestUser(TEST_USER_EMAIL)
 // Idempotent re-run safety: clear out anything a previous (possibly aborted) run left behind
 // before scenario 1, not just between scenarios below.
 await adminClient.from('follows').delete().eq('user_id', testUserId)
@@ -276,10 +230,10 @@ reportNoUnexpectedFailures('empty state')
 
 // --- Sign in for real, on the SAME page/context, only now that scenario 1 (which needs a
 // genuinely signed-out visitor) is done. See signInAsTestUser's own doc comment for the
-// verifyOtp mechanism this relies on. ---
+// magic-link mechanism this relies on. ---
 
 resetCapture()
-await signInAsTestUser(page, TEST_USER_EMAIL, emailOtp)
+await signInAsTestUser(page, TEST_USER_EMAIL)
 reportNoUnexpectedFailures('sign-in')
 
 // --- 2. Following ONLY the pilot with a known GPS track ---
@@ -369,8 +323,7 @@ if (failureScenarioReady) {
 }
 await page.unroute(`**/api/pilots/${FAILING_PILOT_ID}/recent-flights`)
 
-// Leaves the test user's auth.users row in place (harmless, reused next run) but not garbage
-// follows rows.
+// Leaves the test user's row in place (harmless, reused next run) but not garbage follows rows.
 await adminClient.from('follows').delete().eq('user_id', testUserId)
 
 console.log('final logs:', logs.length ? logs : 'none')
@@ -379,5 +332,6 @@ console.log('final logs:', logs.length ? logs : 'none')
 // the resize-then-fullPage fix. Noted so a future reader doesn't have to re-derive that.
 await page.screenshot({ path: out, fullPage: true })
 await browser.close()
+await appDb.end()
 
 finish('flight feed browser assertion')
