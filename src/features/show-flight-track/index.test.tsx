@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { SCORING_KINDS } from '@/lib/flightlog/types'
 import type { ScoringGeometryKind, ScoringGeometryResult, Track, TrackStats } from '@/lib/flightlog/types'
+import { formatAltitude } from './format-altitude'
 import FlightTrack from './index'
 
 // TrackHoverView composes TrackMap (a real maplibre-gl MapLibreMap against a canvas — jsdom has
@@ -25,6 +26,7 @@ const REAL_STATS: TrackStats = {
   maxAltitude: 804,
   minAltitude: 800,
   maxSpeed: '10 / 10 km/h',
+  maxSpeedKind: '10s/60s',
   maxClimb: '0.1 / 0.1 m/s',
   minClimb: '-0.1 / -0.1 m/s',
 }
@@ -39,6 +41,33 @@ describe('FlightTrack', () => {
 
     expect(screen.queryByTestId('stats-unparseable')).toBeNull()
     screen.getByText('1 Jan 2020')
+  })
+
+  it('formats the duration and labels the max speed in the stat grid', () => {
+    render(<FlightTrack track={trackWithStats(REAL_STATS)} />)
+
+    screen.getByText('10 km/h (10 s) / 10 km/h (60 s)')
+  })
+
+  it('shows duration and max altitude in a summary row', () => {
+    render(<FlightTrack track={trackWithStats(REAL_STATS)} />)
+
+    const row = within(screen.getByTestId('flight-summary-row'))
+    row.getByText('1 min')
+    row.getByText('804 m')
+  })
+
+  it('shows the null placeholder in the summary row for a null duration and max altitude', () => {
+    render(<FlightTrack track={trackWithStats({ ...REAL_STATS, duration: null, maxAltitude: null })} />)
+
+    const values = within(screen.getByTestId('flight-summary-row')).getAllByText(formatAltitude(null))
+    expect(values).toHaveLength(2)
+  })
+
+  it('omits the summary row when the stats could not be read', () => {
+    render(<FlightTrack track={trackWithStats('unparseable')} />)
+
+    expect(screen.queryByTestId('flight-summary-row')).toBeNull()
   })
 
   // #59's fix round: the stats block failing to parse must render a distinguishable fallback,

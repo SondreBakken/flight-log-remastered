@@ -159,7 +159,7 @@ triangle placemarks are the metadata-only stub, not real geometry; toggling to t
 geometry renders 4 markers, not 5 — #83: this flight's own A and B turnpoints are 0.91 km apart in
 real terms but project only ~16px apart at this flight's low fit zoom, close enough to merge into
 one 'A/B' badge even though nothing about them is coordinate-equal), 991729 (the degenerate 5- and
-4-point geometries render as disabled radio options, not silently selectable), 235690 (the
+4-point geometries render as disabled select options, not silently selectable), 235690 (the
 entirely-missing out-and-return placemark is likewise disabled), 233524 (#58: both triangle radios
 enabled — real, non-degenerate geometry — and, after selecting the flat triangle, the map's own
 scoring-overlay source carries exactly two line features: a self-closing 4-coordinate loop and a
