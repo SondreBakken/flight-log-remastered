@@ -69,9 +69,9 @@ function cellNumber(rows: Map<string, Nodes>, label: string): number | null {
 // (`<pre>Flight statistics\n…</pre>`) after the pilot's own free text. An untracked flight has
 // no such block (confirmed: fixtures/a34-1001964-detail.html); no attempt is made here to strip
 // it out, so for a tracked flight it flows through as extra lines (the tracked page only reads
-// the pilot and distance from this parse, see page.tsx). Same `<br>`-split-then-reload technique as parse-takeoff-detail.ts's
-// readDescription, for the same reason: it drops inline markup (none present here, but kept
-// consistent) while preserving the upstream `<br>` line breaks.
+// the pilot and distance from this parse, see page.tsx). Same `<br>`-split-then-reload technique
+// as parse-takeoff-detail.ts's readDescription, for the same reason: it drops inline markup (none
+// present here, but kept consistent) while preserving the upstream `<br>` line breaks.
 function readDescription(cell: Nodes): string | null {
   const html = cell.html() ?? ''
   const lines = html

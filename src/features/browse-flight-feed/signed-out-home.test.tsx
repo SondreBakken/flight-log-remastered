@@ -53,6 +53,20 @@ describe('SignedOutHome', () => {
     expectDiscoveryLinks()
   })
 
+  it('styles the table with the form layer: rule borders and form-label headers', async () => {
+    mockedRecent.mockResolvedValue([FLIGHT])
+
+    const { container } = render(await SignedOutHome({ defaultPilotId: DEFAULT_PILOT_ID }))
+
+    expect(container.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...container.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...container.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(1)
+    for (const tr of rows) expect(tr.className).toContain('border-rule')
+  })
+
   it('renders an unavailable line, no table and no error text when there are no tracked flights', async () => {
     mockedRecent.mockResolvedValue([])
 

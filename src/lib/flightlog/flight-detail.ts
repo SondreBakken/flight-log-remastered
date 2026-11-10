@@ -9,11 +9,11 @@ const FLIGHT_DETAIL = 34
 
 // #215: /flights/[tripId] calls this for every trip: untracked trips render the detail table,
 // tracked ones read the pilot and distance from it (#303). This app is never the one place a
-// real browsing session would have landed on a=34 from (it's
-// reachable from the pilot logbook, the recent-flights feed, a takeoff's own site records, …),
-// so there is no single plausible referer the way getTrack has one in a=34 itself (the page a
-// browser would be ON right before requesting the KML). The plain origin is what
-// fetchTrackIndex (tracks.ts) already uses for the same "no one specific referer" reason.
+// real browsing session would have landed on a=34 from (it's reachable from the pilot logbook, the
+// recent-flights feed, a takeoff's own site records, …), so there is no single plausible referer the
+// way getTrack has one in a=34 itself (the page a browser would be ON right before requesting the
+// KML). The plain origin is what fetchTrackIndex (tracks.ts) already uses for the same "no one
+// specific referer" reason.
 //
 // null means "flightlog.org has no flight at this trip_id" (see parseFlightDetail's own doc
 // comment on why that's a valid parse, not a thrown error) — the page.tsx caller falls back to

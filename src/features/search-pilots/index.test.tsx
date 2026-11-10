@@ -40,7 +40,7 @@ describe('SearchPilots', () => {
   it('renders one row per result, linking to the pilot profile and a follow button carrying the pilot id', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
         results={[
           { userId: 900019, name: 'Pilot Nineteen', country: 'Norway' },
@@ -56,10 +56,30 @@ describe('SearchPilots', () => {
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
   })
 
+  it('styles the results table with the form layer: rule borders and form-label headers', () => {
+    const { container } = render(
+      <SearchPilots
+        query="Surname"
+        minLength={3}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
+        isSignedIn
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...container.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...container.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(1)
+    for (const tr of rows) expect(tr.className).toContain('border-rule')
+  })
+
   it('marks a result row as already-followed when its pilot id is in followedPilotIds', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
         results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn
@@ -73,7 +93,7 @@ describe('SearchPilots', () => {
   it('renders a sign-in prompt instead of follow buttons when signed out', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
         results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn={false}
@@ -86,10 +106,10 @@ describe('SearchPilots', () => {
   })
 
   it('submits the search as a plain GET to /pilots/search with the query pre-filled', () => {
-    render(<SearchPilots query="Henden" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
+    render(<SearchPilots query="Surname" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
 
     const input = screen.getByRole('textbox', { name: /pilot name/i }) as HTMLInputElement
-    expect(input.value).toBe('Henden')
+    expect(input.value).toBe('Surname')
     // getByRole throws if not found, so its return alone is the assertion.
     screen.getByRole('button', { name: 'Search' })
 

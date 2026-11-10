@@ -972,7 +972,7 @@ function renderFeedMarkup(element: ReactElement): string {
   )
 
   const withFollows = renderFeedMarkup(
-    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [4549] }, defaultPilotId: 1 }),
+    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [900024] }, defaultPilotId: 1 }),
   )
   assert(
     !withFollows.includes('You are not following any pilots yet'),

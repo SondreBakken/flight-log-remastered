@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { HONEYPOT_SELECTOR } from './honeypot'
 import type { Nodes } from './parse-flightlog-table'
 import { readIdFromHref } from './parse-takeoff-flights'
 import type { ClubDetail } from './types'
@@ -15,14 +16,6 @@ import type { ClubDetail } from './types'
 // no-op: parse-club-roster.ts already throws on its own if the roster table is missing when
 // club.ts calls it, so nothing is lost, and each file now owns exactly one table's selector.
 const INFO_TABLE_SELECTOR = 'table[cellspacing="1"][cellpadding="3"][bgcolor="#778899"]'
-
-// Same structural exclusion parse-clubs.ts and parse-club-roster.ts apply to their own anchor
-// searches: the honeypot's real href never carries `club_id=`/`user_id=` today, but that is
-// incidental to where the trap happens to sit, not a defence — exclude it by its own markers,
-// regardless of href content or document position. Applied below to the "Link to more info"
-// and "Coordinates" cells, each of which — unlike the roster/results tables — took only the
-// first anchor unfiltered before this fix.
-const HONEYPOT_SELECTOR = '.hp-nav, [data-trap], [rel="nofollow"]'
 
 // The page's own self-identifying link: every sampled a=26 response repeats `club_id=<id>` in
 // its language-switcher links at the top of the page (confirmed live: 6 occurrences on each of

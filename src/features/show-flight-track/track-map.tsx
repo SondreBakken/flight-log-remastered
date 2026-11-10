@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { classes } from '@/lib/classes'
 import {
   LngLatBounds,
   MapLibreMap,
@@ -114,10 +115,6 @@ function toLineGradientExpression(stops: GradientStop[]): ExpressionSpecificatio
     ['line-progress'],
     ...stops.flatMap((stop) => [stop.fraction, stop.color]),
   ] as ExpressionSpecification
-}
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, className }: TrackMapProps) {

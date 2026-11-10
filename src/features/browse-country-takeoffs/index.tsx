@@ -1,5 +1,6 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import Link from 'next/link'
 import { List as ListIcon, LocateFixed, Map as MapIcon, Search } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
@@ -232,10 +233,6 @@ function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange:
       </button>
     </div>
   )
-}
-
-function classes(...values: Array<string | false | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 // TakeoffsMap no longer renders its own legend (see that component's own doc comment on why —

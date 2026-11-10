@@ -16,7 +16,7 @@ function CountryList({ countries }: { countries: Country[] }) {
     <ul className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3 md:grid-cols-4">
       {countries.map((country) => (
         <li key={country.countryId}>
-          <Link className="underline underline-offset-2" href={`/countries/${country.countryId}`}>
+          <Link href={`/countries/${country.countryId}`}>
             {country.name}
           </Link>
         </li>

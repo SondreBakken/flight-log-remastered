@@ -19,7 +19,7 @@ export default function AccountPage() {
       <Suspense fallback={<AccountSettingsSkeleton />}>
         <AccountSettings />
       </Suspense>
-      <Link className="text-sm underline underline-offset-2" href="/account/activity">
+      <Link className="text-sm" href="/account/activity">
         See {WHO_FOLLOWS_AND_COMMENTED}
       </Link>
     </section>

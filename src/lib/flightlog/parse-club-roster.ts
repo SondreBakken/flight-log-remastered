@@ -1,12 +1,9 @@
 import * as cheerio from 'cheerio'
+import { HONEYPOT_SELECTOR } from './honeypot'
 import type { Nodes } from './parse-flightlog-table'
 import type { ClubMember } from './types'
 
 const PROFILE_LINK_ACTION = 28
-// Same reasoning as parse-clubs.ts's own copy: the honeypot's real href never carries
-// `user_id=` today, but that is incidental to where the trap happens to sit, not a defence —
-// exclude it structurally, regardless of href content or document position.
-const HONEYPOT_SELECTOR = '.hp-nav, [data-trap], [rel="nofollow"]'
 // Same three-attribute anchor parse-clubs.ts uses for the clubs-list results table — on a
 // club DETAIL page this is the member roster specifically (the info block above it uses a
 // different bgcolor, see parse-club-detail.ts's INFO_TABLE_SELECTOR), confirmed unique on

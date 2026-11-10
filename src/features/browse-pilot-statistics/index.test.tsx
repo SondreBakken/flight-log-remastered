@@ -65,6 +65,24 @@ describe('PilotStatistics', () => {
   // together: "1 flying day" (not "1 flying days"), and 51 minutes rendering as "0.9 h", not
   // the old "0.8 h" — (0.85).toFixed(1) truncates under IEEE754 (0.85 has no exact double
   // representation), so formatHours pre-rounds to whole tenths of an hour first.
+  it('styles the hours-by-year table with the form layer: rule borders, form-label headers, no border on the last row', () => {
+    const flights: Flight[] = [flight({ date: '2024-06-01' }), flight({ date: '2026-01-01' })]
+
+    const { container } = render(<PilotStatistics flights={flights} />)
+    const table = within(container).getByRole('table')
+
+    expect(table.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...table.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...table.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(2)
+    for (const tr of rows) {
+      expect(tr.className).toContain('border-rule')
+      expect(tr.className).toContain('last:border-0')
+    }
+  })
+
   it('sums flightCount for the totals summary, not row count, on a mix of single and aggregated rows', () => {
     const flights: Flight[] = [
       flight({ duration: '00:05', flightCount: 1 }),

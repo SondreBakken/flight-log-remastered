@@ -11,7 +11,7 @@ describe('resolveStatsPilots', () => {
   })
 
   it('leaves userId null when a name matches two roster members — never picks either one', () => {
-    // Voss's own real case: one name is two distinct user_ids (900004, 900017)
+    // Mirrors Voss's real case: one name, two distinct user_ids (900004, 900017)
     // against one stats row. There is no signal in either response to say which one flew.
     const roster: ClubMember[] = [
       { userId: 900004, name: 'Pilot Four' },
