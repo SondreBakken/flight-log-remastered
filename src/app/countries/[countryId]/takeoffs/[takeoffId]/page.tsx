@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import TakeoffDetailView from '@/features/browse-takeoff-detail'
@@ -10,6 +11,20 @@ import { getTakeoffs } from '@/lib/flightlog/takeoffs'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 
 type TakeoffDetailParams = Promise<{ countryId: string; takeoffId: string }>
+
+// Same ids, parses and loaders as TakeoffDetail (shared 'use cache' entries), so a 404 here matches the page.
+export async function generateMetadata({ params }: { params: TakeoffDetailParams }): Promise<Metadata> {
+  const { countryId: countryIdParam, takeoffId: takeoffIdParam } = await params
+  const countryId = parseCuratedCountryId(countryIdParam)
+  if (countryId === null) notFound()
+  const takeoffId = Number(takeoffIdParam)
+  if (!Number.isInteger(takeoffId) || takeoffId <= 0) notFound()
+
+  const [countries, detail] = await Promise.all([getCountries(), getTakeoffDetail(countryId, takeoffId)])
+  if (detail === null) notFound()
+  const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
+  return { title: `${detail.name}, ${countryName}` }
+}
 
 export default function TakeoffDetailPage({ params }: { params: TakeoffDetailParams }) {
   return (

@@ -22,7 +22,7 @@ import { getCountries } from '@/lib/flightlog/countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
-import { TakeoffDetail } from './page'
+import { TakeoffDetail, generateMetadata } from './page'
 
 const mockedGetCountries = vi.mocked(getCountries)
 const mockedGetTakeoffDetail = vi.mocked(getTakeoffDetail)
@@ -168,5 +168,38 @@ describe('TakeoffDetail route guard', () => {
     const element = await TakeoffDetail({ params: Promise.resolve({ countryId: '160', takeoffId: '179' }) })
 
     expect(element.props.mapEntry).toBeNull()
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (countryId: string, takeoffId: string) =>
+    generateMetadata({ params: Promise.resolve({ countryId, takeoffId }) })
+
+  it('titles with the takeoff name and country name, fetching detail by the parsed ids', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
+
+    expect(await metadataFor('160', '179')).toEqual({ title: 'Drammen, Solbergåsen, Norway' })
+    expect(mockedGetTakeoffDetail).toHaveBeenCalledWith(160, 179)
+    expect(mockedGetTakeoffFlights).not.toHaveBeenCalled()
+  })
+
+  it('renders notFound when detail is null', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(null)
+
+    await expect(metadataFor('160', '999999')).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+  })
+
+  it.each([
+    ['999', '179'],
+    ['abc', '179'],
+    ['160', 'abc'],
+    ['160', '0'],
+    ['160', '-3'],
+    ['160', '1.5'],
+  ])('renders notFound for countryId %j and takeoffId %j without fetching', async (countryId, takeoffId) => {
+    await expect(metadataFor(countryId, takeoffId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetTakeoffDetail).not.toHaveBeenCalled()
   })
 })

@@ -99,8 +99,23 @@ describe('identity foundation: base link and focus styles', () => {
     expect(rule).toContain('outline-offset: 2px;')
   })
 
-  it('keeps the root metadata unchanged', () => {
-    expect(layout).toContain("title: 'Flight Log Remastered'")
-    expect(layout).toContain("description: 'A modern frontend over flightlog.org'")
+  it('sets the root title template, default and flightlog.social description', () => {
+    expect(layout).toContain(
+      "title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' }",
+    )
+    expect(layout).toContain(
+      "description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.'",
+    )
+  })
+
+  it.each([
+    ['countries/page.tsx', 'Countries'],
+    ['pilots/search/page.tsx', 'Find pilots'],
+    ['account/page.tsx', 'Account'],
+    ['account/activity/page.tsx', 'Activity'],
+    ['sign-in/page.tsx', 'Sign in'],
+  ])('gives %s the static page title %j', (file, title) => {
+    const page = readFileSync(join(__dirname, file), 'utf8')
+    expect(page).toContain(`export const metadata: Metadata = { title: '${title}' }`)
   })
 })

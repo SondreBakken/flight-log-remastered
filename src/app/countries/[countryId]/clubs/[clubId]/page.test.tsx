@@ -13,7 +13,7 @@ vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
 import { getClub } from '@/lib/flightlog/club'
 import { getClubStats } from '@/lib/flightlog/club-stats'
 import { getCountries } from '@/lib/flightlog/countries'
-import { Club } from './page'
+import { Club, generateMetadata, parseCanonicalClubId } from './page'
 
 const mockedGetClub = vi.mocked(getClub)
 const mockedGetClubStats = vi.mocked(getClubStats)
@@ -100,5 +100,67 @@ describe('Club route guard', () => {
     expect(element.props.countryName).toBe('Norway')
     expect(element.props.roster).toEqual([{ userId: 1, name: 'Pilot One' }])
     expect(element.props.stats).toEqual([{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }])
+  })
+})
+
+describe('parseCanonicalClubId', () => {
+  it.each([
+    ['51', 51],
+    ['0', 0],
+    ['0x33', null],
+    ['51.0', null],
+    ['+51', null],
+    ['999999999999999999999', null],
+  ])('parses %j to %s', (raw, expected) => {
+    expect(parseCanonicalClubId(raw)).toBe(expected)
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (countryId: string, clubId: string) =>
+    generateMetadata({ params: Promise.resolve({ countryId, clubId }) })
+
+  it('titles with the club name and the country name, fetching by the parsed ids', async () => {
+    mockedGetCountries.mockResolvedValue([
+      { countryId: 160, name: 'Norway' },
+      { countryId: 203, name: 'Sweden' },
+    ])
+    mockedGetClub.mockResolvedValue({
+      detail: {
+        clubId: 51,
+        name: 'Voss Hang- Og Paragliderklubb',
+        memberCount: 0,
+        coordinatesText: null,
+        mapUrl: null,
+        description: null,
+        linkUrl: null,
+        createdAt: null,
+        updatedAt: null,
+      },
+      roster: [],
+    })
+
+    expect(await metadataFor('203', '51')).toEqual({ title: 'Voss Hang- Og Paragliderklubb, Sweden' })
+    expect(mockedGetClub).toHaveBeenCalledWith(203, 51)
+    expect(mockedGetClubStats).not.toHaveBeenCalled()
+  })
+
+  it('renders notFound when getClub resolves null', async () => {
+    mockedGetClub.mockResolvedValue(null)
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+
+    await expect(metadataFor('160', '999999999')).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+  })
+
+  it.each([
+    ['abc', '51'],
+    ['0', '51'],
+    ['160.0', '51'],
+    ['160', 'abc'],
+    ['160', '0'],
+    ['160', '51.0'],
+  ])('renders notFound for countryId %j and clubId %j without fetching', async (countryId, clubId) => {
+    await expect(metadataFor(countryId, clubId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetClub).not.toHaveBeenCalled()
   })
 })

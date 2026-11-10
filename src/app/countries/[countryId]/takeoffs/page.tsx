@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import TakeoffDirectory from '@/features/browse-country-takeoffs'
 import { CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
@@ -12,6 +13,16 @@ type TakeoffsParams = Promise<{ countryId: string }>
 // front too rather than rendering a directory that can only ever show a fetch error.
 export async function generateStaticParams(): Promise<{ countryId: string }[]> {
   return CURATED_TAKEOFF_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) }))
+}
+
+// Same parse and getCountries call as TakeoffsPage (shared 'use cache' entry).
+export async function generateMetadata({ params }: { params: TakeoffsParams }): Promise<Metadata> {
+  const { countryId } = await params
+  const id = parseCuratedCountryId(countryId)
+  if (id === null) notFound()
+  const countries = await getCountries()
+  const countryName = countries.find((country) => country.countryId === id)?.name ?? `Country ${id}`
+  return { title: `Takeoffs in ${countryName}` }
 }
 
 // #9's directory page, replacing #38's proof-of-mechanism preview — that component's own

@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import BrowseClub from '@/features/browse-club'
@@ -21,10 +22,24 @@ type ClubParams = Promise<{ countryId: string; clubId: string }>
 // own cache entries (both the underlying `'use cache'` data cache, keyed by the parsed number
 // either way, and any URL-keyed caching layer in front of it) for no real benefit.
 const CANONICAL_DECIMAL_ID = /^(0|[1-9]\d*)$/
-function parseCanonicalClubId(raw: string): number | null {
+export function parseCanonicalClubId(raw: string): number | null {
   if (!CANONICAL_DECIMAL_ID.test(raw)) return null
   const id = Number(raw)
   return Number.isSafeInteger(id) ? id : null
+}
+
+// Same ids, parses and loaders as Club (shared 'use cache' entries), so a 404 here matches the page.
+export async function generateMetadata({ params }: { params: ClubParams }): Promise<Metadata> {
+  const { countryId: countryIdParam, clubId: clubIdParam } = await params
+  const countryId = parseCanonicalCountryId(countryIdParam)
+  if (countryId === null || countryId <= 0) notFound()
+  const clubId = parseCanonicalClubId(clubIdParam)
+  if (clubId === null || clubId <= 0) notFound()
+
+  const [countries, club] = await Promise.all([getCountries(), getClub(countryId, clubId)])
+  if (club === null) notFound()
+  const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
+  return { title: `${club.detail.name}, ${countryName}` }
 }
 
 export default function ClubPage({ params }: { params: ClubParams }) {

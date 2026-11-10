@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import CountryClubs from '@/features/browse-country-clubs'
@@ -17,6 +18,16 @@ type CountryParams = Promise<{ countryId: string }>
 // get prerendered; every other well-formed id still renders normally, on demand.
 export async function generateStaticParams(): Promise<{ countryId: string }[]> {
   return CURATED_CLUB_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) }))
+}
+
+// Same id parse and getCountries call as Clubs (shared 'use cache' entry). An id missing from the
+// list is not a 404 here either, so it takes the page's own `Country <id>` fallback name.
+export async function generateMetadata({ params }: { params: CountryParams }): Promise<Metadata> {
+  const { countryId } = await params
+  const id = parseCanonicalCountryId(countryId)
+  if (id === null || id <= 0) notFound()
+  const countries = await getCountries()
+  return { title: countries.find((country) => country.countryId === id)?.name ?? `Country ${id}` }
 }
 
 export default function CountryPage({ params }: { params: CountryParams }) {

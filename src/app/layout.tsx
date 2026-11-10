@@ -11,8 +11,8 @@ const archivo = Archivo({
 })
 
 export const metadata: Metadata = {
-  title: 'Flight Log Remastered',
-  description: 'A modern frontend over flightlog.org',
+  title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' },
+  description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.',
 }
 
 export default function RootLayout({

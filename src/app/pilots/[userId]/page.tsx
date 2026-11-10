@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import FlownSitesSection from '@/features/browse-flown-sites-map'
@@ -27,6 +28,15 @@ async function parsePilotId(params: PilotParams): Promise<number> {
   const pilotId = Number(userId)
   if (!Number.isInteger(pilotId) || pilotId <= 0) notFound()
   return pilotId
+}
+
+// Same loader and id parse as Logbook, so the 'use cache' entry is shared (no second fetch); the
+// same isFallbackPilot guard keeps a 404 from ever being titled with the synthetic `Pilot <id>`.
+export async function generateMetadata({ params }: { params: PilotParams }): Promise<Metadata> {
+  const pilotId = await parsePilotId(params)
+  const { pilot } = await getPilotLogbook(pilotId)
+  if (isFallbackPilot(pilotId, pilot)) notFound()
+  return { title: pilot.name }
 }
 
 // The flown-sites map sits between the logbook's summary and its table, so it is rendered

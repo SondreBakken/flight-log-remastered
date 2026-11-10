@@ -10,7 +10,7 @@ vi.mock('@/lib/flightlog/regions', () => ({ getRegions: vi.fn() }))
 import { getCountries } from '@/lib/flightlog/countries'
 import { getRegions } from '@/lib/flightlog/regions'
 import TakeoffDirectory from '@/features/browse-country-takeoffs'
-import TakeoffsPage from './page'
+import TakeoffsPage, { generateMetadata } from './page'
 
 const mockedGetCountries = vi.mocked(getCountries)
 const mockedGetRegions = vi.mocked(getRegions)
@@ -71,5 +71,30 @@ describe('TakeoffsPage route guard', () => {
     const element = await TakeoffsPage({ params: Promise.resolve({ countryId: '160' }) })
 
     expect(element.props.countryName).toBe('Country 160')
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (countryId: string) => generateMetadata({ params: Promise.resolve({ countryId }) })
+
+  it('titles `Takeoffs in <country name>` for a curated country', async () => {
+    mockedGetCountries.mockResolvedValue([
+      { countryId: 203, name: 'Sweden' },
+      { countryId: 160, name: 'Norway' },
+    ])
+
+    expect(await metadataFor('160')).toEqual({ title: 'Takeoffs in Norway' })
+    expect(mockedGetRegions).not.toHaveBeenCalled()
+  })
+
+  it('falls back to `Country <id>` when the curated country is absent from the list', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 203, name: 'Sweden' }])
+
+    expect(await metadataFor('160')).toEqual({ title: 'Takeoffs in Country 160' })
+  })
+
+  it.each(['0', 'abc', '999', '160.0'])('renders notFound for the malformed or uncurated id %j without fetching', async (countryId) => {
+    await expect(metadataFor(countryId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetCountries).not.toHaveBeenCalled()
   })
 })

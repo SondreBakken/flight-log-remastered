@@ -23,7 +23,7 @@ import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 import { resolveCertificateProgressState } from '@/lib/profiles/resolve-certificate-progress-state'
 import { resolvePilotVerified } from '@/lib/profiles/resolve-pilot-verified'
-import { Logbook } from './page'
+import { Logbook, generateMetadata } from './page'
 
 const mockedGetPilotLogbook = vi.mocked(getPilotLogbook)
 const mockedResolvePilotVerified = vi.mocked(resolvePilotVerified)
@@ -136,5 +136,29 @@ describe('Logbook', () => {
     const table = container.querySelector('details') as Element
     expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(map.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('generateMetadata', () => {
+  it('titles the page with the pilot name, loading the logbook by the parsed numeric id', async () => {
+    mockedGetPilotLogbook.mockResolvedValue({ pilot: REAL_PILOT, flights: NO_FLIGHTS })
+
+    expect(await generateMetadata({ params: Promise.resolve({ userId: '12677' }) })).toEqual({ title: 'Sondre Bakken' })
+    expect(mockedGetPilotLogbook).toHaveBeenCalledWith(12677)
+  })
+
+  it('renders notFound for the fallback-pilot shape rather than titling `Pilot <id>`', async () => {
+    mockedGetPilotLogbook.mockResolvedValue({ pilot: FALLBACK_PILOT, flights: NO_FLIGHTS })
+
+    await expect(generateMetadata({ params: Promise.resolve({ userId: '999999999' }) })).rejects.toMatchObject({
+      digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+    })
+  })
+
+  it.each(['abc', '0', '-1', '1.5'])('renders notFound for the malformed id %j without loading the logbook', async (userId) => {
+    await expect(generateMetadata({ params: Promise.resolve({ userId }) })).rejects.toMatchObject({
+      digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+    })
+    expect(mockedGetPilotLogbook).not.toHaveBeenCalled()
   })
 })
