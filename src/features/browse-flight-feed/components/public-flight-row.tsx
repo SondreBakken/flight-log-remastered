@@ -11,7 +11,7 @@ export function PublicFlightRow({ flight }: { flight: TakeoffFlight }) {
         {flight.date === null ? '-' : <CalendarDate value={flight.date} />}
       </td>
       <td className="py-2 pr-4">
-        <Link className="underline underline-offset-2" href={`/pilots/${flight.userId}`}>
+        <Link href={`/pilots/${flight.userId}`}>
           {flight.pilotName}
         </Link>
       </td>
@@ -20,7 +20,7 @@ export function PublicFlightRow({ flight }: { flight: TakeoffFlight }) {
         {flight.distanceKm === null ? '-' : `${flight.distanceKm.toFixed(1)} km`}
       </td>
       <td className="py-2">
-        <Link className="underline underline-offset-2" href={`/flights/${flight.tripId}`}>
+        <Link href={`/flights/${flight.tripId}`}>
           View track
         </Link>
       </td>

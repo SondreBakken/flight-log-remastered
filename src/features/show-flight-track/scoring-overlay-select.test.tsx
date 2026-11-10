@@ -25,6 +25,14 @@ describe('ScoringOverlaySelect', () => {
     expect(screen.getByRole('option', { name: 'None' })).toHaveProperty('selected', true)
   })
 
+  it('styles the label as a form label without capitals, tracking or opacity', () => {
+    render(<ScoringOverlaySelect scoring={SCORING} selectedKind={null} onSelectKind={() => {}} />)
+
+    const label = screen.getByText('Scoring overlay')
+    expect(label.className).toContain('form-label')
+    expect(label.className).not.toMatch(/uppercase|tracking-|opacity-/)
+  })
+
   it('disables unavailable kinds and states the reason in the option text', () => {
     render(<ScoringOverlaySelect scoring={SCORING} selectedKind={null} onSelectKind={() => {}} />)
 

@@ -20,7 +20,7 @@ export function ScoringOverlaySelect({ scoring, selectedKind, onSelectKind }: Sc
   return (
     <div className="flex flex-col gap-2">
       <label className="flex items-center gap-2 text-sm">
-        <span className="text-xs font-medium uppercase tracking-wide opacity-60">Scoring overlay</span>
+        <span className="form-label">Scoring overlay</span>
         <select
           value={selectedKind ?? NONE_VALUE}
           onChange={(event) => onSelectKind(toKind(event.target.value))}
@@ -35,7 +35,7 @@ export function ScoringOverlaySelect({ scoring, selectedKind, onSelectKind }: Sc
         </select>
       </label>
       {selectedKind && (
-        <p className="text-xs tabular-nums opacity-70" aria-live="polite" data-testid="scoring-overlay-summary">
+        <p className="text-xs tabular-nums text-muted" aria-live="polite" data-testid="scoring-overlay-summary">
           {formatScoringSummary(selectedKind, scoring)}
         </p>
       )}

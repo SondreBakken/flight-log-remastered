@@ -58,7 +58,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
           // or untracked alike (see feed.ts's FlightNewness — both are fully classifiable now,
           // #62). A "seen before" badge for 'not-new' would be pure noise on an already-quiet
           // row; the "New" badge alone carries the entire signal this table needs to show.
-          <span className="mr-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
+          <span className="mr-1.5 form-label rounded border border-rule px-1.5 py-0.5">
             New
           </span>
         )}
@@ -66,7 +66,6 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
       </td>
       <td className="py-2 pr-4">
         <Link
-          className="underline underline-offset-2"
           href={`/pilots/${pilot.userId}`}
           onClick={stopRowNavigation}
         >

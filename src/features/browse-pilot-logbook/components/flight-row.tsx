@@ -68,7 +68,7 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
         {formatFlightDistance(flight)}
       </td>
       <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Track">
-        {hasTrack && <Link className="underline" href={href}>View track</Link>}
+        {hasTrack && <Link href={href}>View track</Link>}
       </td>
     </tr>
   )
