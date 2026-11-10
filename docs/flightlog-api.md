@@ -357,8 +357,8 @@ more rows exist — see below): requesting a known total with `offset=N` returns
 - **A Lier Hanggliderklubb pilot, 134 rows, 2008-2026.** No `offset`:
   134 rows (`totalFlightCount` sum also 134 — every row is `flightCount=1` for this pilot).
   `offset=100`: 34 rows (134 - 100). `offset=1000`: 0 rows.
-- **A much higher-volume Voss Hang- og Paragliderklubb pilot** (`rqtid=1&club_id=51`'s current-year leaderboard has him at 356 flights for 2026
-  alone — the single busiest row of 291 that club's stats table returned). No `offset`:
+- **A much higher-volume Voss Hang- og Paragliderklubb pilot** (`rqtid=1&club_id=51`'s current-year
+  leaderboard has him at 356 flights for 2026 alone — the single busiest row of 291 that club's stats table returned). No `offset`:
   172 rows, `totalFlightCount` sum 919, spanning 2024-2026. `offset=100`: 72 rows
   (172 - 100). `offset=200`: 0 rows.
 - **Cross-check against `rqtid=1`'s own "Flights" column**, which is a CURRENT-YEAR total,
@@ -450,8 +450,8 @@ the same div that holds the search form itself, with `<br>` as the only separato
 
 **Matching semantics**, resolved with two queries against the known three-pilot surname set (all Norway):
 
-- `user_fullname=nde` — an interior substring of that surname (not a token, not a prefix or suffix, not
-  the surname itself) returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
+- `user_fullname=nde`: the surname shown above is a placeholder; the real surname contained `nde` as an
+  interior substring (not a token, not a prefix or suffix, not the surname itself). It returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
   India, Netherlands, Northern Mariana Islands, Norway, Sweden, United Kingdom in the fixture on
   hand), including the 3 known pilots and many whose *first* name alone contains "nde" (e.g.
   "Anders...", "Aleksander..."). This confirms **case-insensitive substring match against the full
@@ -631,8 +631,9 @@ separate ones for takeoff detail vs. flights.
   on the document, the same scoping discipline `parse-clubs.ts` already uses for its own anchor
   search.
 - **A name can legitimately belong to two different members.** Voss's 1271-row roster has 7 name
-  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. one name shared by two distinct `user_id`s; the 7th is the 5 phantom blank-name icon anchors above, which never
-  reach the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
+  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. one name shared by two
+  distinct `user_id`s; the 7th is the 5 phantom blank-name icon anchors above, which never reach
+  the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
   `user_id` only, never by name, so two members sharing a name are two rows, not one.
 - **HTML entities decode to identical text across the roster and `rqtid=1`'s stats table** —
   the roster spells one Voss pilot `Luis &#039;&#039;Mickey&#039;&#039; Fonseca`, `rqtid=1`'s

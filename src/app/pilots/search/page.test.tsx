@@ -46,10 +46,10 @@ describe('Search route guard', () => {
       results: [{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }],
     })
 
-    const element = await Search({ searchParams: Promise.resolve({ q: 'Henden' }) })
+    const element = await Search({ searchParams: Promise.resolve({ q: 'Surname' }) })
 
-    expect(mockedSearchPilots).toHaveBeenCalledWith('Henden')
-    expect(element.props.query).toBe('Henden')
+    expect(mockedSearchPilots).toHaveBeenCalledWith('Surname')
+    expect(element.props.query).toBe('Surname')
     expect(element.props.results).toEqual([{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }])
   })
 

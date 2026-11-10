@@ -139,10 +139,10 @@ const seenTripStorage = await import('../src/lib/seen-trip-store/storage')
 // (no getSnapshot/subscribe surface: nothing here is read reactively).
 // =====================================================================================
 
-assert(seenTripStorage.getSeenTripIds(4549) === null, 'an unhydrated store reads a never-seen pilot as no entry, not a crash')
+assert(seenTripStorage.getSeenTripIds(900024) === null, 'an unhydrated store reads a never-seen pilot as no entry, not a crash')
 {
   const { reads } = itemCallsDuring(() => {
-    seenTripStorage.getSeenTripIds(4549)
+    seenTripStorage.getSeenTripIds(900024)
   })
   assert(reads === 0, 'a second getSeenTripIds() call does not re-read localStorage — the store is genuinely hydrated, not stuck retrying')
 }
@@ -152,29 +152,29 @@ assert(seenTripStorage.getSeenTripIds(4549) === null, 'an unhydrated store reads
 // rule (neither pure replace nor pure union — see seen-trip-ids.ts's own doc comment).
 // =====================================================================================
 
-seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([100, 200]), renderedTripIds: new Set([100]) })
-assertEqual([...(seenTripStorage.getSeenTripIds(4549) ?? [])], [100], 'recordSeenTripIds sets an initial entry from what rendered this load')
+seenTripStorage.recordSeenTripIds(900024, { fetchedTripIds: new Set([100, 200]), renderedTripIds: new Set([100]) })
+assertEqual([...(seenTripStorage.getSeenTripIds(900024) ?? [])], [100], 'recordSeenTripIds sets an initial entry from what rendered this load')
 assertEqual(
   JSON.parse(fakeLocalStorage.raw(SEEN_TRIP_KEY) ?? '{}'),
-  { '4549': [100] },
+  { '900024': [100] },
   'recordSeenTripIds persists the entry to localStorage',
 )
 
 // A previously-remembered id (100) still within this load's fetched scope but NOT rendered
 // this time survives; a newly-rendered id (200) is added; the fetched scope itself is
 // bounded, so this can only ever grow up to `fetchedTripIds.size`.
-seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([100, 200, 300]), renderedTripIds: new Set([200]) })
+seenTripStorage.recordSeenTripIds(900024, { fetchedTripIds: new Set([100, 200, 300]), renderedTripIds: new Set([200]) })
 assertEqual(
-  [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
+  [...(seenTripStorage.getSeenTripIds(900024) ?? [])].sort(),
   [100, 200],
   'recordSeenTripIds preserves a previously-seen id that is still in scope but not rendered THIS load, alongside what rendered this load',
 )
 
 // Now 100 falls OUT of the fetched scope entirely (no longer among this pilot's recent
 // flights) — it must be pruned, not carried forward forever the way a pure union would.
-seenTripStorage.recordSeenTripIds(4549, { fetchedTripIds: new Set([200, 300]), renderedTripIds: new Set([300]) })
+seenTripStorage.recordSeenTripIds(900024, { fetchedTripIds: new Set([200, 300]), renderedTripIds: new Set([300]) })
 assertEqual(
-  [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
+  [...(seenTripStorage.getSeenTripIds(900024) ?? [])].sort(),
   [200, 300],
   'recordSeenTripIds drops an id that has aged out of the fetched scope, rather than keeping it forever',
 )
@@ -190,7 +190,7 @@ seenTripStorage.clearSeenTripIds(12677)
 assert(seenTripStorage.getSeenTripIds(12677) === null, 'clearSeenTripIds drops the pilot\'s entry — a later refollow starts from scratch, not a stale mark')
 assertEqual(
   JSON.parse(fakeLocalStorage.raw(SEEN_TRIP_KEY) ?? '{}'),
-  { '4549': [200, 300] },
+  { '900024': [200, 300] },
   'clearSeenTripIds persists the removal to localStorage, leaving other pilots untouched',
 )
 
@@ -241,7 +241,7 @@ assertEqual([...(seenTripStorage.getSeenTripIds(1) ?? [])], [500], 'a storage ev
 }
 
 // Re-sync to a clean, known baseline before the boundary-guard sections below.
-fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 4549: [200, 300], 12677: [1] }))
+fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 900024: [200, 300], 12677: [1] }))
 dispatchStorageEvent(SEEN_TRIP_KEY)
 
 // =====================================================================================
@@ -253,9 +253,9 @@ dispatchStorageEvent(SEEN_TRIP_KEY)
 // =====================================================================================
 
 {
-  seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([4549])) // 12677 is NOT in this set
+  seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([900024])) // 12677 is NOT in this set
   assertEqual(
-    [...(seenTripStorage.getSeenTripIds(4549) ?? [])].sort(),
+    [...(seenTripStorage.getSeenTripIds(900024) ?? [])].sort(),
     [200, 300],
     'pruneSeenTripIdsToFollowedPilots leaves a pilot present in the followed set completely untouched',
   )
@@ -265,7 +265,7 @@ dispatchStorageEvent(SEEN_TRIP_KEY)
   )
   assertEqual(
     JSON.parse(fakeLocalStorage.raw(SEEN_TRIP_KEY) ?? '{}'),
-    { '4549': [200, 300] },
+    { '900024': [200, 300] },
     'pruneSeenTripIdsToFollowedPilots persists the eviction to localStorage',
   )
 }
@@ -273,14 +273,14 @@ dispatchStorageEvent(SEEN_TRIP_KEY)
 {
   const beforeNoopPrune = fakeLocalStorage.raw(SEEN_TRIP_KEY)
   const { writes } = itemCallsDuring(() => {
-    seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([4549])) // already exactly the followed set
+    seenTripStorage.pruneSeenTripIdsToFollowedPilots(new Set([900024])) // already exactly the followed set
   })
   assertEqual(fakeLocalStorage.raw(SEEN_TRIP_KEY), beforeNoopPrune, 'pruneSeenTripIdsToFollowedPilots is a no-op when every stored pilot is already in the followed set')
   assert(writes === 0, 'a no-op prune makes no localStorage.setItem call')
 }
 
 // Restore the pre-prune baseline the read-side guard sections below assume.
-fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 4549: [200, 300], 12677: [1] }))
+fakeLocalStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ 900024: [200, 300], 12677: [1] }))
 dispatchStorageEvent(SEEN_TRIP_KEY)
 
 // =====================================================================================

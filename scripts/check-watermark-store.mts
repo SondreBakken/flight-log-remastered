@@ -124,10 +124,10 @@ const watermarkStorage = await import('../src/lib/watermark-store/storage')
 // way: a second read makes no further localStorage call.
 // =====================================================================================
 
-assert(watermarkStorage.getWatermark(4549) === null, 'an unhydrated store reads a never-seen pilot as no watermark, not a crash')
+assert(watermarkStorage.getWatermark(900024) === null, 'an unhydrated store reads a never-seen pilot as no watermark, not a crash')
 {
   const { reads } = itemCallsDuring(() => {
-    watermarkStorage.getWatermark(4549)
+    watermarkStorage.getWatermark(900024)
   })
   assert(reads === 0, 'a second getWatermark() call does not re-read localStorage — the store is genuinely hydrated, not stuck retrying')
 }
@@ -136,19 +136,19 @@ assert(watermarkStorage.getWatermark(4549) === null, 'an unhydrated store reads 
 // recordSeen: the only write path that advances a watermark
 // =====================================================================================
 
-watermarkStorage.recordSeen(4549, '20260101000000')
-assertEqual(watermarkStorage.getWatermark(4549), '20260101000000', 'recordSeen sets an initial watermark for a pilot with none')
+watermarkStorage.recordSeen(900024, '20260101000000')
+assertEqual(watermarkStorage.getWatermark(900024), '20260101000000', 'recordSeen sets an initial watermark for a pilot with none')
 assertEqual(
   JSON.parse(fakeLocalStorage.raw(WATERMARK_KEY) ?? '{}'),
-  { '4549': '20260101000000' },
+  { '900024': '20260101000000' },
   'recordSeen persists the watermark to localStorage',
 )
 
-watermarkStorage.recordSeen(4549, '20260601000000')
-assertEqual(watermarkStorage.getWatermark(4549), '20260601000000', 'recordSeen advances the watermark forward when the candidate is newer')
+watermarkStorage.recordSeen(900024, '20260601000000')
+assertEqual(watermarkStorage.getWatermark(900024), '20260601000000', 'recordSeen advances the watermark forward when the candidate is newer')
 
-watermarkStorage.recordSeen(4549, '20250101000000') // older candidate — a stale/duplicate write
-assertEqual(watermarkStorage.getWatermark(4549), '20260601000000', 'recordSeen never regresses a watermark to an OLDER candidate')
+watermarkStorage.recordSeen(900024, '20250101000000') // older candidate — a stale/duplicate write
+assertEqual(watermarkStorage.getWatermark(900024), '20260601000000', 'recordSeen never regresses a watermark to an OLDER candidate')
 
 {
   // Not a "MUST-GO-RED for > vs >=" case (a prior version of this file wrongly labelled it
@@ -156,9 +156,9 @@ assertEqual(watermarkStorage.getWatermark(4549), '20260601000000', 'recordSeen n
   // comparison, so this only pins that the value stays correct, not which operator produced
   // it. See watermark-ids.test.ts for the same caveat on the pure function.
   const { writes } = itemCallsDuring(() => {
-    watermarkStorage.recordSeen(4549, '20260601000000') // exactly equal — must not error, must not "helpfully" rewrite
+    watermarkStorage.recordSeen(900024, '20260601000000') // exactly equal — must not error, must not "helpfully" rewrite
   })
-  assertEqual(watermarkStorage.getWatermark(4549), '20260601000000', 'recordSeen with a candidate exactly equal to the current value is a no-op, not an error')
+  assertEqual(watermarkStorage.getWatermark(900024), '20260601000000', 'recordSeen with a candidate exactly equal to the current value is a no-op, not an error')
   assert(writes === 0, 'recordSeen with a candidate exactly equal to the current value does not write to localStorage')
 }
 
@@ -173,7 +173,7 @@ watermarkStorage.clearWatermark(12677)
 assert(watermarkStorage.getWatermark(12677) === null, 'clearWatermark drops the pilot\'s watermark — a later refollow starts from scratch, not a stale mark')
 assertEqual(
   JSON.parse(fakeLocalStorage.raw(WATERMARK_KEY) ?? '{}'),
-  { '4549': '20260601000000' },
+  { '900024': '20260601000000' },
   'clearWatermark persists the removal to localStorage, leaving other pilots untouched',
 )
 
@@ -234,7 +234,7 @@ assertEqual(watermarkStorage.getWatermark(1), '20260101000000', 'a storage event
 
 // Re-sync to a clean, known baseline before the boundary-guard sections below, independent of
 // whatever the assertions above left behind.
-fakeLocalStorage.setItem(WATERMARK_KEY, JSON.stringify({ 4549: '20260601000000', 12677: '20260101000000' }))
+fakeLocalStorage.setItem(WATERMARK_KEY, JSON.stringify({ 900024: '20260601000000', 12677: '20260101000000' }))
 dispatchStorageEvent(WATERMARK_KEY)
 
 // =====================================================================================
