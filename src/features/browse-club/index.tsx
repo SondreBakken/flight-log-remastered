@@ -131,7 +131,7 @@ function SignInPrompt() {
   )
 }
 
-// Every roster member gets a follow button when signed in — unlike a stats row (see
+// Every roster member gets a follow button when signed in, unlike a stats row (see
 // stats-leaderboard.tsx), a roster row already carries its own `user_id` straight from
 // flightlog.org, nothing to resolve or fail to resolve.
 function Roster({
