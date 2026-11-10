@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { SCORING_KINDS } from '@/lib/flightlog/types'
 import type { ScoringGeometryKind, ScoringGeometryResult, Track, TrackStats } from '@/lib/flightlog/types'
-import { formatAltitude } from './format-altitude'
+import { NULL_PLACEHOLDER } from './format-altitude'
 import FlightTrack from './index'
 
 // TrackHoverView composes TrackMap (a real maplibre-gl MapLibreMap against a canvas — jsdom has
 // no WebGL context) and Barogram. This suite only cares about FlightTrack's own render body (the
-// stats section below TrackHoverView, see index.tsx), so the map/chart are stubbed out here
-// rather than exercised — they're covered for real by scripts/verify-track-gradient.mts and
-// friends against a live browser instead.
+// summary row above TrackHoverView and the stats section below it, see index.tsx), so the
+// map/chart are stubbed out here rather than exercised — they're covered for real by
+// scripts/verify-track-gradient.mts and friends against a live browser instead.
 vi.mock('./track-hover-view', () => ({
   TrackHoverView: () => null,
 }))
@@ -62,7 +62,7 @@ describe('FlightTrack', () => {
   it('shows the null placeholder in the summary row for a null duration and max altitude', () => {
     render(<FlightTrack track={trackWithStats({ ...REAL_STATS, duration: null, maxAltitude: null })} />)
 
-    const values = within(screen.getByTestId('flight-summary-row')).getAllByText(formatAltitude(null))
+    const values = within(screen.getByTestId('flight-summary-row')).getAllByText(NULL_PLACEHOLDER)
     expect(values).toHaveLength(2)
   })
 

@@ -45,7 +45,7 @@ describe('SignedOutHome', () => {
     await renderHome()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Recent flights' })).toBeTruthy()
-    expect(screen.getByText(/recent paragliding flights in norway/i)).toBeTruthy()
+    expect(screen.getByText(/recent flights in norway/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'View track' }).getAttribute('href')).toBe('/flights/9000002')
     expect(screen.getByRole('link', { name: 'Pilot Two' }).getAttribute('href')).toBe('/pilots/900002')
     expect(screen.queryByText(/not following any pilots/i)).toBeNull()

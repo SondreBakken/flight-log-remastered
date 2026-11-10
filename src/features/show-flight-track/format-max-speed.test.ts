@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAltitude } from './format-altitude'
+import { NULL_PLACEHOLDER } from './format-altitude'
 import { formatMaxSpeed } from './format-max-speed'
 
 describe('formatMaxSpeed', () => {
@@ -16,7 +16,7 @@ describe('formatMaxSpeed', () => {
   })
 
   it('returns the null placeholder for a null raw', () => {
-    expect(formatMaxSpeed(null, null)).toBe(formatAltitude(null))
+    expect(formatMaxSpeed(null, null)).toBe(NULL_PLACEHOLDER)
   })
 
   it('returns a non-matching raw unchanged', () => {

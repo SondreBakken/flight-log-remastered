@@ -20,7 +20,7 @@ export function isValidPilotId(value: unknown): value is PilotId {
 
 // The `country_id`/`start_id` pair carried in the logbook's own takeoff link (`a=42&country_id=
 // N&start_id=M`) — the approved #76 join key against `Takeoff.countryId`/`takeoffId`, verified
-// 5/5 sampled across 4 countries against fixtures/takeoffs-160.html. `takeoff` (below) is
+// 5/5 sampled across 4 countries against fixtures/takeoffs-160.html (a local, untracked fixture). `takeoff` (below) is
 // display text scraped independently of this ref, so a flight can carry a name with no ref
 // (link-less or malformed href — see parse-flights.ts's readTakeoffRef) or, in principle, a ref
 // whose id isn't in a given takeoff dataset; either case is this app's business to render as a
@@ -57,12 +57,12 @@ export type TrackPoint = {
   secondsFromStart: number
 }
 
+export type MaxSpeedKind = '10s/60s' | 'mean/top'
+
 // Total distance (its own labeled line in the two 2010-era GpsDump fixtures, track-233524.kml
 // and track-235690.kml) is read nowhere in this file — the newer GpsDumpAndroid format has no
 // equivalent line to reconcile it against, so it stays unparsed rather than added as a field
 // only the older fixtures could ever populate.
-export type MaxSpeedKind = '10s/60s' | 'mean/top'
-
 export type TrackStats = {
   date: string | null
   startFinish: string | null

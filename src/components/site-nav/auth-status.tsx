@@ -27,10 +27,10 @@ export default function AuthStatus() {
     )
   }
 
-  return <SignedInStatus email={state.email} userId={state.userId} />
+  return <SignedInStatus key={state.userId} email={state.email} userId={state.userId} />
 }
 
-// Split out from the branch above so useOwnPilotId (which needs a userId) is only ever called
+// Split out from the branch above so useOwnPilotId and useIsOwnVerified (which need a userId) are only ever called
 // once state has actually narrowed to 'signed-in' — hooks can't be called conditionally in the
 // branch itself. Mirrors features/account/index.tsx's own SignedInAccountForm split exactly.
 function SignedInStatus({ userId, email }: { userId: string; email: string }) {

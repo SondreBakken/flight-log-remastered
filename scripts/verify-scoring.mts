@@ -19,7 +19,7 @@ const { report, finish } = createReporter()
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 
-type OptionState = { label: string; checked: boolean; disabled: boolean }
+type OptionState = { label: string; selected: boolean; disabled: boolean }
 
 function trackBadResponses(page: Page): string[] {
   const bad: string[] = []
@@ -57,7 +57,7 @@ function readOptions(page: Page): Promise<OptionState[]> {
     )
     return options.map((option) => ({
       label: option.textContent?.trim() ?? '',
-      checked: option.selected,
+      selected: option.selected,
       disabled: option.disabled,
     }))
   })
@@ -187,7 +187,7 @@ async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: 
 // (a real client-side regression, or a genuinely dead server) survives the retry unchanged and
 // still fails to settle, same as a page that returns bad responses in `bad`, which is never
 // retried away. The signal driving the retry is waitForSceneSettled's own boolean, not the
-// radios/summary read (a settled page with a legitimately empty scoring overlay is a real
+// options/summary read (a settled page with a legitimately empty scoring overlay is a real
 // state, not a signal to retry). The one signature this retry must not touch is the error
 // boundary: getTrack throwing renders error.tsx, which never settles either, but no amount of
 // retrying fixes a thrown error, so it is checked for by name before retrying and reported
@@ -196,15 +196,15 @@ async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: 
 // so the reload is a cache hit.
 const COLD_SERVER_RETRY_DELAY_MS = 3000
 
-async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: OptionState[]; summary: string | null }> {
+async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ scoringOptions: OptionState[]; summary: string | null }> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   const settled = await waitForSceneSettled(page)
   if (settled) {
-    return { radios: await readOptions(page), summary: await readSummary(page) }
+    return { scoringOptions: await readOptions(page), summary: await readSummary(page) }
   }
   if (await pageHasErrorBoundaryText(page)) {
     report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
-    return { radios: await readOptions(page), summary: await readSummary(page) }
+    return { scoringOptions: await readOptions(page), summary: await readSummary(page) }
   }
   if (bad.length === 0) {
     console.log(`RETRY - ${label}: the scene did not settle on first load (no map handle, or its flight-track source never finished loading), retrying once for a cold server`)
@@ -212,13 +212,13 @@ async function loadSceneWithColdServerRetry(page: Page, url: string, label: stri
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     const settledOnRetry = await waitForSceneSettled(page)
     report(settledOnRetry, `${label}: the scene settles after one cold-server retry (map handle present, flight-track source loaded)`)
-    return { radios: await readOptions(page), summary: await readSummary(page) }
+    return { scoringOptions: await readOptions(page), summary: await readSummary(page) }
   }
   report(false, `${label}: the scene did not settle (no map handle, or its flight-track source never finished loading) and bad responses were recorded`)
-  return { radios: await readOptions(page), summary: await readSummary(page) }
+  return { scoringOptions: await readOptions(page), summary: await readSummary(page) }
 }
 
-type SceneContext = { page: Page; radios: OptionState[]; summary: string | null }
+type SceneContext = { page: Page; scoringOptions: OptionState[]; summary: string | null }
 
 // Every scene shares the same open/navigate/close/report-bad-responses skeleton; only the body
 // in between (the scene's own assertions) differs. Routing every scene through
@@ -231,8 +231,8 @@ async function runScene(options: { tripId: number; label: string; scene: (contex
   const { tripId, label, scene } = options
   const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } })
   const bad = trackBadResponses(page)
-  const { radios, summary } = await loadSceneWithColdServerRetry(page, `${baseUrl}/flights/${tripId}?__verifyMap`, label, bad)
-  await scene({ page, radios, summary })
+  const { scoringOptions, summary } = await loadSceneWithColdServerRetry(page, `${baseUrl}/flights/${tripId}?__verifyMap`, label, bad)
+  await scene({ page, scoringOptions, summary })
   await page.close()
   report(bad.length === 0, `${label}: no unexpected 4xx/5xx responses or failed requests (saw: ${bad.length ? bad.join('; ') : 'none'})`)
 }
@@ -258,7 +258,7 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
     const map = window.__flightTrackMap
     return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
   })
-  const toggledRadios = await readOptions(page)
+  const toggledOptions = await readOptions(page)
   const toggledMarkerCount = await readTurnpointMarkerCount(page)
   const toggledLabels = await readTurnpointMarkerLabels(page)
   const toggledSummary = await readSummary(page)
@@ -269,7 +269,7 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
   console.log('summary after toggle:', toggledSummary)
 
   report(
-    toggledRadios.some((r) => r.label.startsWith('Distance over 5 points') && r.checked),
+    toggledOptions.some((r) => r.label.startsWith('Distance over 5 points') && r.selected),
     'trip 1001428: toggling to the 5-point overlay actually selects it',
   )
   report(
@@ -352,21 +352,21 @@ async function assertZoomReactiveTurnpointGrouping(page: Page): Promise<void> {
 await runScene({
   tripId: 1001428,
   label: 'trip 1001428',
-  scene: async ({ page, radios, summary }) => {
+  scene: async ({ page, scoringOptions, summary }) => {
     const sourceLoaded = await page
       .evaluate(() => window.__flightTrackMap?.isSourceLoaded('scoring-overlay') ?? null)
       .catch(() => null)
     const markerCount = await readTurnpointMarkerCount(page)
 
     console.log('\n=== trip 1001428 (full set) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
     console.log('scoring source loaded:', sourceLoaded)
     console.log('turnpoint markers:', markerCount)
     console.log('summary text:', summary)
 
     // "Full set" now means the five line-shaped kinds only: track-1001428's own two triangle
     // placemarks are the metadata-only stub (bare <name>, no <description>/<MultiGeometry> — see
-    // check-scoring.mts's own assertion against this same fixture), so its triangle radios are
+    // check-scoring.mts's own assertion against this same fixture), so its triangle options are
     // CORRECTLY disabled. Asserting "every option enabled" here would either be silently wrong or
     // force the fixture data itself to lie; asserting the true five-enabled/two-disabled split is
     // the real oracle, and #58's own fixtures (trip 233524, below) are what exercise the enabled
@@ -380,14 +380,14 @@ await runScene({
     ]
     const TRIANGLE_LABELS = ['Flat triangle', 'FAI triangle']
 
-    report(radios.some((r) => r.label.startsWith('Open distance') && r.checked), 'trip 1001428: Open distance is selected by default')
+    report(scoringOptions.some((r) => r.label.startsWith('Open distance') && r.selected), 'trip 1001428: Open distance is selected by default')
     report(
-      LINE_LABELS.every((label) => radios.find((r) => r.label.startsWith(label))?.disabled === false),
+      LINE_LABELS.every((label) => scoringOptions.find((r) => r.label.startsWith(label))?.disabled === false),
       'trip 1001428: all five line-shaped scoring geometries are enabled',
     )
     report(
-      TRIANGLE_LABELS.every((label) => radios.find((r) => r.label.startsWith(label))?.disabled === true),
-      'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle radios are correctly disabled',
+      TRIANGLE_LABELS.every((label) => scoringOptions.find((r) => r.label.startsWith(label))?.disabled === true),
+      'trip 1001428: both triangle placemarks are the metadata-only stub, so both triangle options are correctly disabled',
     )
     report(sourceLoaded === true, 'trip 1001428: the scoring-overlay map source loaded')
     report(markerCount === 2, `trip 1001428: open distance renders 2 turnpoint markers (got ${markerCount})`)
@@ -420,20 +420,20 @@ await runScene({
 await runScene({
   tripId: 991729,
   label: 'trip 991729',
-  scene: async ({ radios }) => {
+  scene: async ({ scoringOptions }) => {
     console.log('\n=== trip 991729 (short flight, degenerate 5pt/4pt) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
 
     report(
-      radios.find((r) => r.label.startsWith('Distance over 5 points'))?.disabled === true,
+      scoringOptions.find((r) => r.label.startsWith('Distance over 5 points'))?.disabled === true,
       'trip 991729: the degenerate 5-point geometry is disabled, not selectable',
     )
     report(
-      radios.find((r) => r.label.startsWith('Distance over 4 points'))?.disabled === true,
+      scoringOptions.find((r) => r.label.startsWith('Distance over 4 points'))?.disabled === true,
       'trip 991729: the degenerate 4-point geometry is disabled, not selectable',
     )
     report(
-      radios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
+      scoringOptions.some((r) => r.label.startsWith('Open distance') && r.selected && !r.disabled),
       'trip 991729: Open distance (not degenerate) is still selected by default',
     )
   },
@@ -444,16 +444,16 @@ await runScene({
 await runScene({
   tripId: 235690,
   label: 'trip 235690',
-  scene: async ({ radios }) => {
+  scene: async ({ scoringOptions }) => {
     console.log('\n=== trip 235690 (missing out-and-return placemark entirely) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
 
     report(
-      radios.find((r) => r.label.startsWith('Out-and-return distance'))?.disabled === true,
+      scoringOptions.find((r) => r.label.startsWith('Out-and-return distance'))?.disabled === true,
       'trip 235690: the entirely-missing out-and-return placemark is disabled, not selectable',
     )
     report(
-      radios.some((r) => r.label.startsWith('Open distance') && r.checked && !r.disabled),
+      scoringOptions.some((r) => r.label.startsWith('Open distance') && r.selected && !r.disabled),
       'trip 235690: Open distance (present) is still selected by default',
     )
   },
@@ -541,16 +541,16 @@ function isRotationOfOwnCoordinates(rendered: Array<[number, number]>, own: Arra
 await runScene({
   tripId: 233524,
   label: 'trip 233524',
-  scene: async ({ page, radios }) => {
+  scene: async ({ page, scoringOptions }) => {
     console.log('\n=== trip 233524 (real flat/FAI triangle geometries) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
 
     report(
-      radios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+      scoringOptions.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
       'trip 233524: the flat triangle is a real, non-degenerate geometry, not disabled',
     )
     report(
-      radios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+      scoringOptions.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
       'trip 233524: the FAI triangle is a real, non-degenerate geometry, not disabled',
     )
 
@@ -637,13 +637,13 @@ await runScene({
 await runScene({
   tripId: 984290,
   label: 'trip 984290',
-  scene: async ({ page, radios }) => {
+  scene: async ({ page, scoringOptions }) => {
     console.log('\n=== trip 984290 (FAI triangle, shared-endpoint turnpoint collision) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
 
     report(
-      radios.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
-      'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+      scoringOptions.find((r) => r.label.startsWith('FAI triangle'))?.disabled === false,
+      'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled option fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
     )
 
     await selectOptionByLabelPrefix(page, 'FAI triangle')
@@ -688,13 +688,13 @@ await runScene({
 await runScene({
   tripId: 985713,
   label: 'trip 985713',
-  scene: async ({ page, radios }) => {
+  scene: async ({ page, scoringOptions }) => {
     console.log('\n=== trip 985713 (flat triangle, exact + near turnpoint collisions) ===')
-    console.log('radios:', radios)
+    console.log('options:', scoringOptions)
 
     report(
-      radios.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
-      'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
+      scoringOptions.find((r) => r.label.startsWith('Flat triangle'))?.disabled === false,
+      'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled option fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
     )
 
     await selectOptionByLabelPrefix(page, 'Flat triangle')
