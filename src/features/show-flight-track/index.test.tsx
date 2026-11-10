@@ -66,6 +66,27 @@ describe('FlightTrack', () => {
     expect(values).toHaveLength(2)
   })
 
+  it.each([212, 0])('shows Distance as "%s km" in the summary row after Max altitude', (distanceKm) => {
+    render(<FlightTrack track={trackWithStats(REAL_STATS)} distanceKm={distanceKm} />)
+
+    const row = screen.getByTestId('flight-summary-row')
+    within(row).getByText(`${distanceKm} km`)
+    const labels = within(row).getAllByRole('term').map((term) => term.textContent)
+    expect(labels).toEqual(['Duration', 'Max altitude', 'Distance'])
+  })
+
+  it.each([undefined, null, Number.NaN])('omits the Distance item when distanceKm is %s', (distanceKm) => {
+    render(<FlightTrack track={trackWithStats(REAL_STATS)} distanceKm={distanceKm} />)
+
+    expect(within(screen.getByTestId('flight-summary-row')).queryByText('Distance')).toBeNull()
+  })
+
+  it('does not render Distance when the stats could not be read', () => {
+    render(<FlightTrack track={trackWithStats('unparseable')} distanceKm={212} />)
+
+    expect(screen.queryByText('212 km')).toBeNull()
+  })
+
   it('omits the summary row when the stats could not be read', () => {
     render(<FlightTrack track={trackWithStats('unparseable')} />)
 
