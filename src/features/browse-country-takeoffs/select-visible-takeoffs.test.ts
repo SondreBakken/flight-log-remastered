@@ -520,9 +520,9 @@ describe('sortRegionOptions', () => {
     ]
 
     // Hardcoded, not derived by sorting the input again — that would pass even if
-    // sortRegionOptions did nothing. This repo's dropdown never specifies a locale, so the
-    // runtime's default collation applies (which folds ø near o), not "true Norwegian
-    // alphabetical order" (which places æøå after z) — Østlandet lands before Vestlandet here.
+    // sortRegionOptions did nothing. The dropdown pins the 'en-US' locale, so collation folds
+    // ø near o regardless of the host locale, not "true Norwegian alphabetical order" (which
+    // places æøå after z) — Østlandet lands before Vestlandet here.
     expect(sortRegionOptions(regions).map((r) => r.name)).toEqual(['Agder', 'Østlandet', 'Vestlandet'])
   })
 

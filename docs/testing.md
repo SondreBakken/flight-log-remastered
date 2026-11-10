@@ -29,6 +29,10 @@ pnpm exec tsx scripts/shot.mts <url> <out.png>
 pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof shot.mts's capture isn't blank (#21); see note below
 ```
 
+`pnpm test` needs no database: the data-access tests run against in-process PGlite with the real
+`drizzle/` migrations. Node 24 is the supported runtime (`.nvmrc`, `engines.node`); `vitest.setup.ts`
+shims `localStorage` so Node 25 also passes.
+
 ## Checks and gates
 
 `pnpm run check` is mostly pure, source-only logic — plus, as its last step, `pnpm test` — **with two
