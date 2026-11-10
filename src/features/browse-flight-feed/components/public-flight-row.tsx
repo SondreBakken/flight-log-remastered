@@ -6,7 +6,7 @@ import type { TakeoffFlight } from '@/lib/flightlog/types'
 // useRouter): a signed-out visitor has no follows or newness to show either.
 export function PublicFlightRow({ flight }: { flight: TakeoffFlight }) {
   return (
-    <tr className="border-b border-black/5 dark:border-white/10">
+    <tr className="border-b border-rule">
       <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
         {flight.date === null ? '-' : <CalendarDate value={flight.date} />}
       </td>

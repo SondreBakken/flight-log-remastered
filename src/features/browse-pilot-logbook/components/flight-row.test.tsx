@@ -149,6 +149,17 @@ describe('FlightRow', () => {
     for (const cell of cells) expect(cell.className).toContain('max-sm:flex')
   })
 
+  it('uses rule tokens and a muted Glider cell, with no raw-colour border or hover classes', () => {
+    const row = renderRow(true)
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    const glider = row.querySelector('td[data-label="Glider"]') as HTMLElement
+    expect(glider.className).toContain('text-muted')
+    expect(glider.className).not.toContain('opacity-')
+  })
+
   it('leaves the Track cell empty, and hidden below sm:, for a flight with no track', () => {
     const cell = renderRow(false).querySelectorAll('td')[5]
 

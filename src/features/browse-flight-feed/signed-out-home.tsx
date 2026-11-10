@@ -39,12 +39,12 @@ function RecentFlightsTable({ flights }: { flights: TakeoffFlight[] }) {
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Pilot</th>
-            <th className="py-2 pr-4 text-right font-medium">Time</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 font-medium">Track</th>
+          <tr className="border-b border-rule text-left">
+            <th className="py-2 pr-4 form-label">Date</th>
+            <th className="py-2 pr-4 form-label">Pilot</th>
+            <th className="py-2 pr-4 text-right form-label">Time</th>
+            <th className="py-2 pr-4 text-right form-label">Distance</th>
+            <th className="py-2 form-label">Track</th>
           </tr>
         </thead>
         <tbody>

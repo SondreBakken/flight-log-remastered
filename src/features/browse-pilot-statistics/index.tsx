@@ -73,14 +73,14 @@ function HoursByYear({ flights }: { flights: Flight[] }) {
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="border-b border-black/10 text-left dark:border-white/15">
-              <th className="py-2 pr-4 font-medium">Year</th>
-              <th className="py-2 font-medium text-right">Hours</th>
+            <tr className="border-b border-rule text-left">
+              <th className="py-2 pr-4 form-label">Year</th>
+              <th className="py-2 text-right form-label">Hours</th>
             </tr>
           </thead>
           <tbody>
             {entries.map(([year, minutes]) => (
-              <tr key={year} className="border-b border-black/5 last:border-0 dark:border-white/10">
+              <tr key={year} className="border-b border-rule last:border-0">
                 <td className="py-1 pr-4">{year}</td>
                 <td className="py-1 text-right tabular-nums">{formatHours(minutes)}</td>
               </tr>

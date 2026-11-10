@@ -47,7 +47,7 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-rule hover:bg-rule/30"
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -60,7 +60,7 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
           renders independently — an under-reporting bug in the join would show up here as a
           disagreement between the two. */}
       <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Takeoff" data-testid="flight-takeoff">{flight.takeoff ?? '—'}</td>
-      <td className={`py-2 pr-4 opacity-70 ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
+      <td className={`py-2 pr-4 text-muted ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
       <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">
         {formatFlightDuration(flight)}
       </td>

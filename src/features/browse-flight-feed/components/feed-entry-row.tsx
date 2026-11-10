@@ -47,7 +47,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      className="cursor-pointer border-b border-rule hover:bg-rule/30"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -79,7 +79,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
       <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
         {formatFlightDistance(flight)}
       </td>
-      <td className="py-2">{hasTrack ? <span>View track</span> : <span className="opacity-40">none</span>}</td>
+      <td className="py-2">{hasTrack ? <span>View track</span> : <span className="text-muted">none</span>}</td>
     </tr>
   )
 }

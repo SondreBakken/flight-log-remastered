@@ -135,13 +135,13 @@ function YearSection({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm max-sm:block">
           <thead className="max-sm:sr-only">
-            <tr className="border-b border-black/10 text-left dark:border-white/15">
-              <th className="py-2 pr-4 font-medium">Date</th>
-              <th className="py-2 pr-4 font-medium">Takeoff</th>
-              <th className="py-2 pr-4 font-medium">Glider</th>
-              <th className="py-2 pr-4 text-right font-medium">Time</th>
-              <th className="py-2 pr-4 text-right font-medium">Distance</th>
-              <th className="py-2 font-medium">Track</th>
+            <tr className="border-b border-rule text-left">
+              <th className="py-2 pr-4 form-label">Date</th>
+              <th className="py-2 pr-4 form-label">Takeoff</th>
+              <th className="py-2 pr-4 form-label">Glider</th>
+              <th className="py-2 pr-4 text-right form-label">Time</th>
+              <th className="py-2 pr-4 text-right form-label">Distance</th>
+              <th className="py-2 form-label">Track</th>
             </tr>
           </thead>
           <tbody className="max-sm:block">
@@ -168,7 +168,7 @@ function YearSection({
 // becomes a block of its own instead of spanning columns that no longer exist.
 function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
   return (
-    <tr className="border-t border-black/10 max-sm:block max-sm:py-2 tabular-nums opacity-70 dark:border-white/15">
+    <tr className="border-t border-rule max-sm:block max-sm:py-2 tabular-nums text-muted">
       <th className="py-2 pr-4 text-left font-medium max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
       <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
       <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StatsLeaderboard } from './stats-leaderboard'
+import { STACKED_CELL } from '@/features/browse-pilot-logbook/stacked-cell'
 import { MISSING_VALUE } from '@/lib/flightlog/format-flight'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 
@@ -75,6 +76,27 @@ describe('StatsLeaderboard', () => {
     expect(cells('No Distance').slice(0, 4)).toEqual(['No Distance', '3', MISSING_VALUE, '0.0'])
     expect(cells('Short')[2]).toBe('0.4')
     expect(cells('Long')[2]).toBe('300.0')
+  })
+
+  it('styles the table with the form layer: rule borders, form-label headers, tabular numeric cells, shared stacked cell', () => {
+    const { container } = render(<StatsLeaderboard stats={ROWS} isSignedIn followedPilotIds={[]} />)
+
+    expect(container.querySelector('thead tr')?.className).toContain('border-rule')
+    for (const th of container.querySelectorAll('thead th')) {
+      expect(th.className).toContain('form-label')
+      expect(th.className).not.toContain('font-medium')
+    }
+    expect(screen.getByRole('button', { name: /^flights/i }).className).not.toContain('hover:underline')
+    for (const tr of container.querySelectorAll('tbody tr')) expect(tr.className).toContain('border-rule')
+    const numericCells = [...container.querySelectorAll('tbody tr:first-child td')].filter((td) =>
+      ['Flights', 'Distance (km)', 'Hours'].includes(td.getAttribute('data-label') ?? ''),
+    )
+    expect(numericCells).toHaveLength(3)
+    for (const td of numericCells) {
+      expect(td.className).toContain('tabular-nums')
+      expect(td.className).toContain('text-right')
+      expect(td.className).toContain(STACKED_CELL)
+    }
   })
 
   it('still sorts a 0-distance row as numeric 0 by distance', () => {

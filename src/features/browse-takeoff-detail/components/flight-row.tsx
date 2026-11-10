@@ -49,7 +49,7 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-rule hover:bg-rule/30"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -57,7 +57,7 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
       <td className={`py-2 pr-4 whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Date">
         {flight.date === null ? '—' : <CalendarDate value={flight.date} />}
       </td>
-      <td className={`py-2 pr-4 whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">{flight.timeOfDay ?? '—'}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">{flight.timeOfDay ?? '—'}</td>
       <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Pilot">
         <div className="flex min-w-0 items-center gap-2 max-sm:flex-wrap max-sm:justify-end" onClick={stopRowNavigation}>
           <Link className="underline underline-offset-2" href={`/pilots/${flight.userId}`}>
@@ -66,8 +66,8 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
           <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={flight.userId} variant="compact" />
         </div>
       </td>
-      <td className={`py-2 pr-4 opacity-70 ${STACKED_CELL}`} data-label="Club">{flight.club ?? '—'}</td>
-      <td className={`py-2 pr-4 opacity-70 ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
+      <td className={`py-2 pr-4 text-muted ${STACKED_CELL}`} data-label="Club">{flight.club ?? '—'}</td>
+      <td className={`py-2 pr-4 text-muted ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
       <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Duration">{flight.duration ?? '—'}</td>
       <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Distance">
         {flight.distanceKm === null ? '—' : `${flight.distanceKm.toFixed(1)} km`}

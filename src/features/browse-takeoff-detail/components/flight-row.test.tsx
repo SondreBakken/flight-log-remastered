@@ -161,4 +161,19 @@ describe('TakeoffFlightRow', () => {
     expect(pilotWrapper?.className).toContain('max-sm:flex-wrap')
     expect(pilotWrapper?.className).toContain('min-w-0')
   })
+
+  it('uses rule tokens, a muted Club and Glider, and a right-aligned Time cell', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    const cell = (label: string) => row.querySelector(`td[data-label="${label}"]`) as HTMLElement
+    expect(cell('Time').className).toContain('text-right')
+    expect(cell('Date').className).not.toContain('text-right')
+    for (const label of ['Club', 'Glider']) {
+      expect(cell(label).className).toContain('text-muted')
+      expect(cell(label).className).not.toContain('opacity-')
+    }
+  })
 })
