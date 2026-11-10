@@ -84,12 +84,12 @@ function TakeoffLinks({
 }) {
   return (
     <div className="flex flex-wrap gap-4 text-sm">
-      <Link className="flex items-center gap-1 underline underline-offset-2" href={`/countries/${countryId}/takeoffs`}>
+      <Link className="flex items-center gap-1" href={`/countries/${countryId}/takeoffs`}>
         <ChevronLeft aria-hidden="true" size={14} />
         Back to {countryName} takeoffs
       </Link>
       <a
-        className="flex items-center gap-1 underline underline-offset-2 opacity-70"
+        className="flex items-center gap-1 text-muted"
         href={flightlogTakeoffUrl(countryId, takeoffId)}
         target="_blank"
         rel="noreferrer"
@@ -98,7 +98,7 @@ function TakeoffLinks({
         <ExternalLink aria-hidden="true" size={14} />
       </a>
       {linkUrl && (
-        <a className="flex items-center gap-1 underline underline-offset-2 opacity-70" href={linkUrl} target="_blank" rel="noreferrer">
+        <a className="flex items-center gap-1 text-muted" href={linkUrl} target="_blank" rel="noreferrer">
           More info
           <ExternalLink aria-hidden="true" size={14} />
         </a>
@@ -123,7 +123,7 @@ function SiteRecords({ records }: { records: SiteRecord[] }) {
             <span>
               {record.pilotName} — {record.distanceKm.toFixed(1)} km
             </span>
-            <Link className="underline underline-offset-2 opacity-70" href={`/flights/${record.tripId}`}>
+            <Link className="text-muted" href={`/flights/${record.tripId}`}>
               View track
             </Link>
           </li>

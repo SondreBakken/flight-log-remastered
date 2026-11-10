@@ -29,7 +29,7 @@ export function LogbookSummary({ flights }: LogbookSummaryProps) {
 function Figure({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
-      <dt className="opacity-70">{label}</dt>
+      <dt className="form-label">{label}</dt>
       <dd className="text-lg font-medium tabular-nums">{value}</dd>
     </div>
   )
@@ -48,7 +48,7 @@ function TopList({ title, totals }: { title: string; totals: Map<string, number>
         {topEntries(totals).map(([name, count]) => (
           <li key={name} className="flex justify-between gap-4">
             <span>{name}</span>
-            <span className="tabular-nums opacity-70">{count}</span>
+            <span className="tabular-nums text-muted">{count}</span>
           </li>
         ))}
       </ol>

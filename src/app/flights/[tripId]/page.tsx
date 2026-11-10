@@ -80,7 +80,7 @@ export async function Flight({ params }: { params: FlightParams }) {
           {track ? <FlightHeading id={id} detail={detail} /> : `Flight ${id}`}
         </h1>
         <a
-          className="flex w-fit items-center gap-1 text-sm underline underline-offset-2 opacity-70"
+          className="flex w-fit items-center gap-1 text-sm text-muted"
           href={flightlogFlightUrl(id)}
           target="_blank"
           rel="noreferrer"
@@ -126,7 +126,7 @@ function headingParts(detail: FlightDetail): ReactNode[] {
   const parts: ReactNode[] = []
   if (detail.pilot) {
     parts.push(
-      <Link className="underline underline-offset-2" href={`/pilots/${detail.pilot.userId}`}>
+      <Link href={`/pilots/${detail.pilot.userId}`}>
         {detail.pilot.name}
       </Link>,
     )
@@ -141,7 +141,6 @@ function TakeoffLabel({ detail }: { detail: FlightDetail }) {
   if (!detail.takeoffRef) return <>{detail.takeoff}</>
   return (
     <Link
-      className="underline underline-offset-2"
       href={`/countries/${detail.takeoffRef.countryId}/takeoffs/${detail.takeoffRef.takeoffId}`}
     >
       {detail.takeoff}
@@ -154,64 +153,64 @@ function TakeoffLabel({ detail }: { detail: FlightDetail }) {
 // field list, rather than a new table style invented for this one page.
 function FlightDetailTable({ detail }: { detail: FlightDetail }) {
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border border-dashed border-black/15 p-6 text-sm dark:border-white/20">
+    <dl className="flex flex-col gap-3 rounded-md border border-dashed border-rule p-6 text-sm">
       {detail.date !== null && (
-        <>
-          <dt className="opacity-70">Date</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Date</dt>
           <dd>
             <CalendarDate value={detail.date} />
           </dd>
-        </>
+        </div>
       )}
       {detail.country !== null && (
-        <>
-          <dt className="opacity-70">Country</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Country</dt>
           <dd>{detail.country}</dd>
-        </>
+        </div>
       )}
       {detail.takeoff !== null && (
-        <>
-          <dt className="opacity-70">Takeoff</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Takeoff</dt>
           <dd>
             <TakeoffLabel detail={detail} />
           </dd>
-        </>
+        </div>
       )}
       {detail.glider !== null && (
-        <>
-          <dt className="opacity-70">Glider</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Glider</dt>
           <dd>{detail.glider}</dd>
-        </>
+        </div>
       )}
       {detail.duration !== null && (
-        <>
-          <dt className="opacity-70">Duration</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Duration</dt>
           <dd>{detail.duration}</dd>
-        </>
+        </div>
       )}
       {detail.distanceKm !== null && (
-        <>
-          <dt className="opacity-70">Distance</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Distance</dt>
           <dd>{detail.distanceKm} km</dd>
-        </>
+        </div>
       )}
       {detail.maxAltitude !== null && (
-        <>
-          <dt className="opacity-70">Max altitude</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Max altitude</dt>
           <dd>{detail.maxAltitude}</dd>
-        </>
+        </div>
       )}
       {detail.description !== null && (
-        <>
-          <dt className="opacity-70">Description</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Description</dt>
           <dd className="whitespace-pre-line">{detail.description}</dd>
-        </>
+        </div>
       )}
       {detail.takeoffType !== null && (
-        <>
-          <dt className="opacity-70">Takeoff type</dt>
+        <div className="flex flex-col">
+          <dt className="form-label">Takeoff type</dt>
           <dd>{detail.takeoffType}</dd>
-        </>
+        </div>
       )}
     </dl>
   )
@@ -220,9 +219,9 @@ function FlightDetailTable({ detail }: { detail: FlightDetail }) {
 function FlightSkeleton() {
   return (
     <div className="flex flex-col gap-4">
-      <div className="h-8 w-48 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+      <div className="h-8 w-48 animate-pulse rounded bg-rule" />
       <MapFrame>
-        <div className="h-[70vh] w-full animate-pulse rounded-md bg-black/5 dark:bg-white/5" />
+        <div className="h-[70vh] w-full animate-pulse rounded-md bg-rule" />
       </MapFrame>
       <CommentsSkeleton />
     </div>
@@ -232,12 +231,12 @@ function FlightSkeleton() {
 function CommentsSkeleton() {
   return (
     <div className="flex flex-col gap-4">
-      <div className="h-6 w-28 animate-pulse rounded bg-black/10 dark:bg-white/10" />
+      <div className="h-6 w-28 animate-pulse rounded bg-rule" />
       <div className="flex flex-col gap-3">
-        <div className="h-16 w-full animate-pulse rounded-md bg-black/5 dark:bg-white/5" />
-        <div className="h-16 w-full animate-pulse rounded-md bg-black/5 dark:bg-white/5" />
+        <div className="h-16 w-full animate-pulse rounded-md bg-rule" />
+        <div className="h-16 w-full animate-pulse rounded-md bg-rule" />
       </div>
-      <div className="h-24 w-full animate-pulse rounded bg-black/5 dark:bg-white/5" />
+      <div className="h-24 w-full animate-pulse rounded bg-rule" />
     </div>
   )
 }

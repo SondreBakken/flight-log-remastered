@@ -203,7 +203,7 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
       <ul className="mt-1 list-inside list-disc opacity-80">
         {failures.map((failure) => (
           <li key={failure.pilotId}>
-            <Link className="underline" href={`/pilots/${failure.pilotId}`}>
+            <Link href={`/pilots/${failure.pilotId}`}>
               Pilot {failure.pilotId}
             </Link>{' '}
             — {failure.message}

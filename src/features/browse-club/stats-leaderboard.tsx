@@ -126,7 +126,7 @@ function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isF
             <span className="sr-only"> (no pilot profile link available for this name)</span>
           </span>
         ) : (
-          <Link className="underline underline-offset-2" href={`/pilots/${row.userId}`}>
+          <Link href={`/pilots/${row.userId}`}>
             {row.name}
           </Link>
         )}

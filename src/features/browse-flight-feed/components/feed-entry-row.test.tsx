@@ -94,6 +94,16 @@ describe('FeedEntryRow', () => {
     expect(within(untrackedNewDateCell).queryByText('New')).not.toBeNull()
   })
 
+  it('styles the "New" badge as a form label with a rule border, without capitals or emerald colours', () => {
+    const [dateCell] = within(remountRow({ ...baseEntry, newness: 'new' })).getAllByRole('cell')
+    const badge = within(dateCell).getByText('New')
+
+    expect(badge.className).toContain('form-label')
+    expect(badge.className).toContain('border-rule')
+    expect(badge.className).not.toMatch(/uppercase|emerald|dark:/)
+    expect(dateCell.parentElement?.querySelector('a')?.className ?? '').not.toMatch(/underline/)
+  })
+
   // #217, porting #213/#214's row-navigation pattern: the whole row is the click target now,
   // not just a Track cell link, so untracked rows (the majority) can reach their flight page too.
   it('navigates to the flight page when an untracked row is clicked anywhere', () => {

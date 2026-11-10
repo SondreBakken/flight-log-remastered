@@ -66,7 +66,7 @@ function SummaryRow({ stats, distanceKm }: { stats: TrackStats; distanceKm?: num
 
 function StatsUnavailable() {
   return (
-    <p className="text-sm opacity-70" data-testid="stats-unparseable">
+    <p className="text-sm text-muted" data-testid="stats-unparseable">
       Could not read the statistics for this flight.
     </p>
   )
@@ -81,7 +81,7 @@ function StatList({ stats, className, testId }: { stats: Stat[]; className: stri
     <dl className={className} data-testid={testId}>
       {stats.map((stat) => (
         <div key={stat.label} className="flex flex-col">
-          <dt className="opacity-60">{stat.label}</dt>
+          <dt className="form-label">{stat.label}</dt>
           <dd className="tabular-nums">{stat.value}</dd>
         </div>
       ))}

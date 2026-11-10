@@ -200,6 +200,39 @@ describe('Flight', () => {
     expect(screen.getByRole('link', { name: 'Voss, Hjelle/Gjelle' }).getAttribute('href')).toBe('/countries/160/takeoffs/133')
   })
 
+  it('lays every detail field out label-above-value, with form-label dts and no underline classes on links', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, distanceKm: 12, maxAltitude: '2100 m' })
+
+    const { container } = render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+    const dl = container.querySelector('dl') as HTMLElement
+    expect(dl.className).not.toMatch(/grid-cols|opacity-/)
+    const dts = Array.from(dl.querySelectorAll('dt'))
+    expect(dts.map((dt) => dt.textContent)).toEqual([
+      'Date', 'Country', 'Takeoff', 'Glider', 'Duration', 'Distance', 'Max altitude', 'Description', 'Takeoff type',
+    ])
+    for (const dt of dts) {
+      expect(dt.className).toBe('form-label')
+      expect(dt.parentElement?.tagName).toBe('DIV')
+      expect(dt.nextElementSibling?.tagName).toBe('DD')
+    }
+    for (const a of Array.from(container.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/underline|opacity-/)
+    }
+  })
+
+  it('renders no wrapper for a null detail field', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    const { container } = render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+    // STUB_DETAIL has null distanceKm and maxAltitude: 7 of 9 fields remain.
+    expect(container.querySelectorAll('dl > div')).toHaveLength(7)
+    expect(screen.queryByText('Distance')).toBeNull()
+  })
+
   // A trip with neither a GPS track nor an a=34 record does not exist — see parseFlightDetail's
   // own doc comment on why getFlightDetail returning null is flightlog.org's own positive "no
   // such trip_id" signal, not a scrape failure to swallow into some fallback UI.

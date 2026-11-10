@@ -181,7 +181,7 @@ function EmptyLogbook() {
   return (
     <EmptyState>
       No flights found for this pilot.{' '}
-      <Link className="underline" href="/">
+      <Link href="/">
         Back to your feed
       </Link>
     </EmptyState>

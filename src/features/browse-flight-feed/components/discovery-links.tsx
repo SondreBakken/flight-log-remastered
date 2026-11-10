@@ -5,13 +5,13 @@ import Link from 'next/link'
 export function DiscoveryLinks({ defaultPilotId }: { defaultPilotId: number }) {
   return (
     <>
-      <Link className="underline" href="/pilots/search">
+      <Link href="/pilots/search">
         Search for a pilot by name
       </Link>
-      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
+      <Link href={`/pilots/${defaultPilotId}`}>
         Browse a pilot&apos;s logbook
       </Link>
-      <Link className="underline" href="/countries">
+      <Link href="/countries">
         Browse clubs by country
       </Link>
     </>
