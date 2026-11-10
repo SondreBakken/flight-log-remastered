@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { notifyOwnVerificationChanged } from '@/lib/profiles/own-verification-changed'
 import type { Profile } from '@/lib/profiles/get-profile'
 import { AccountForm } from './account-form'
 import { PilotIdForm } from './pilot-id-form'
@@ -21,8 +22,12 @@ export function SignedInAccountSettings({ ownProfile, ownVerification }: SignedI
   // The profile and verification are server-rendered props, so anything that may have changed
   // them re-renders the server component: starting verification, confirming a code, or relinking
   // the pilot id (the invalidate_verification_on_pilot_id_change trigger deletes the
-  // verification on that write).
-  const refreshAccountSettings = () => router.refresh()
+  // verification on that write). The site nav reads the verification client-side, which
+  // router.refresh() does not re-run, so it is told separately.
+  const refreshAccountSettings = () => {
+    router.refresh()
+    notifyOwnVerificationChanged()
+  }
 
   const profile = ownProfile.kind === 'loaded' ? ownProfile.profile : undefined
   const profileLoadFailed = ownProfile.kind === 'error'

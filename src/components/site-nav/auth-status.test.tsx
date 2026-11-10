@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { SignedInUserState } from '@/lib/auth/use-signed-in-user'
+import { notifyOwnVerificationChanged } from '@/lib/profiles/own-verification-changed'
 import AuthStatus from './auth-status'
 
 const mockUseSignedInUser = vi.fn<() => SignedInUserState>()
 const mockFetchOwnPilotId = vi.fn()
+const mockFetchOwnVerification = vi.fn()
 
 vi.mock('@/lib/auth/use-signed-in-user', () => ({
   useSignedInUser: () => mockUseSignedInUser(),
@@ -14,12 +16,17 @@ vi.mock('./fetch-own-pilot-id', () => ({
   fetchOwnPilotId: () => mockFetchOwnPilotId(),
 }))
 
+vi.mock('./fetch-own-verification', () => ({
+  fetchOwnVerification: () => mockFetchOwnVerification(),
+}))
+
 const SIGNED_IN: SignedInUserState = { kind: 'signed-in', userId: 'user-1', email: 'pilot@example.com' }
 
 beforeEach(() => {
   // Default: no pilot id linked, so tests asserting on the account link / sign-out control
   // (which predate the "My flights" link below) don't also have to account for it.
   mockFetchOwnPilotId.mockResolvedValue(null)
+  mockFetchOwnVerification.mockResolvedValue('none')
 })
 
 describe('AuthStatus', () => {
@@ -126,5 +133,70 @@ describe('AuthStatus', () => {
     await screen.findByTitle('Could not load your pilot id')
     expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
     consoleError.mockRestore()
+  })
+
+  it('shows a flat 16 px stamp next to the email once the verification is confirmed', async () => {
+    mockFetchOwnVerification.mockResolvedValue('verified')
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    const stamp = await screen.findByRole('img', { name: 'Verified pilot' })
+    expect(stamp.closest('a')?.getAttribute('href')).toBe('/account')
+    expect(stamp.className).not.toContain('-rotate-6')
+    expect(stamp.querySelector('svg')?.getAttribute('width')).toBe('16')
+  })
+
+  it.each(['none', 'pending'])('shows no stamp for a %s verification', async (status) => {
+    mockFetchOwnVerification.mockResolvedValue(status)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    await waitFor(() => expect(mockFetchOwnVerification).toHaveBeenCalled())
+    expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+  })
+
+  it('shows no stamp while the verification is still loading', () => {
+    mockFetchOwnVerification.mockReturnValue(new Promise(() => {}))
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+  })
+
+  it('shows no stamp, and logs, when the verification lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockFetchOwnVerification.mockRejectedValue(new Error('/api/account/verification answered 503'))
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalled())
+    expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+    consoleError.mockRestore()
+  })
+
+  it('shows no stamp and fetches nothing when signed out', () => {
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-out' })
+
+    render(<AuthStatus />)
+
+    expect(mockFetchOwnVerification).not.toHaveBeenCalled()
+    expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+  })
+
+  it('shows and hides the stamp as the verification changes, without a reload', async () => {
+    mockFetchOwnVerification.mockResolvedValueOnce('pending').mockResolvedValueOnce('verified').mockResolvedValueOnce('none')
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+    render(<AuthStatus />)
+    await waitFor(() => expect(mockFetchOwnVerification).toHaveBeenCalledTimes(1))
+
+    await act(async () => notifyOwnVerificationChanged())
+    await screen.findByRole('img', { name: 'Verified pilot' })
+
+    await act(async () => notifyOwnVerificationChanged())
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull())
   })
 })

@@ -4,7 +4,9 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { LogIn, LogOut, PlaneTakeoff, TriangleAlert, User, type LucideIcon } from 'lucide-react'
 import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
+import { VerificationStamp } from '@/components/verification-stamp'
 import { useOwnPilotId } from './use-own-pilot-id'
+import { useIsOwnVerified } from './use-own-verification'
 
 const NAV_ICON_ROW_CLASSES = 'flex items-center gap-1.5 underline-offset-2 hover:underline'
 
@@ -34,12 +36,14 @@ export default function AuthStatus() {
 // branch itself. Mirrors features/account/index.tsx's own SignedInAccountForm split exactly.
 function SignedInStatus({ userId, email }: { userId: string; email: string }) {
   const ownPilotId = useOwnPilotId(userId)
+  const isVerified = useIsOwnVerified(userId)
 
   return (
     <div className="flex items-center gap-3">
       <OwnFlightsLink ownPilotId={ownPilotId} />
       <NavIconLink href="/account" icon={User} muted>
         {email}
+        {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
       </NavIconLink>
       <form action="/api/auth/sign-out" method="post">
         <button className={NAV_ICON_ROW_CLASSES} type="submit">
