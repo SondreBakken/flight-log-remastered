@@ -63,6 +63,12 @@ describe('EditableValueRow default mode', () => {
     expect(document.activeElement).toBe(document.body)
   })
 
+  it('does not focus the pencil on first mount when the row is shown', () => {
+    render(<Harness />)
+
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('renders row/form, then note, then feedback', () => {
     render(<Harness />)
     const row = screen.getByText('v1')
