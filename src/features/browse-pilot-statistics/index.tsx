@@ -1,4 +1,5 @@
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
+import { formatHours } from '@/lib/flightlog/format-flight'
 import type { Flight } from '@/lib/flightlog/types'
 import { EmptyState } from '@/components/empty-state'
 import { FlyingDaysCalendar } from './flying-days-calendar'
@@ -49,20 +50,9 @@ export default function PilotStatistics({ flights }: PilotStatisticsProps) {
   )
 }
 
-// Pre-rounds to whole tenths of an hour BEFORE dividing back down to a decimal, rather than
-// `(minutes / 60).toFixed(1)` — 51 minutes is 0.85h exactly in real numbers, but 0.85 has no
-// exact IEEE754 double representation (it stores as ~0.84999999999999997...), so
-// `(0.85).toFixed(1)` truncates to "0.8" instead of rounding to "0.9". Rounding to an integer
-// (`tenthsOfHour`) first lands on a value `.toFixed(1)` can render correctly, sidestepping the
-// binary-fraction boundary entirely instead of landing on it.
-function formatMinutesAsHours(minutes: number): string {
-  const tenthsOfHour = Math.round(minutes / 6)
-  return `${(tenthsOfHour / 10).toFixed(1)} h`
-}
-
 function TotalsSummary({ flights }: { flights: Flight[] }) {
   const flightCount = totalFlightCount(flights)
-  const hours = formatMinutesAsHours(totalDurationMinutes(flights))
+  const hours = formatHours(totalDurationMinutes(flights))
   const flyingDays = flyingDaysByDate(flights).size
 
   return (
@@ -92,7 +82,7 @@ function HoursByYear({ flights }: { flights: Flight[] }) {
             {entries.map(([year, minutes]) => (
               <tr key={year} className="border-b border-black/5 last:border-0 dark:border-white/10">
                 <td className="py-1 pr-4">{year}</td>
-                <td className="py-1 text-right tabular-nums">{formatMinutesAsHours(minutes)}</td>
+                <td className="py-1 text-right tabular-nums">{formatHours(minutes)}</td>
               </tr>
             ))}
           </tbody>

@@ -64,7 +64,7 @@ describe('PilotStatistics', () => {
   // the dashboard's totals summary must report flights, not rows. Also pins two fixes
   // together: "1 flying day" (not "1 flying days"), and 51 minutes rendering as "0.9 h", not
   // the old "0.8 h" — (0.85).toFixed(1) truncates under IEEE754 (0.85 has no exact double
-  // representation), so formatMinutesAsHours pre-rounds to whole tenths of an hour first.
+  // representation), so formatHours pre-rounds to whole tenths of an hour first.
   it('sums flightCount for the totals summary, not row count, on a mix of single and aggregated rows', () => {
     const flights: Flight[] = [
       flight({ duration: '00:05', flightCount: 1 }),

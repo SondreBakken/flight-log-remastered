@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Flight } from './types'
-import { formatFlightDuration } from './format-flight'
+import { formatFlightDuration, formatHours } from './format-flight'
 
 const baseFlight: Flight = {
   tripId: 1,
@@ -53,5 +53,16 @@ describe('formatFlightDuration', () => {
     const rendered = formatFlightDuration({ ...baseFlight, duration: '00:10', flightCount: 2 })
 
     expect(rendered).toBe('00:10 total (2 flights)')
+  })
+})
+
+describe('formatHours', () => {
+  it('rounds 51 minutes up to 0.9 h despite 0.85 having no exact binary form', () => {
+    expect(formatHours(51)).toBe('0.9 h')
+  })
+
+  it('formats zero and whole hours', () => {
+    expect(formatHours(0)).toBe('0.0 h')
+    expect(formatHours(120)).toBe('2.0 h')
   })
 })
