@@ -5,8 +5,8 @@ import { parseClubStats } from './parse-club-stats'
 // rqtid=9/10/11's unwrapped `<th>` row), a zero-distance row, and a fixed-decimal distance
 // with no thousands separator.
 const STATS_HTML = `<html><body><table border=1><tr><th>Name</th><th>Flights</th><th>Distance (km)</th><th>Time (hours)</th></tr>
-<tr><td>Ade Hawkins</td><td>14</td><td>0.0000</td><td>1.1667</td></tr>
-<tr><td>Andreas Mosling</td><td>47</td><td>242.4000</td><td>22.5167</td></tr>
+<tr><td>Pilot One</td><td>14</td><td>0.0000</td><td>1.1667</td></tr>
+<tr><td>Pilot Six</td><td>47</td><td>242.4000</td><td>22.5167</td></tr>
 </table></body></html>`
 
 // Byte-identical shape to a nonexistent club_id's response — this parser cannot and does not
@@ -17,8 +17,8 @@ const EMPTY_STATS_HTML = `<html><body><table border=1><tr><th>Name</th><th>Fligh
 describe('parseClubStats', () => {
   it('reads name, flights, distance and hours for each row', () => {
     expect(parseClubStats(STATS_HTML, 51)).toEqual([
-      { name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1667 },
-      { name: 'Andreas Mosling', flights: 47, distanceKm: 242.4, hours: 22.5167 },
+      { name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1667 },
+      { name: 'Pilot Six', flights: 47, distanceKm: 242.4, hours: 22.5167 },
     ])
   })
 

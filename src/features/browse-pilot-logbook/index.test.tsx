@@ -103,7 +103,7 @@ describe('PilotLogbook header', () => {
     screen.getByText('7 flights shown · 1 GPS tracks')
   })
 
-  // The extreme opposite of the boundary case above: fixtures/pilot-4549.html's 134 rows are
+  // The extreme opposite of the boundary case above: a 134-row profile fixture's rows are
   // all single-flight (no aggregation at all), so row count and flight count coincide here —
   // this pins that the fix doesn't change behaviour for the common, non-aggregated case.
   it('renders row count and flight count as the same number when no row is aggregated', () => {

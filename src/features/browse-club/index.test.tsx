@@ -12,7 +12,7 @@ const DETAIL: ClubDetail = {
   description: 'Lokalisert på Voss',
   linkUrl: 'https://www.vosshpk.no',
   createdAt: null,
-  updatedAt: '2026-02-14 13:52:15 Martin Krossoy',
+  updatedAt: '2026-02-14 13:52:15 Pilot Two',
 }
 
 describe('BrowseClub', () => {
@@ -76,10 +76,10 @@ describe('BrowseClub', () => {
 
   it('gives every roster row a follow button unconditionally, regardless of the stats leaderboard', () => {
     const roster: ClubMember[] = [
-      { userId: 1, name: 'Ade Hawkins' },
+      { userId: 1, name: 'Pilot One' },
       { userId: 2, name: 'Never Flew' },
     ]
-    const stats: ClubPilotStats[] = [{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }]
+    const stats: ClubPilotStats[] = [{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }]
 
     render(
       <BrowseClub
@@ -93,7 +93,7 @@ describe('BrowseClub', () => {
       />,
     )
 
-    // Two roster follow buttons plus one leaderboard follow button (Ade Hawkins resolves
+    // Two roster follow buttons plus one leaderboard follow button (Pilot One resolves
     // unambiguously) — three total, not two.
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(3)
   })

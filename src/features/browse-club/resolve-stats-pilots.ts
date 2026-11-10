@@ -39,8 +39,8 @@ function buildNameIndex(roster: ClubMember[]): Map<string, number[]> {
 // `ClubMember[]` directly, not this function's output.
 //
 // Do not fuzzy-match, do not guess, do not silently pick the first id on a multi-match — a
-// name shared by two roster members (Voss has 6 real collisions: "Cato Wiese-Hansen" is
-// exactly one stats row against two distinct `user_id`s, 5286 and 11085, with nothing in
+// name shared by two roster members (Voss has 6 real collisions: one name is
+// exactly one stats row against two distinct `user_id`s, with nothing in
 // either response to say which one actually flew) resolves to `userId: null`, on purpose,
 // not to whichever id happened to be pushed into the index first.
 export function resolveStatsPilots(roster: ClubMember[], stats: ClubPilotStats[]): ResolvedClubStats[] {

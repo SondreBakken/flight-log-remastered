@@ -32,7 +32,7 @@ describe('getPilotEmail', () => {
     mockedFetch.mockResolvedValue('<html>stub</html>')
     mockedHasProfileCell.mockReturnValue(true)
     mockedParsePilot.mockReturnValue(REAL_PILOT)
-    mockedParsePilotEmail.mockReturnValue('sondrebakken@gmail.com')
+    mockedParsePilotEmail.mockReturnValue('owner@example.com')
 
     const outcome = await getPilotEmail(12677)
 
@@ -40,7 +40,7 @@ describe('getPilotEmail', () => {
     expect(mockedHasProfileCell).toHaveBeenCalledWith('<html>stub</html>')
     expect(mockedParsePilot).toHaveBeenCalledWith('<html>stub</html>', 12677)
     expect(mockedParsePilotEmail).toHaveBeenCalledWith('<html>stub</html>')
-    expect(outcome).toEqual({ status: 'found', email: 'sondrebakken@gmail.com' })
+    expect(outcome).toEqual({ status: 'found', email: 'owner@example.com' })
   })
 
   it('returns no-email for a real pilot whose info block has no mailto anchor, distinct from not-found', async () => {

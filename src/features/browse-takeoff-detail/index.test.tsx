@@ -33,14 +33,14 @@ const DETAIL: TakeoffDetail = {
   description: 'A fine site.',
   linkUrl: 'http://goo.gl/maps/eiVlQ',
   createdAt: null,
-  updatedAt: '2023-04-09 18:21:29 Espen Åshammer',
-  siteRecords: [{ recordClass: 'PG', pilotName: 'Mikael Benjamin Ulstrup', distanceKm: 196.9, tripId: 803981 }],
+  updatedAt: '2023-04-09 18:21:29 Pilot Seven',
+  siteRecords: [{ recordClass: 'PG', pilotName: 'Pilot Seventeen', distanceKm: 196.9, tripId: 9000005 }],
 }
 
 const FLIGHT: TakeoffFlight = {
-  tripId: 1000946,
-  userId: 3365,
-  pilotName: 'Jarl Christian Kind',
+  tripId: 9000006,
+  userId: 900018,
+  pilotName: 'Pilot Eighteen',
   club: 'Pyongyang Freedom Fighters',
   glider: 'Gin Camino M',
   duration: '02:41',
@@ -81,7 +81,7 @@ describe('TakeoffDetailView', () => {
     screen.getByRole('heading', { name: 'Drammen, Solbergåsen' })
     screen.getByText(/Buskerud.*401 meters asl/)
     screen.getByText('A fine site.')
-    screen.getByText(/Mikael Benjamin Ulstrup/)
+    screen.getByText(/Pilot Seventeen/)
   })
 
   it('links every flight row\'s pilot with a follow button; the row itself (not a Track link) is now the /flights/[tripId] navigation target', () => {
@@ -98,7 +98,7 @@ describe('TakeoffDetailView', () => {
       />,
     )
 
-    expect(screen.getByRole('link', { name: 'Jarl Christian Kind' }).getAttribute('href')).toBe('/pilots/3365')
+    expect(screen.getByRole('link', { name: 'Pilot Eighteen' }).getAttribute('href')).toBe('/pilots/900018')
     // getByRole throws if not found, so its return alone is the assertion. Exact name match, not
     // /follow/i — #219 gave the row itself role="button" too, and its own accessible name
     // includes "Follow" as part of the whole row's text, so a loose regex would match both.
@@ -107,8 +107,8 @@ describe('TakeoffDetailView', () => {
     // (see flight-row.test.tsx for the row-click/keydown coverage) — only the site record's
     // "View track" link remains a real link.
     const trackLinks = screen.getAllByRole('link', { name: 'View track' }).map((link) => link.getAttribute('href'))
-    expect(trackLinks).not.toContain('/flights/1000946')
-    expect(trackLinks).toContain('/flights/803981')
+    expect(trackLinks).not.toContain('/flights/9000006')
+    expect(trackLinks).toContain('/flights/9000005')
   })
 
   it('marks a flight row\'s follow button as already-followed when its pilot id is in followedPilotIds', () => {
@@ -121,7 +121,7 @@ describe('TakeoffDetailView', () => {
         mapEntry={null}
         currentYear={2026}
         isSignedIn
-        followedPilotIds={[3365]}
+        followedPilotIds={[900018]}
       />,
     )
 

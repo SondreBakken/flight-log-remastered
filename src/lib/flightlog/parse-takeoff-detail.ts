@@ -112,7 +112,7 @@ function readSiteRecordClass(anchor: Nodes): SiteRecordClass | null {
   return (SITE_RECORD_CLASSES as readonly string[]).includes(label) ? (label as SiteRecordClass) : null
 }
 
-// "Mikael Benjamin Ulstrup, 196.9 Km" — pilot name and distance share one anchor with no
+// "Pilot Seventeen, 196.9 Km" — pilot name and distance share one anchor with no
 // other markup to split on but the last comma.
 function readSiteRecordNameAndDistance(text: string): { pilotName: string; distanceKm: number } | null {
   const match = text.match(/^(.*),\s*([\d.,]+)\s*Km$/i)
