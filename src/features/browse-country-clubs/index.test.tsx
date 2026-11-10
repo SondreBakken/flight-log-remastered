@@ -34,6 +34,20 @@ describe('CountryClubs', () => {
     expect(screen.queryByRole('columnheader', { name: 'Flights' })).toBeNull()
   })
 
+  it('styles the table with the form layer: form-label headers and a tabular Members cell', () => {
+    render(
+      <CountryClubs
+        countryId={160}
+        countryName="Norway"
+        clubs={[{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }]}
+      />,
+    )
+
+    for (const th of screen.getAllByRole('columnheader')) expect(th.className).toContain('form-label')
+    expect(screen.getByText('18').className).toContain('tabular-nums')
+    expect(screen.getByText('18').closest('tr')?.className).toContain('border-rule')
+  })
+
   it('links back to /countries, the actual index route, not a typo of it', () => {
     render(<CountryClubs countryId={160} countryName="Norway" clubs={[]} />)
 

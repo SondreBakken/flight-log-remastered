@@ -184,6 +184,25 @@ describe('TakeoffDetailView', () => {
     expect(container.querySelector('thead')?.className).toContain('max-sm:sr-only')
   })
 
+  it('styles the header with form-label and right-aligns the Time column, leaving Date left-aligned', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    for (const th of screen.getAllByRole('columnheader')) expect(th.className).toContain('form-label')
+    expect(screen.getByRole('columnheader', { name: 'Time' }).className).toContain('text-right')
+    expect(screen.getByRole('columnheader', { name: 'Date' }).className).not.toContain('text-right')
+  })
+
   it('renders the deliberate empty state, not an empty table, when there are no flights this year', () => {
     render(
       <TakeoffDetailView

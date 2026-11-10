@@ -7,6 +7,7 @@ import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
+import { STACKED_CELL } from '@/features/browse-pilot-logbook/stacked-cell'
 import { MISSING_VALUE } from '@/lib/flightlog/format-flight'
 import type { PilotId } from '@/lib/flightlog/types'
 
@@ -19,9 +20,6 @@ type StatsLeaderboardProps = {
   isSignedIn: boolean
   followedPilotIds: PilotId[]
 }
-
-// Below sm: each <td> becomes a flex row labelled from its data-label, so no horizontal scroll.
-const STACKED_CELL = 'max-sm:flex max-sm:justify-between max-sm:gap-4 max-sm:py-0.5 max-sm:pr-0 max-sm:before:font-medium max-sm:before:opacity-70 max-sm:before:content-[attr(data-label)]'
 
 const COLUMNS: { key: ClubStatsSortKey; label: string }[] = [
   { key: 'flights', label: 'Flights' },
@@ -63,18 +61,18 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
       <table className="w-full border-collapse text-sm max-sm:block">
         {/* Stays visible below sm: as a flex row of the sort buttons, since the column headers are the only sort control. */}
         <thead className="max-sm:block">
-          <tr className="border-b border-black/10 text-left max-sm:flex max-sm:flex-wrap max-sm:gap-x-4 dark:border-white/15">
-            <th className="py-2 pr-4 font-medium max-sm:hidden">Pilot</th>
+          <tr className="border-b border-rule text-left max-sm:flex max-sm:flex-wrap max-sm:gap-x-4">
+            <th className="py-2 pr-4 max-sm:hidden form-label">Pilot</th>
             {COLUMNS.map((column) => (
               <th
                 key={column.key}
-                className="py-2 pr-4 text-right font-medium max-sm:pr-0"
+                className="py-2 pr-4 text-right form-label max-sm:pr-0"
                 aria-sort={sort.key === column.key ? (sort.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, column.key))}
-                  className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+                  className="inline-flex items-center gap-1"
                 >
                   {column.label}
                   {sort.key === column.key &&
@@ -82,7 +80,7 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 </button>
               </th>
             ))}
-            {isSignedIn && <th className="py-2 font-medium max-sm:hidden">Follow</th>}
+            {isSignedIn && <th className="py-2 max-sm:hidden form-label">Follow</th>}
           </tr>
         </thead>
         <tbody className="max-sm:block">
@@ -118,7 +116,7 @@ function formatDistanceKm(distanceKm: number): string {
 // screen reader — so the same explanation is repeated as visible text via `sr-only`.
 function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isFollowed: boolean; isSignedIn: boolean }) {
   return (
-    <tr className="border-b border-black/5 max-sm:block max-sm:py-2 dark:border-white/10">
+    <tr className="border-b border-rule max-sm:block max-sm:py-2">
       <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Pilot">
         {row.userId === null ? (
           <span title="No pilot profile link available for this name">
@@ -131,9 +129,9 @@ function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isF
           </Link>
         )}
       </td>
-      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Flights">{row.flights}</td>
-      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Distance (km)">{formatDistanceKm(row.distanceKm)}</td>
-      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Hours">{row.hours.toFixed(1)}</td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Flights">{row.flights}</td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Distance (km)">{formatDistanceKm(row.distanceKm)}</td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Hours">{row.hours.toFixed(1)}</td>
       {isSignedIn && (
         <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Follow">
           {row.userId !== null && <FollowButton isFollowed={isFollowed} isSignedIn pilotId={row.userId} variant="compact" />}

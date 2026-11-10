@@ -197,6 +197,19 @@ describe('PilotLogbook year groups', () => {
     expect(totals).toHaveLength(3)
   })
 
+  it('styles the table with the form layer: rule header and footer borders, muted footer', () => {
+    const { container } = renderLogbook(FLIGHTS)
+    const details = container.querySelector('details') as HTMLDetailsElement
+
+    expect(details.querySelector('thead tr')?.className).toContain('border-rule')
+    for (const th of details.querySelectorAll('thead th')) expect(th.className).toContain('form-label')
+    for (const tr of details.querySelectorAll('tfoot tr')) {
+      expect(tr.className).toContain('border-rule')
+      expect(tr.className).toContain('text-muted')
+      expect(tr.className).not.toMatch(/opacity-|black\/|white\/|dark:/)
+    }
+  })
+
   it('renders one details per year, newest first, with only the newest open', () => {
     const { container } = renderLogbook(FLIGHTS)
 

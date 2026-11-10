@@ -104,6 +104,15 @@ describe('FeedEntryRow', () => {
     expect(dateCell.parentElement?.querySelector('a')?.className ?? '').not.toMatch(/underline/)
   })
 
+  it('uses rule tokens for the row border and hover, and a muted "none" for an untracked flight', () => {
+    const row = remountRow({ ...baseEntry, hasTrack: false })
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    expect(within(row).getByText('none').className).toContain('text-muted')
+  })
+
   // #217, porting #213/#214's row-navigation pattern: the whole row is the click target now,
   // not just a Track cell link, so untracked rows (the majority) can reach their flight page too.
   it('navigates to the flight page when an untracked row is clicked anywhere', () => {
