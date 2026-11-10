@@ -11,9 +11,9 @@ const mockedRecent = vi.mocked(getRecentTrackedFlights)
 const DEFAULT_PILOT_ID = 4549
 
 const FLIGHT: TakeoffFlight = {
-  tripId: 1017579,
-  userId: 11405,
-  pilotName: 'Thomas Lone',
+  tripId: 9000002,
+  userId: 900002,
+  pilotName: 'Pilot Two',
   club: null,
   glider: null,
   duration: '00:07',
@@ -46,8 +46,8 @@ describe('SignedOutHome', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Recent flights' })).toBeTruthy()
     expect(screen.getByText(/recent paragliding flights in norway/i)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'View track' }).getAttribute('href')).toBe('/flights/1017579')
-    expect(screen.getByRole('link', { name: 'Thomas Lone' }).getAttribute('href')).toBe('/pilots/11405')
+    expect(screen.getByRole('link', { name: 'View track' }).getAttribute('href')).toBe('/flights/9000002')
+    expect(screen.getByRole('link', { name: 'Pilot Two' }).getAttribute('href')).toBe('/pilots/900002')
     expect(screen.queryByText(/not following any pilots/i)).toBeNull()
     expect(screen.queryByText(/unavailable/i)).toBeNull()
     expectDiscoveryLinks()

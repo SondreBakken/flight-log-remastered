@@ -210,7 +210,8 @@ const signedOutRowsReady = await waitForOrReport(
 )
 if (signedOutRowsReady) {
   const signedOut = await page.evaluate(() => {
-    const hrefs = [...document.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '')
+    // Content links only: SiteNav (outside main) carries /pilots/search and /countries on every page.
+    const hrefs = [...document.querySelectorAll('main a')].map((a) => a.getAttribute('href') ?? '')
     const rowLinks = [...document.querySelectorAll('table tbody tr a')].map((a) => ({
       text: a.textContent?.trim() ?? '',
       href: a.getAttribute('href') ?? '',
@@ -267,7 +268,7 @@ if (emptyStateReady) {
     return link?.getAttribute('href')?.startsWith('/pilots/') ?? false
   })
   const emptyStateHasSearchLink = await page.evaluate(
-    () => document.querySelector('a[href="/pilots/search"]') !== null,
+    () => document.querySelector('main a[href="/pilots/search"]') !== null,
   )
   report(emptyStateHasRealLink, 'empty state links to a real /pilots/[userId] route, not a dead link')
   report(emptyStateHasSearchLink, 'empty state links to /pilots/search')

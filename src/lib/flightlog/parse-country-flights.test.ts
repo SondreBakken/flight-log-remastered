@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseCountryFlightDays, parseCountryFlights } from './parse-country-flights'
 
-// Trimmed from live GETs of `a=47&country_id=160` on 2026-11-10: the bare page (only the newest
+// Trimmed from live GETs of `a=47&country_id=160` on 2026-11-10 (pilots, clubs and ids replaced with synthetic values): the bare page (only the newest
 // day, one flight) and its `tripdate=2026-11-09` day page (flights under 2-cell takeoff-name rows).
 const BARE_HTML = readFileSync(join(__dirname, 'fixtures/a47-country-160.html'), 'utf8')
 const DAY_HTML = readFileSync(join(__dirname, 'fixtures/a47-country-160-2026-11-09.html'), 'utf8')
@@ -20,9 +20,9 @@ describe('parseCountryFlights', () => {
   it('parses the bare page: the lone newest flight with a blank distance as null', () => {
     expect(parseCountryFlights(BARE_HTML, 160)).toEqual([
       {
-        tripId: 1017672,
-        userId: 12952,
-        pilotName: 'Kristian Mosvold',
+        tripId: 9000001,
+        userId: 900001,
+        pilotName: 'Pilot One',
         club: null,
         glider: 'Ozone Alta',
         duration: '00:09',
@@ -37,11 +37,11 @@ describe('parseCountryFlights', () => {
   it('parses a day page: skips the takeoff-name rows and carries the date onto every flight row', () => {
     const flights = parseCountryFlights(DAY_HTML, 160)
 
-    expect(flights.map((flight) => flight.tripId)).toEqual([1017579, 1017594, 1017592, 1017560])
+    expect(flights.map((flight) => flight.tripId)).toEqual([9000002, 9000003, 9000004, 9000005])
     expect(new Set(flights.map((flight) => flight.date))).toEqual(new Set(['2026-11-09']))
     expect(flights[0]).toMatchObject({
-      pilotName: 'Thomas Lone',
-      club: 'Hallingdal Paragliderklubb',
+      pilotName: 'Pilot Two',
+      club: 'Example Club A',
       glider: 'Ozone Zeolite 2',
       distanceKm: 2.9,
       timeOfDay: '12:50',
