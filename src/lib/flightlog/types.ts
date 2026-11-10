@@ -57,12 +57,12 @@ export type TrackPoint = {
   secondsFromStart: number
 }
 
+export type MaxSpeedKind = '10s/60s' | 'mean/top'
+
 // Total distance (its own labeled line in the two 2010-era GpsDump fixtures, track-233524.kml
 // and track-235690.kml) is read nowhere in this file — the newer GpsDumpAndroid format has no
 // equivalent line to reconcile it against, so it stays unparsed rather than added as a field
 // only the older fixtures could ever populate.
-export type MaxSpeedKind = '10s/60s' | 'mean/top'
-
 export type TrackStats = {
   date: string | null
   startFinish: string | null
