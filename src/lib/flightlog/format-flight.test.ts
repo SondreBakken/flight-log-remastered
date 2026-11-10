@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Flight } from './types'
-import { formatFlightDuration, formatHours, formatTrackDuration } from './format-flight'
+import { MISSING_VALUE, formatFlightDistance, formatFlightDuration, formatHours, formatTrackDuration } from './format-flight'
 
 const baseFlight: Flight = {
   tripId: 1,
@@ -85,5 +85,12 @@ describe('formatTrackDuration', () => {
 
   it('returns null for null', () => {
     expect(formatTrackDuration(null)).toBeNull()
+  })
+})
+
+describe('MISSING_VALUE', () => {
+  it('is the placeholder both flight formatters return for a missing value', () => {
+    expect(formatFlightDistance(baseFlight)).toBe(MISSING_VALUE)
+    expect(formatFlightDuration({ ...baseFlight, duration: null })).toBe(MISSING_VALUE)
   })
 })

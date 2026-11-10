@@ -41,6 +41,7 @@ export default function BrowseClub({
   return (
     <section className="flex flex-col gap-8">
       <ClubHeader countryId={countryId} countryName={countryName} detail={detail} />
+      {!isSignedIn && roster.length > 0 && <SignInPrompt />}
       <div className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold tracking-tight">Pilot stats</h2>
         <StatsLeaderboard stats={resolvedStats} isSignedIn={isSignedIn} followedPilotIds={followedPilotIds} />
@@ -121,7 +122,16 @@ function ClubHeader({ countryId, countryName, detail }: { countryId: number; cou
   )
 }
 
-// Every roster member gets a follow button unconditionally — unlike a stats row (see
+// One prompt for both lists, so a signed-out page does not repeat the same link on every row.
+function SignInPrompt() {
+  return (
+    <Link className="w-fit text-sm underline underline-offset-2" href="/sign-in">
+      Sign in to follow pilots
+    </Link>
+  )
+}
+
+// Every roster member gets a follow button when signed in, unlike a stats row (see
 // stats-leaderboard.tsx), a roster row already carries its own `user_id` straight from
 // flightlog.org, nothing to resolve or fail to resolve.
 function Roster({
@@ -144,12 +154,9 @@ function Roster({
           <Link className="underline underline-offset-2" href={`/pilots/${member.userId}`}>
             {member.name}
           </Link>
-          <FollowButton
-            isFollowed={followedPilotIds.has(member.userId)}
-            isSignedIn={isSignedIn}
-            pilotId={member.userId}
-            variant="compact"
-          />
+          {isSignedIn && (
+            <FollowButton isFollowed={followedPilotIds.has(member.userId)} isSignedIn pilotId={member.userId} variant="compact" />
+          )}
         </li>
       ))}
     </ul>

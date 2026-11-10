@@ -7,6 +7,7 @@ import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
+import { MISSING_VALUE } from '@/lib/flightlog/format-flight'
 import type { PilotId } from '@/lib/flightlog/types'
 
 type StatsLeaderboardProps = {
@@ -81,7 +82,7 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 </button>
               </th>
             ))}
-            <th className="py-2 font-medium max-sm:hidden">Follow</th>
+            {isSignedIn && <th className="py-2 font-medium max-sm:hidden">Follow</th>}
           </tr>
         </thead>
         <tbody className="max-sm:block">
@@ -97,6 +98,12 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
       </table>
     </div>
   )
+}
+
+// rqtid=1 reports a pilot without distance as 0.0000, so 0 cannot be told apart from "no tracks"
+// and renders as missing (#290). Hours is not treated this way and still shows 0.0.
+function formatDistanceKm(distanceKm: number): string {
+  return distanceKm === 0 ? MISSING_VALUE : distanceKm.toFixed(1)
 }
 
 // A stats row's own `userId` is `null` whenever its name resolved to zero OR more than one
@@ -125,13 +132,13 @@ function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isF
         )}
       </td>
       <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Flights">{row.flights}</td>
-      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Distance (km)">{row.distanceKm.toFixed(1)}</td>
+      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Distance (km)">{formatDistanceKm(row.distanceKm)}</td>
       <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Hours">{row.hours.toFixed(1)}</td>
-      <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Follow">
-        {row.userId !== null && (
-          <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={row.userId} variant="compact" />
-        )}
-      </td>
+      {isSignedIn && (
+        <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Follow">
+          {row.userId !== null && <FollowButton isFollowed={isFollowed} isSignedIn pilotId={row.userId} variant="compact" />}
+        </td>
+      )}
     </tr>
   )
 }

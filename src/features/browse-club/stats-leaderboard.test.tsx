@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { StatsLeaderboard } from './stats-leaderboard'
+import { MISSING_VALUE } from '@/lib/flightlog/format-flight'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 
 const ROWS: ResolvedClubStats[] = [
@@ -50,11 +51,41 @@ describe('StatsLeaderboard', () => {
     expect(screen.getByRole('button', { name: 'Follow' })).toBeTruthy()
   })
 
-  it('renders a sign-in prompt instead of follow buttons when signed out', () => {
+  it('renders no follow buttons, sign-in links or Follow column when signed out, and keeps the stats', () => {
     render(<StatsLeaderboard stats={ROWS} isSignedIn={false} followedPilotIds={[]} />)
 
     expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
-    expect(screen.getAllByRole('link', { name: /sign in to follow/i })).toHaveLength(2)
+    expect(screen.queryByRole('link', { name: /sign in to follow/i })).toBeNull()
+    expect(screen.queryByRole('columnheader', { name: 'Follow' })).toBeNull()
+    expect(rowOrder()).toHaveLength(3)
+    screen.getByRole('link', { name: 'High Flyer' })
+    screen.getByText('300.0')
+  })
+
+  it('renders the missing-value placeholder for a distance of 0 and real values for the rest; hours keep 0.0', () => {
+    const stats: ResolvedClubStats[] = [
+      { name: 'No Distance', flights: 3, distanceKm: 0, hours: 0, userId: 1 },
+      { name: 'Short', flights: 2, distanceKm: 0.4, hours: 1, userId: 2 },
+      { name: 'Long', flights: 1, distanceKm: 300, hours: 1, userId: 3 },
+    ]
+    render(<StatsLeaderboard stats={stats} isSignedIn followedPilotIds={[]} />)
+
+    const cells = (name: string) =>
+      [...(screen.getByText(name).closest('tr')?.querySelectorAll('td') ?? [])].map((td) => td.textContent)
+    expect(cells('No Distance').slice(0, 4)).toEqual(['No Distance', '3', MISSING_VALUE, '0.0'])
+    expect(cells('Short')[2]).toBe('0.4')
+    expect(cells('Long')[2]).toBe('300.0')
+  })
+
+  it('still sorts a 0-distance row as numeric 0 by distance', () => {
+    const stats: ResolvedClubStats[] = [
+      { name: 'No Distance', flights: 9, distanceKm: 0, hours: 1, userId: 1 },
+      { name: 'Short', flights: 2, distanceKm: 0.4, hours: 1, userId: 2 },
+    ]
+    render(<StatsLeaderboard stats={stats} isSignedIn followedPilotIds={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: /distance/i }))
+
+    expect(rowOrder().map((text) => text.slice(0, 5))).toEqual(['Short', 'No Di'])
   })
 
   it('defaults to sorted descending by flights, with the Flights header reflecting that, before any click', () => {
