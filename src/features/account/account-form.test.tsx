@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AccountForm } from './account-form'
 
 const mockSaveDisplayName = vi.fn()
@@ -93,5 +93,56 @@ describe('AccountForm saving', () => {
     await screen.findByText('Too long.')
     expect(screen.getByLabelText('Display name')).toBeTruthy()
     expect(onSaved).not.toHaveBeenCalled()
+  })
+})
+
+describe('AccountForm focus', () => {
+  it('focuses the input when the pencil opens the form', () => {
+    render(<AccountForm initialDisplayName="Alex" />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_NAME }))
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Display name'))
+  })
+
+  it('does not steal focus when the form is shown on first mount', () => {
+    render(<AccountForm initialDisplayName={null} />)
+
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('returns focus to the pencil when a first save closes a form that opened on mount', async () => {
+    mockSaveDisplayName.mockResolvedValue({ status: 'success' })
+    const { rerender } = render(<AccountForm initialDisplayName={null} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Alex' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mockSaveDisplayName).toHaveBeenCalled())
+    rerender(<AccountForm initialDisplayName="Alex" />)
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_NAME })))
+  })
+
+  it('returns focus to the pencil after a successful save closes the form', async () => {
+    mockSaveDisplayName.mockResolvedValue({ status: 'success' })
+    render(<AccountForm initialDisplayName="Alex" />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_NAME }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_NAME })))
+  })
+
+  it('leaves focus alone when the save errors', async () => {
+    mockSaveDisplayName.mockResolvedValue({ status: 'error', message: 'Too long.' })
+    render(<AccountForm initialDisplayName="Alex" />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_NAME }))
+    const save = screen.getByRole('button', { name: 'Save' })
+    save.focus()
+    fireEvent.click(save)
+
+    await screen.findByText('Too long.')
+    expect(document.activeElement).toBe(save)
   })
 })

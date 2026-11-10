@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CertificateLevelForm } from './certificate-level-form'
 
 const mockSaveCertificateLevelAction = vi.fn()
@@ -91,5 +91,41 @@ describe('CertificateLevelForm, saving', () => {
     await screen.findByText('Something went wrong saving your certificate level. Try again.')
     screen.getByRole('combobox')
     expect(mockRefresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('CertificateLevelForm focus', () => {
+  it('focuses the select when the editor opens', () => {
+    render(<CertificateLevelForm currentLevel="PP3" />)
+    openEditor()
+
+    expect(document.activeElement).toBe(screen.getByRole('combobox'))
+  })
+
+  it('returns focus to the pencil after a successful save', async () => {
+    mockSaveCertificateLevelAction.mockResolvedValue({ status: 'success' })
+    render(<CertificateLevelForm currentLevel="PP3" />)
+    openEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /edit certificate level/i })))
+  })
+
+  it('leaves the pencil focused after the toggle-close click', () => {
+    render(<CertificateLevelForm currentLevel="PP3" />)
+    openEditor()
+    fireEvent.click(screen.getByRole('button', { name: /close certificate level editor/i }))
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /edit certificate level/i }))
+  })
+
+  it('shows the note only while editing, after the form', () => {
+    render(<CertificateLevelForm currentLevel="PP3" />)
+    expect(screen.queryByText('Self-declared, unverified.')).toBeNull()
+
+    openEditor()
+    const note = screen.getByText('Self-declared, unverified.')
+    expect(screen.getByRole('combobox').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

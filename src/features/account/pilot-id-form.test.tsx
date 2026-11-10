@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { PilotIdForm } from './pilot-id-form'
 import type { OwnPilotVerificationState } from './pilot-verification'
 
@@ -115,5 +115,68 @@ describe('PilotIdForm text view', () => {
     await screen.findByText('Unknown pilot id.')
     expect(screen.getByLabelText('flightlog.org pilot id')).toBeTruthy()
     expect(onSaved).not.toHaveBeenCalled()
+  })
+})
+
+describe('PilotIdForm focus and note placement', () => {
+  it('focuses the input when the pencil opens the form', () => {
+    render(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_PILOT_ID }))
+
+    expect(document.activeElement).toBe(screen.getByLabelText('flightlog.org pilot id'))
+  })
+
+  it('does not steal focus when the form is shown on first mount', () => {
+    render(<PilotIdForm initialPilotId={null} verification={NONE} />)
+
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('returns focus to the pencil when a first save closes a form that opened on mount', async () => {
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
+    const { rerender } = render(<PilotIdForm initialPilotId={null} verification={NONE} />)
+
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: String(LINKED_PILOT_ID) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mockSaveFlightlogPilotId).toHaveBeenCalled())
+    rerender(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_PILOT_ID })))
+  })
+
+  it('returns focus to the pencil after a successful save', async () => {
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
+    render(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_PILOT_ID }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_PILOT_ID })))
+  })
+
+  it('leaves focus alone when the save errors', async () => {
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'error', message: 'Unknown pilot id.' })
+    render(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_PILOT_ID }))
+    const save = screen.getByRole('button', { name: 'Save' })
+    save.focus()
+    fireEvent.click(save)
+
+    await screen.findByText('Unknown pilot id.')
+    expect(document.activeElement).toBe(save)
+  })
+
+  it('renders the note directly under the row, before the Saved. paragraph', async () => {
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
+    render(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    fireEvent.click(screen.getByRole('button', { name: EDIT_PILOT_ID }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    const saved = await screen.findByText('Saved.')
+    const note = screen.getByText(NOTE)
+    expect(note.compareDocumentPosition(saved) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
