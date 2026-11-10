@@ -29,7 +29,7 @@ function unmatched(overrides: Partial<UnmatchedSite> = {}): UnmatchedSite {
 }
 
 async function renderSection() {
-  render(await FlownSitesSection({ userId: 4549 }))
+  render(await FlownSitesSection({ userId: 900024 }))
 }
 
 describe('FlownSitesSection', () => {
@@ -122,7 +122,7 @@ describe('FlownSitesSection', () => {
   it('shows an icon in the load-failure notice', async () => {
     mockedGetFlownSites.mockResolvedValue({ status: 'error', message: 'flightlog.org returned 502' })
 
-    const { container } = render(await FlownSitesSection({ userId: 4549 }))
+    const { container } = render(await FlownSitesSection({ userId: 900024 }))
 
     expect(container.querySelector('svg')).toBeTruthy()
   })
@@ -130,7 +130,7 @@ describe('FlownSitesSection', () => {
   it('shows an icon in the no-flights empty state', async () => {
     mockedGetFlownSites.mockResolvedValue({ status: 'no-flights' })
 
-    const { container } = render(await FlownSitesSection({ userId: 4549 }))
+    const { container } = render(await FlownSitesSection({ userId: 900024 }))
 
     expect(container.querySelector('svg')).toBeTruthy()
   })

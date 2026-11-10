@@ -8,7 +8,7 @@ import { SignedOutHome } from './signed-out-home'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
 
 const mockedRecent = vi.mocked(getRecentTrackedFlights)
-const DEFAULT_PILOT_ID = 4549
+const DEFAULT_PILOT_ID = 900024
 
 const FLIGHT: TakeoffFlight = {
   tripId: 9000002,

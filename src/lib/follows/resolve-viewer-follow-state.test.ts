@@ -31,7 +31,7 @@ describe('resolveViewerFollowState', () => {
   it('reports signed-out, never reaching getFollowedPilotIds, when there is no session', async () => {
     mockGetCurrentUserId.mockResolvedValue(null)
 
-    const state = await resolveViewerFollowState([4549])
+    const state = await resolveViewerFollowState([900024])
 
     expect(state).toEqual({ status: 'signed-out' })
     expect(mockGetFollowedPilotIds).not.toHaveBeenCalled()
@@ -39,11 +39,11 @@ describe('resolveViewerFollowState', () => {
 
   it('passes the authenticated userId and the given candidate ids to getFollowedPilotIds — never a client-supplied identity', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
-    mockGetFollowedPilotIds.mockResolvedValue(new Set([4549]))
+    mockGetFollowedPilotIds.mockResolvedValue(new Set([900024]))
 
-    await resolveViewerFollowState([4549, 12677])
+    await resolveViewerFollowState([900024, 12677])
 
-    expect(mockGetFollowedPilotIds).toHaveBeenCalledWith(expect.anything(), 'user-abc', [4549, 12677])
+    expect(mockGetFollowedPilotIds).toHaveBeenCalledWith(expect.anything(), 'user-abc', [900024, 12677])
   })
 
   it('passes candidatePilotIds through as undefined when omitted, for an unscoped "every followed pilot" read', async () => {
@@ -57,13 +57,13 @@ describe('resolveViewerFollowState', () => {
 
   it('reports a resolved status with the resolved followed ids as a plain array', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
-    mockGetFollowedPilotIds.mockResolvedValue(new Set([4549, 12677]))
+    mockGetFollowedPilotIds.mockResolvedValue(new Set([900024, 12677]))
 
-    const state = await resolveViewerFollowState([4549, 12677])
+    const state = await resolveViewerFollowState([900024, 12677])
 
     expect(state.status).toBe('resolved')
     if (state.status !== 'resolved') throw new Error('unreachable')
-    expect([...state.followedPilotIds].sort((a, b) => a - b)).toEqual([4549, 12677])
+    expect([...state.followedPilotIds].sort((a, b) => a - b)).toEqual([12677, 900024])
   })
 
   it('degrades to an explicit follows-unavailable status, without crashing, when getFollowedPilotIds throws a FollowsQueryError', async () => {
@@ -71,7 +71,7 @@ describe('resolveViewerFollowState', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new FollowsQueryError('follows query failed'))
 
-    const state = await resolveViewerFollowState([4549])
+    const state = await resolveViewerFollowState([900024])
 
     expect(state).toEqual({ status: 'follows-unavailable' })
     consoleError.mockRestore()
@@ -81,7 +81,7 @@ describe('resolveViewerFollowState', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new TypeError('data was null'))
 
-    await expect(resolveViewerFollowState([4549])).rejects.toThrow(TypeError)
+    await expect(resolveViewerFollowState([900024])).rejects.toThrow(TypeError)
   })
 })
 
@@ -91,7 +91,7 @@ describe('followedPilotIdsOf', () => {
   })
 
   it('returns the resolved follow list as-is', () => {
-    expect(followedPilotIdsOf({ status: 'resolved', followedPilotIds: [4549] })).toEqual([4549])
+    expect(followedPilotIdsOf({ status: 'resolved', followedPilotIds: [900024] })).toEqual([900024])
   })
 
   it('returns null for follows-unavailable — the one status with no real list to hand back', () => {
@@ -105,9 +105,9 @@ describe('toFollowButtonState', () => {
   })
 
   it('passes a resolved state through as isSignedIn: true with its followed ids', () => {
-    expect(toFollowButtonState({ status: 'resolved', followedPilotIds: [4549] })).toEqual({
+    expect(toFollowButtonState({ status: 'resolved', followedPilotIds: [900024] })).toEqual({
       isSignedIn: true,
-      followedPilotIds: [4549],
+      followedPilotIds: [900024],
     })
   })
 
@@ -119,11 +119,11 @@ describe('toFollowButtonState', () => {
 describe('resolveFollowButtonState', () => {
   it('composes resolveViewerFollowState and toFollowButtonState into the one call site adornment pages use', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
-    mockGetFollowedPilotIds.mockResolvedValue(new Set([4549]))
+    mockGetFollowedPilotIds.mockResolvedValue(new Set([900024]))
 
-    const result = await resolveFollowButtonState([4549])
+    const result = await resolveFollowButtonState([900024])
 
-    expect(result).toEqual({ isSignedIn: true, followedPilotIds: [4549] })
+    expect(result).toEqual({ isSignedIn: true, followedPilotIds: [900024] })
   })
 
   it('degrades a follows query failure to the same isSignedIn: true, no-follows shape toFollowButtonState gives, without crashing the caller', async () => {
@@ -131,7 +131,7 @@ describe('resolveFollowButtonState', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockRejectedValue(new FollowsQueryError('follows query failed'))
 
-    const result = await resolveFollowButtonState([4549])
+    const result = await resolveFollowButtonState([900024])
 
     expect(result).toEqual({ isSignedIn: true, followedPilotIds: [] })
     consoleError.mockRestore()
