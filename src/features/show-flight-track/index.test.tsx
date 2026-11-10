@@ -46,7 +46,9 @@ describe('FlightTrack', () => {
   it('formats the duration and labels the max speed in the stat grid', () => {
     render(<FlightTrack track={trackWithStats(REAL_STATS)} />)
 
-    screen.getByText('10 km/h (10 s) / 10 km/h (60 s)')
+    const grid = within(screen.getByTestId('stat-grid'))
+    grid.getByText('10 km/h (10 s) / 10 km/h (60 s)')
+    grid.getByText('1 min')
   })
 
   it('shows duration and max altitude in a summary row', () => {

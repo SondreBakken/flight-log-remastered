@@ -11,6 +11,11 @@ const SCORING = Object.fromEntries(
   ]),
 ) as Track['scoring']
 
+const AVAILABLE_SCORING: Track['scoring'] = {
+  ...SCORING,
+  distance_open: { shape: 'line', kind: 'distance_open', name: 'Open distance', distanceKm: 12, turnpointIndices: [0, 1] },
+}
+
 describe('ScoringOverlaySelect', () => {
   it('renders None plus one option per kind inside a select labelled Scoring overlay', () => {
     render(<ScoringOverlaySelect scoring={SCORING} selectedKind={null} onSelectKind={() => {}} />)
@@ -40,6 +45,15 @@ describe('ScoringOverlaySelect', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '' } })
 
     expect(onSelectKind).toHaveBeenCalledWith(null)
+  })
+
+  it('calls onSelectKind with the chosen kind', () => {
+    const onSelectKind = vi.fn()
+    render(<ScoringOverlaySelect scoring={AVAILABLE_SCORING} selectedKind={null} onSelectKind={onSelectKind} />)
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'distance_open' } })
+
+    expect(onSelectKind).toHaveBeenCalledWith('distance_open')
   })
 
   it('shows the summary line only for a selected kind', () => {

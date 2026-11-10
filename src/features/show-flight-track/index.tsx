@@ -69,7 +69,7 @@ function StatsUnavailable() {
 }
 
 function StatGrid({ stats }: { stats: Stat[] }) {
-  return <StatList stats={stats} className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3" />
+  return <StatList stats={stats} className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3" testId="stat-grid" />
 }
 
 function StatList({ stats, className, testId }: { stats: Stat[]; className: string; testId?: string }) {
