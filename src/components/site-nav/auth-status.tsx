@@ -9,6 +9,9 @@ import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 import { useOwnPilotId } from './use-own-pilot-id'
 import { useIsOwnVerified } from './use-own-verification'
 
+// Applied to the icon and email, never to the link: opacity on the <a> would also dim the stamp inside it.
+const MUTED_CLASSES = 'opacity-70'
+
 // SiteNav sits in the root layout: reading the session server-side here would put a per-request
 // dynamic hole in every page under Cache Components, including the curated country pages
 // check:clubs-prerender and check:takeoffs-prerender pin as fully prerendered (issue #40).
@@ -40,8 +43,8 @@ function SignedInStatus({ userId, email }: { userId: string; email: string }) {
   return (
     <div className="flex shrink-0 items-center gap-3">
       <OwnFlightsLink ownPilotId={ownPilotId} />
-      <NavIconLink href="/account" icon={User} muted>
-        <span className={`${NAV_LABEL_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
+      <NavIconLink href="/account" icon={User} iconClassName={MUTED_CLASSES}>
+        <span className={`${NAV_LABEL_CLASSES} ${MUTED_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
         {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
       </NavIconLink>
       <form action="/api/auth/sign-out" method="post">
@@ -78,17 +81,17 @@ function OwnFlightsLink({ ownPilotId }: { ownPilotId: ReturnType<typeof useOwnPi
 function NavIconLink({
   href,
   icon: Icon,
-  muted,
+  iconClassName,
   children,
 }: {
   href: string
   icon: LucideIcon
-  muted?: boolean
+  iconClassName?: string
   children: ReactNode
 }) {
   return (
-    <Link className={muted ? `${NAV_ICON_ROW_CLASSES} opacity-70` : NAV_ICON_ROW_CLASSES} href={href}>
-      <Icon aria-hidden="true" size={14} />
+    <Link className={NAV_ICON_ROW_CLASSES} href={href}>
+      <Icon aria-hidden="true" className={iconClassName} size={14} />
       {children}
     </Link>
   )

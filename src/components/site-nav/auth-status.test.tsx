@@ -147,6 +147,37 @@ describe('AuthStatus', () => {
     expect(stamp.querySelector('svg')?.getAttribute('width')).toBe('16')
   })
 
+  it('keeps the stamp at full opacity: opacity-70 sits on the icon and email, not the link or any ancestor (#310)', async () => {
+    mockFetchOwnVerification.mockResolvedValue('verified')
+    mockFetchOwnPilotId.mockResolvedValue(12677)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    const stamp = await screen.findByRole('img', { name: 'Verified pilot' })
+    const link = stamp.closest('a')!
+    expect(link.getAttribute('href')).toBe('/account')
+    for (let el: Element | null = stamp; el; el = el.parentElement) {
+      expect(el.className.toString()).not.toMatch(/\bopacity-/)
+    }
+    expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+    expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
+    expect((await screen.findByRole('link', { name: 'My flights' })).className).not.toContain('opacity-70')
+  })
+
+  it.each(['none', 'pending'])('still mutes the icon and email, link unmuted, with a %s verification', async (status) => {
+    mockFetchOwnVerification.mockResolvedValue(status)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    await waitFor(() => expect(mockFetchOwnVerification).toHaveBeenCalled())
+    const link = screen.getByText('pilot@example.com').closest('a')!
+    expect(link.className).not.toContain('opacity-70')
+    expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+    expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
+  })
+
   it.each(['none', 'pending'])('shows no stamp for a %s verification', async (status) => {
     mockFetchOwnVerification.mockResolvedValue(status)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
