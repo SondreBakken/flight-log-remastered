@@ -29,6 +29,13 @@ beforeEach(() => {
   mockFetchOwnVerification.mockResolvedValue('none')
 })
 
+function expectMutedIconAndEmailOnUnmutedLink() {
+  const link = document.querySelector('a[href="/account"]')!
+  expect(link.className).not.toContain('opacity-70')
+  expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+  expect(link.querySelector('span')?.className).toContain('opacity-70')
+}
+
 describe('AuthStatus', () => {
   it('renders nothing while the session is still loading', () => {
     mockUseSignedInUser.mockReturnValue({ kind: 'loading' })
@@ -147,6 +154,45 @@ describe('AuthStatus', () => {
     expect(stamp.querySelector('svg')?.getAttribute('width')).toBe('16')
   })
 
+  it('keeps the stamp at full opacity: opacity-70 sits on the icon and email, not the link or any ancestor (#310)', async () => {
+    mockFetchOwnVerification.mockResolvedValue('verified')
+    mockFetchOwnPilotId.mockResolvedValue(12677)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    const stamp = await screen.findByRole('img', { name: 'Verified pilot' })
+    const link = stamp.closest('a')!
+    expect(link.getAttribute('href')).toBe('/account')
+    for (let el: Element | null = stamp; el; el = el.parentElement) {
+      expect(el.className.toString()).not.toMatch(/\bopacity-/)
+    }
+    expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+    expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
+    expect((await screen.findByRole('link', { name: 'My flights' })).className).not.toContain('opacity-70')
+  })
+
+  it.each(['none', 'pending'])('still mutes the icon and email, link unmuted, with a %s verification', async (status) => {
+    mockFetchOwnVerification.mockResolvedValue(status)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+
+    render(<AuthStatus />)
+
+    await waitFor(() => expect(mockFetchOwnVerification).toHaveBeenCalled())
+    const link = screen.getByText('pilot@example.com').closest('a')!
+    expect(link.className).not.toContain('opacity-70')
+    expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+    expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
+  })
+
+  it.each(['a-very-long-pilot-address-that-will-truncate@example.com', ''])('mutes the label span for the email %j', (email) => {
+    mockUseSignedInUser.mockReturnValue({ ...SIGNED_IN, email })
+
+    render(<AuthStatus />)
+
+    expectMutedIconAndEmailOnUnmutedLink()
+  })
+
   it.each(['none', 'pending'])('shows no stamp for a %s verification', async (status) => {
     mockFetchOwnVerification.mockResolvedValue(status)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
@@ -164,6 +210,7 @@ describe('AuthStatus', () => {
     render(<AuthStatus />)
 
     expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+    expectMutedIconAndEmailOnUnmutedLink()
   })
 
   it('shows no stamp, and logs, when the verification lookup fails', async () => {
@@ -175,6 +222,7 @@ describe('AuthStatus', () => {
 
     await waitFor(() => expect(consoleError).toHaveBeenCalled())
     expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+    expectMutedIconAndEmailOnUnmutedLink()
     consoleError.mockRestore()
   })
 
