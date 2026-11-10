@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { saveFlightlogPilotId } from './actions'
 import type { PilotIdFormState } from './pilot-id-form-state'
@@ -32,26 +32,23 @@ type PilotIdFormProps = {
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
 export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verification, onSaved }: PilotIdFormProps) {
-  const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
+  const [state, formAction, pending] = useActionState(saveAndClose, initialState)
   const [isEditing, setIsEditing] = useState(false)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
   const hasValue = initialPilotId != null && !pilotIdLoadFailed
   const showForm = !hasValue || isEditing
 
-  useEffect(() => {
-    if (state.status === 'success') {
-      // Closing on the save outcome is an effect of the action's result, not derivable at render:
-      // an error must keep the form open, and both outcomes replace `state`.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Closes the form and notifies the parent in the submit path, once per save: an error result
+  // leaves the form open, and no effect has to react to `state` after the fact.
+  async function saveAndClose(previous: PilotIdFormState, formData: FormData) {
+    const next = await saveFlightlogPilotId(previous, formData)
+    if (next.status === 'success') {
       setIsEditing(false)
       onSaved?.()
     }
-    // onSaved excluded deliberately — see confirm-pilot-verification-form.tsx's own identical
-    // effect for why: signed-in-account-settings.tsx passes a fresh closure every render, and including it would
-    // re-fire this on every unrelated parent re-render while state is still 'success', not only
-    // once when the save itself actually succeeded.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
+    return next
+  }
+
   // Shown while a pilot id is on record (already loaded on mount, just saved by this submission, or
   // still on record despite an unrelated failed resubmission) and it is not verified, so a
   // first-time visitor with nothing linked yet doesn't see a note about a link that doesn't exist.

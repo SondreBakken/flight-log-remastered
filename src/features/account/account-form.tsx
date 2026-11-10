@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { saveDisplayName } from './actions'
 import type { AccountFormState } from './account-form-state'
@@ -20,26 +20,23 @@ type AccountFormProps = {
 // Only rendered once index.tsx has established the visitor is signed in. The Server Action
 // re-checks that itself: render-time gating is never a security boundary.
 export function AccountForm({ initialDisplayName, displayNameLoadFailed = false, onSaved }: AccountFormProps) {
-  const [state, formAction, pending] = useActionState(saveDisplayName, initialState)
+  const [state, formAction, pending] = useActionState(saveAndClose, initialState)
   const [isEditing, setIsEditing] = useState(false)
   const defaultDisplayName = initialDisplayName ?? ''
   // A blank or unloaded name has nothing to show as text, so the form stays open for it.
   const hasValue = !displayNameLoadFailed && Boolean(initialDisplayName?.trim())
   const showForm = !hasValue || isEditing
 
-  useEffect(() => {
-    if (state.status === 'success') {
-      // Closing on the save outcome is an effect of the action's result, not derivable at render:
-      // an error must keep the form open, and both outcomes replace `state`.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Closes the form and notifies the parent in the submit path, once per save: an error result
+  // leaves the form open, and no effect has to react to `state` after the fact.
+  async function saveAndClose(previous: AccountFormState, formData: FormData) {
+    const next = await saveDisplayName(previous, formData)
+    if (next.status === 'success') {
       setIsEditing(false)
       onSaved?.()
     }
-    // onSaved excluded deliberately, same reason as pilot-id-form.tsx's identical effect: the
-    // parent passes a fresh closure every render, which would re-fire this while state is still
-    // 'success'.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
+    return next
+  }
 
   return (
     <div className="flex max-w-sm flex-col gap-2">
