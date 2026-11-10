@@ -29,6 +29,13 @@ beforeEach(() => {
   mockFetchOwnVerification.mockResolvedValue('none')
 })
 
+function expectMutedIconAndEmailOnUnmutedLink() {
+  const link = document.querySelector('a[href="/account"]')!
+  expect(link.className).not.toContain('opacity-70')
+  expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
+  expect(link.querySelector('span')?.className).toContain('opacity-70')
+}
+
 describe('AuthStatus', () => {
   it('renders nothing while the session is still loading', () => {
     mockUseSignedInUser.mockReturnValue({ kind: 'loading' })
@@ -178,6 +185,14 @@ describe('AuthStatus', () => {
     expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
   })
 
+  it.each(['a-very-long-pilot-address-that-will-truncate@example.com', ''])('mutes the label span for the email %j', (email) => {
+    mockUseSignedInUser.mockReturnValue({ ...SIGNED_IN, email })
+
+    render(<AuthStatus />)
+
+    expectMutedIconAndEmailOnUnmutedLink()
+  })
+
   it.each(['none', 'pending'])('shows no stamp for a %s verification', async (status) => {
     mockFetchOwnVerification.mockResolvedValue(status)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
@@ -195,6 +210,7 @@ describe('AuthStatus', () => {
     render(<AuthStatus />)
 
     expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+    expectMutedIconAndEmailOnUnmutedLink()
   })
 
   it('shows no stamp, and logs, when the verification lookup fails', async () => {
@@ -206,6 +222,7 @@ describe('AuthStatus', () => {
 
     await waitFor(() => expect(consoleError).toHaveBeenCalled())
     expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull()
+    expectMutedIconAndEmailOnUnmutedLink()
     consoleError.mockRestore()
   })
 
