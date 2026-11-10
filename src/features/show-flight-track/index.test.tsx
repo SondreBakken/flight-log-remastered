@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { SCORING_KINDS } from '@/lib/flightlog/types'
 import type { ScoringGeometryKind, ScoringGeometryResult, Track, TrackStats } from '@/lib/flightlog/types'
-import { formatAltitude } from './format-altitude'
+import { NULL_PLACEHOLDER } from './format-altitude'
 import FlightTrack from './index'
 
 // TrackHoverView composes TrackMap (a real maplibre-gl MapLibreMap against a canvas — jsdom has
@@ -62,7 +62,7 @@ describe('FlightTrack', () => {
   it('shows the null placeholder in the summary row for a null duration and max altitude', () => {
     render(<FlightTrack track={trackWithStats({ ...REAL_STATS, duration: null, maxAltitude: null })} />)
 
-    const values = within(screen.getByTestId('flight-summary-row')).getAllByText(formatAltitude(null))
+    const values = within(screen.getByTestId('flight-summary-row')).getAllByText(NULL_PLACEHOLDER)
     expect(values).toHaveLength(2)
   })
 

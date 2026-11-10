@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { CalendarDate } from '@/components/calendar-date'
 import type { Track, TrackPoint, TrackStats, TrackStatsResult } from '@/lib/flightlog/types'
 import { formatTrackDuration } from '@/lib/flightlog/format-flight'
-import { formatAltitude } from './format-altitude'
+import { formatAltitude, NULL_PLACEHOLDER } from './format-altitude'
 import { formatMaxSpeed } from './format-max-speed'
 import { TrackHoverView } from './track-hover-view'
 
@@ -15,9 +15,6 @@ type Stat = { label: string; value: ReactNode }
 function isTrackStats(result: TrackStatsResult): result is TrackStats {
   return result !== 'unparseable'
 }
-
-// The shared null placeholder, taken from formatAltitude so every stat renders absence alike.
-const NULL_PLACEHOLDER = formatAltitude(null)
 
 function toStats(stats: TrackStats, points: TrackPoint[]): Stat[] {
   return [
