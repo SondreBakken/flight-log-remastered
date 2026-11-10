@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 import BrowseClub from '@/features/browse-club'
 import { getClub } from '@/lib/flightlog/club'
 import { getClubStats } from '@/lib/flightlog/club-stats'
-import { getCountries } from '@/lib/flightlog/countries'
+import { countryNameFor, getCountries } from '@/lib/flightlog/countries'
 import { parseCanonicalCountryId } from '@/lib/flightlog/country-id'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 
@@ -30,16 +30,21 @@ export function parseCanonicalClubId(raw: string): number | null {
 
 // Same ids, parses and loaders as Club (shared 'use cache' entries), so a 404 here matches the page.
 export async function generateMetadata({ params }: { params: ClubParams }): Promise<Metadata> {
+  const { countryId, clubId } = await parseClubParams(params)
+
+  const [countries, club] = await Promise.all([getCountries(), getClub(countryId, clubId)])
+  if (club === null) notFound()
+  return { title: `${club.detail.name}, ${countryNameFor(countries, countryId)}` }
+}
+
+// Shared by generateMetadata and Club so the title and the 404 can never parse the ids differently.
+async function parseClubParams(params: ClubParams): Promise<{ countryId: number; clubId: number }> {
   const { countryId: countryIdParam, clubId: clubIdParam } = await params
   const countryId = parseCanonicalCountryId(countryIdParam)
   if (countryId === null || countryId <= 0) notFound()
   const clubId = parseCanonicalClubId(clubIdParam)
   if (clubId === null || clubId <= 0) notFound()
-
-  const [countries, club] = await Promise.all([getCountries(), getClub(countryId, clubId)])
-  if (club === null) notFound()
-  const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
-  return { title: `${club.detail.name}, ${countryName}` }
+  return { countryId, clubId }
 }
 
 export default function ClubPage({ params }: { params: ClubParams }) {
@@ -59,12 +64,7 @@ export default function ClubPage({ params }: { params: ClubParams }) {
 // clubs at all (no curated per-club id list, per-club data drifts too fast to be worth
 // prerendering — see getClub's own doc comment).
 export async function Club({ params }: { params: ClubParams }) {
-  const { countryId: countryIdParam, clubId: clubIdParam } = await params
-  const countryId = parseCanonicalCountryId(countryIdParam)
-  if (countryId === null || countryId <= 0) notFound()
-
-  const clubId = parseCanonicalClubId(clubIdParam)
-  if (clubId === null || clubId <= 0) notFound()
+  const { countryId, clubId } = await parseClubParams(params)
 
   // Independent fetches, run in parallel: getClub (`a=26`, needs both ids) and getClubStats
   // (`rqtid=1`, needs only `clubId` — see that fetcher's own doc comment on why `country_id`
@@ -79,7 +79,7 @@ export async function Club({ params }: { params: ClubParams }) {
   // identical empty table, confirmed byte-identical live), only a=26 can.
   if (club === null) notFound()
 
-  const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
+  const countryName = countryNameFor(countries, countryId)
 
   // Every stats row that resolves to a userId (see resolve-stats-pilots.ts) does so BY matching
   // against a roster member's own name — its userId is therefore already a member of the

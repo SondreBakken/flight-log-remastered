@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 // react-server bundling context — mocking the whole module (hoisted above these imports
 // by Vitest) means that code never runs, so this test never touches the network.
 vi.mock('@/lib/flightlog/clubs', () => ({ getClubs: vi.fn() }))
-vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+vi.mock('@/lib/flightlog/countries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/flightlog/countries')>()),
+  getCountries: vi.fn(),
+}))
 
 // Mocked to a two-id set local to this file (not the real production list, currently just
 // [160]) and — deliberately — exporting ONLY CURATED_CLUB_COUNTRY_IDS, not

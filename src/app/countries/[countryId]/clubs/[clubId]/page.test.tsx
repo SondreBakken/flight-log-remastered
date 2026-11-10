@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 // fetchers (which import 'server-only') keeps this test from ever touching the network.
 vi.mock('@/lib/flightlog/club', () => ({ getClub: vi.fn() }))
 vi.mock('@/lib/flightlog/club-stats', () => ({ getClubStats: vi.fn() }))
-vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+vi.mock('@/lib/flightlog/countries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/flightlog/countries')>()),
+  getCountries: vi.fn(),
+}))
 // The real resolver reads the session from request headers, which do not exist outside a request.
 vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
   resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),

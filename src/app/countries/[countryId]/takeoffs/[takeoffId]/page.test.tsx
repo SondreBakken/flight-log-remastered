@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 // Same reasoning as the sibling directory's page.test.tsx: mocking the whole module (hoisted
 // above these imports by Vitest) means the real 'server-only' fetchers never run, so this test
 // never touches the network.
-vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+vi.mock('@/lib/flightlog/countries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/flightlog/countries')>()),
+  getCountries: vi.fn(),
+}))
 vi.mock('@/lib/flightlog/takeoff-detail', () => ({ getTakeoffDetail: vi.fn() }))
 vi.mock('@/lib/flightlog/takeoff-flights', () => ({ getTakeoffFlights: vi.fn() }))
 vi.mock('@/lib/flightlog/takeoffs', () => ({ getTakeoffs: vi.fn() }))
