@@ -148,6 +148,25 @@ describe('TakeoffDetailView', () => {
     screen.getByRole('link', { name: /sign in to follow/i })
   })
 
+  it('stacks the flights table into labelled rows below sm:', () => {
+    const { container } = render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('table')?.className).toContain('max-sm:block')
+    expect(container.querySelector('tbody')?.className).toContain('max-sm:block')
+    expect(container.querySelector('thead')?.className).toContain('max-sm:sr-only')
+  })
+
   it('renders the deliberate empty state, not an empty table, when there are no flights this year', () => {
     render(
       <TakeoffDetailView

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { TakeoffFlightRow } from '@/features/browse-takeoff-detail/components/flight-row'
+import { STACKED_CELL } from '@/features/browse-pilot-logbook/stacked-cell'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
 
 const mockPush = vi.fn()
@@ -139,5 +140,14 @@ describe('TakeoffFlightRow', () => {
 
     expect(row.getAttribute('role')).toBeNull()
     expect(row.getAttribute('aria-label')).toBe('View flight details')
+  })
+
+  it('labels every cell for the stacked layout below sm:, in column order', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    const cells = [...row.querySelectorAll('td')]
+    expect(cells.map((cell) => cell.getAttribute('data-label'))).toEqual(['Date', 'Time', 'Pilot', 'Club', 'Glider', 'Duration', 'Distance', 'Note', 'Track'])
+    expect(row.className).toContain('max-sm:block')
+    for (const cell of cells) expect(cell.className).toContain(STACKED_CELL)
   })
 })
