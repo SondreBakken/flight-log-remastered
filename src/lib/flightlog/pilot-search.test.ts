@@ -92,7 +92,7 @@ describe('searchPilots', () => {
 
   it('POSTs the a=114 path with form=find_user/user_fullname/go, the a=114 page as referer, and returns the parsed results', async () => {
     mockedPost.mockResolvedValue({ kind: 'ok', text: '<html>results stub</html>' })
-    mockedParse.mockReturnValue([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
+    mockedParse.mockReturnValue([{ userId: 754, name: 'Pilot Nineteen', country: 'Norway' }])
 
     const outcome = await searchPilots('Henden')
 
@@ -104,7 +104,7 @@ describe('searchPilots', () => {
     expect(mockedParse).toHaveBeenCalledWith('<html>results stub</html>')
     expect(outcome).toEqual({
       kind: 'results',
-      results: [{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }],
+      results: [{ userId: 754, name: 'Pilot Nineteen', country: 'Norway' }],
     })
   })
 

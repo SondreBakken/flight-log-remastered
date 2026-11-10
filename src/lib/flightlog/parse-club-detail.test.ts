@@ -22,7 +22,7 @@ function clubHtml({
     "<tr><td bgcolor='white'>Members</td><td bgcolor='white'>MEMBERS</td></tr>",
     "<tr><td bgcolor='white'>Coordinates</td><td bgcolor='white'>DMS: N 60&deg; 38' 25''<br>UTM: 32V 363342<br><a href='https://earth.google.com/web/search/60.6,6.5' target='_blank'>earth.google.com</a></td></tr>",
     "<tr><td bgcolor='white'>created</td><td bgcolor='white'>0000-00-00 00:00:00 </td></tr>",
-    "<tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2026-02-14 13:52:15 Martin Krossoy</td></tr>"],
+    "<tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2026-02-14 13:52:15 Pilot Two</td></tr>"],
 }: { clubName?: string; members?: string; selfLinkClubId?: number; rows?: string[] } = {}): string {
   const infoRows = rows.map((row) => row.replace('MEMBERS', members)).join('\n')
   const selfLink =
@@ -56,7 +56,7 @@ describe('parseClubDetail', () => {
       description: 'Lokalisert på Voss\nSecond paragraph.',
       linkUrl: 'https://www.vosshpk.no',
       createdAt: null,
-      updatedAt: '2026-02-14 13:52:15 Martin Krossoy',
+      updatedAt: '2026-02-14 13:52:15 Pilot Two',
     })
   })
 

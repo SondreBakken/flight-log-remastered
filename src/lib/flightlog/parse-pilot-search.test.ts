@@ -4,7 +4,7 @@ import { parsePilotSearch } from './parse-pilot-search'
 // Trimmed from the real `a=114` grouped-results response (`user_fullname=nde`), real quirks
 // preserved: results are NOT a table — country names are bare text nodes, pilots are
 // `&nbsp;&nbsp;&nbsp;<a>Name</a>` siblings, all separated by `<br>`, inside the same div that
-// holds the search `<form>` itself — and a non-ASCII name (Samúel Alexandersson). The France/
+// holds the search `<form>` itself, and a non-ASCII name (Pílot Twenty-One). The France/
 // India/etc. groups between Denmark and Iceland are dropped for brevity; nothing about them
 // differs structurally from Colombia/Denmark/Iceland. One row is constructed rather than
 // lifted verbatim: a honeypot-shaped anchor placed *inside* the Denmark group, carrying a
@@ -20,7 +20,7 @@ const GROUPED_RESULTS_HTML = `<html><body>
       <input name='form' type='hidden' value='find_user'> Find pilot (wildcards: % _): <input name='user_fullname' type='text' size='15' style='font-size:9px' value='nde'>
       <input name='go' type='submit' value='Go' style='font-size:9px'>
       </form>
-      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=6924'>JHON ALEXANDER QUINTERO GUTIERREZ</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=8167'>Anders Steffensen</a><br>&nbsp;&nbsp;&nbsp;<a href='/fl.html?a=28&user_id=99999' class='hp-nav' style='position:absolute;left:-9999px;top:-9999px;' rel='nofollow' data-trap='1'>Resources</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11048'>Lars Funder</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=10258'>Sofie K. H. Andersen</a><br>Iceland:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=5206'>Bent Kingo Andersen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=5271'>Samúel Alexandersson</a><br><hr>
+      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900015'>Pilot Fifteen</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900013'>Pilot Thirteen</a><br>&nbsp;&nbsp;&nbsp;<a href='/fl.html?a=28&user_id=99999' class='hp-nav' style='position:absolute;left:-9999px;top:-9999px;' rel='nofollow' data-trap='1'>Resources</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900012'>Pilot Twelve</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900014'>Pilot Fourteen</a><br>Iceland:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900020'>Pilot Twenty</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900021'>Pílot Twenty-One</a><br><hr>
 </div>
 </div>n:p:a2</body></html>`
 
@@ -57,12 +57,12 @@ describe('parsePilotSearch', () => {
     const results = parsePilotSearch(GROUPED_RESULTS_HTML)
 
     expect(results).toEqual([
-      { userId: 6924, name: 'JHON ALEXANDER QUINTERO GUTIERREZ', country: 'Colombia' },
-      { userId: 8167, name: 'Anders Steffensen', country: 'Denmark' },
-      { userId: 11048, name: 'Lars Funder', country: 'Denmark' },
-      { userId: 10258, name: 'Sofie K. H. Andersen', country: 'Denmark' },
-      { userId: 5206, name: 'Bent Kingo Andersen', country: 'Iceland' },
-      { userId: 5271, name: 'Samúel Alexandersson', country: 'Iceland' },
+      { userId: 900015, name: 'Pilot Fifteen', country: 'Colombia' },
+      { userId: 900013, name: 'Pilot Thirteen', country: 'Denmark' },
+      { userId: 900012, name: 'Pilot Twelve', country: 'Denmark' },
+      { userId: 900014, name: 'Pilot Fourteen', country: 'Denmark' },
+      { userId: 900020, name: 'Pilot Twenty', country: 'Iceland' },
+      { userId: 900021, name: 'Pílot Twenty-One', country: 'Iceland' },
     ])
     expect(results.some((result) => result.userId === 99999)).toBe(false)
   })
@@ -93,7 +93,7 @@ describe('parsePilotSearch', () => {
     // strict extraction, tripping the floor instead of quietly vanishing from the results.
     const wrongActionHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=29&user_id=754'>Nils Aage Henden</a><br><hr>
+      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=29&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(() => parsePilotSearch(wrongActionHtml)).toThrow(/partially unparsed: 0\/1/)
@@ -103,7 +103,7 @@ describe('parsePilotSearch', () => {
     // A bare `href.includes('a=28')` would wrongly accept this — a=280 is not a=28.
     const numericSuffixHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=280&user_id=754'>Nils Aage Henden</a><br><hr>
+      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=280&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(() => parsePilotSearch(numericSuffixHtml)).toThrow(/partially unparsed: 0\/1/)
@@ -112,7 +112,7 @@ describe('parsePilotSearch', () => {
   it('throws rather than silently dropping a row whose country header is missing', () => {
     const noCountryHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      <a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr>
+      <a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(() => parsePilotSearch(noCountryHtml)).toThrow(/partially unparsed: 0\/1/)
@@ -121,7 +121,7 @@ describe('parsePilotSearch', () => {
   it('throws rather than silently misfiling a stray non-header text node (e.g. a result-count banner) as a country', () => {
     const strayTextHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Showing 1 result<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr>
+      Showing 1 result<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(() => parsePilotSearch(strayTextHtml)).toThrow(/unexpected text/i)
@@ -130,7 +130,7 @@ describe('parsePilotSearch', () => {
   it('throws rather than silently dropping a row whose href is missing user_id entirely (a ghost row)', () => {
     const ghostRowHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28'>Nils Aage Henden</a><br><hr>
+      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(() => parsePilotSearch(ghostRowHtml)).toThrow(/partially unparsed: 0\/1/)
@@ -149,20 +149,20 @@ describe('parsePilotSearch', () => {
   ])('excludes a trap carrying only the %s marker, with no other honeypot attribute', (_label, trapAnchor) => {
     const html = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Norway:<br>${trapAnchor}<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr>
+      Norway:<br>${trapAnchor}<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
-    expect(parsePilotSearch(html)).toEqual([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
+    expect(parsePilotSearch(html)).toEqual([{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }])
   })
 
   it('dedupes a userId that legitimately appears as a candidate twice, so the caller never sees a duplicate React key', () => {
     const duplicateUserIdHtml = `<html><body><div style='padding:0px 10px'>
       <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr>
+      Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr>
       </div></body></html>`
 
     expect(parsePilotSearch(duplicateUserIdHtml)).toEqual([
-      { userId: 754, name: 'Nils Aage Henden', country: 'Norway' },
+      { userId: 900019, name: 'Pilot Nineteen', country: 'Norway' },
     ])
   })
 
@@ -175,7 +175,7 @@ describe('parsePilotSearch', () => {
     it('throws when every result row is wrapped in an extra <span>, hiding the anchor from the direct-children walk', () => {
       const spanWrappedHtml = `<html><body><div style='padding:0px 10px'>
         <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-        Norway:<br><span>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a></span><br><hr>
+        Norway:<br><span>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a></span><br><hr>
         </div></body></html>`
 
       expect(() => parsePilotSearch(spanWrappedHtml)).toThrow(/zero candidate rows/i)
@@ -184,7 +184,7 @@ describe('parsePilotSearch', () => {
     it('throws when the results are moved into an extra <div> inside the container', () => {
       const nestedDivHtml = `<html><body><div style='padding:0px 10px'>
         <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-        <div>Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr></div>
+        <div>Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr></div>
         </div></body></html>`
 
       expect(() => parsePilotSearch(nestedDivHtml)).toThrow(/zero candidate rows/i)
@@ -193,7 +193,7 @@ describe('parsePilotSearch', () => {
     it('throws when the form itself is moved one level deeper, so form.parent() is no longer the real results container', () => {
       const formNestedDeeperHtml = `<html><body><div style='padding:0px 10px'>
         <div class='mystery-wrapper'><form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form></div>
-        Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=754'>Nils Aage Henden</a><br><hr>
+        Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900019'>Pilot Nineteen</a><br><hr>
         </div></body></html>`
 
       expect(() => parsePilotSearch(formNestedDeeperHtml)).toThrow(/zero candidate rows/i)
@@ -202,7 +202,7 @@ describe('parsePilotSearch', () => {
     it('throws when user_id= is renamed site-wide, since the broadened candidate detection still counts the row (and then fails to extract it)', () => {
       const renamedIdParamHtml = `<html><body><div style='padding:0px 10px'>
         <form method='post' style='margin:0px;' action='/fl.html?l=1&a=114'></form>
-        Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&uid=754'>Nils Aage Henden</a><br><hr>
+        Norway:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&uid=900019'>Pilot Nineteen</a><br><hr>
         </div></body></html>`
 
       expect(() => parsePilotSearch(renamedIdParamHtml)).toThrow(/partially unparsed: 0\/1/)

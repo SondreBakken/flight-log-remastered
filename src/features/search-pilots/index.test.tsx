@@ -43,16 +43,16 @@ describe('SearchPilots', () => {
         query="Henden"
         minLength={3}
         results={[
-          { userId: 754, name: 'Nils Aage Henden', country: 'Norway' },
-          { userId: 2831, name: 'Børge Henden', country: 'Norway' },
+          { userId: 900019, name: 'Pilot Nineteen', country: 'Norway' },
+          { userId: 900016, name: 'Pilot Sixteen', country: 'Norway' },
         ]}
         isSignedIn
         followedPilotIds={[]}
       />,
     )
 
-    expect(screen.getByRole('link', { name: 'Nils Aage Henden' }).getAttribute('href')).toBe('/pilots/754')
-    expect(screen.getByRole('link', { name: 'Børge Henden' }).getAttribute('href')).toBe('/pilots/2831')
+    expect(screen.getByRole('link', { name: 'Pilot Nineteen' }).getAttribute('href')).toBe('/pilots/900019')
+    expect(screen.getByRole('link', { name: 'Pilot Sixteen' }).getAttribute('href')).toBe('/pilots/900016')
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
   })
 
@@ -61,9 +61,9 @@ describe('SearchPilots', () => {
       <SearchPilots
         query="Henden"
         minLength={3}
-        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn
-        followedPilotIds={[754]}
+        followedPilotIds={[900019]}
       />,
     )
 
@@ -75,7 +75,7 @@ describe('SearchPilots', () => {
       <SearchPilots
         query="Henden"
         minLength={3}
-        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn={false}
         followedPilotIds={[]}
       />,

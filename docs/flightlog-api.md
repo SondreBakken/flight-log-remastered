@@ -354,18 +354,17 @@ a decorative pager (unlike `a=42`'s own `offset=1000`, which appears identically
 more rows exist — see below): requesting a known total with `offset=N` returns exactly
 `total - N` rows, and an `offset` at or past the total returns zero rows.
 
-- **Gary Fisher (`user_id=4549`, Lier Hanggliderklubb), 134 rows, 2008-2026.** No `offset`:
+- **A Lier Hanggliderklubb pilot, 134 rows, 2008-2026.** No `offset`:
   134 rows (`totalFlightCount` sum also 134 — every row is `flightCount=1` for this pilot).
   `offset=100`: 34 rows (134 - 100). `offset=1000`: 0 rows.
-- **Eskil Sætren (`user_id=12242`, Voss Hang- og Paragliderklubb), a much higher-volume
-  pilot** (`rqtid=1&club_id=51`'s current-year leaderboard has him at 356 flights for 2026
+- **A much higher-volume Voss Hang- og Paragliderklubb pilot** (`rqtid=1&club_id=51`'s current-year leaderboard has him at 356 flights for 2026
   alone — the single busiest row of 291 that club's stats table returned). No `offset`:
   172 rows, `totalFlightCount` sum 919, spanning 2024-2026. `offset=100`: 72 rows
   (172 - 100). `offset=200`: 0 rows.
 - **Cross-check against `rqtid=1`'s own "Flights" column**, which is a CURRENT-YEAR total,
   not all-time (measured, not documented anywhere on the site): both pilots' `a=28` rows
   filtered down to 2026-dated flights alone sum to exactly their `rqtid=1` Flights figure
-  (Gary Fisher: 9 flights / 85.7 km, matching `rqtid=1&club_id=16` exactly; Eskil Sætren:
+  (the Lier pilot: 9 flights / 85.7 km, matching `rqtid=1&club_id=16` exactly; the Voss pilot:
   356 flights, matching `rqtid=1&club_id=51` exactly). This confirms `a=28`'s per-row data is
   accurate at the row level; it is the `offset` arithmetic above (not this cross-check alone)
   that establishes completeness, since `rqtid=1` has no all-time figure to compare a no-offset
@@ -424,8 +423,8 @@ the same div that holds the search form itself, with `<br>` as the only separato
       <input name='form' type='hidden' value='find_user'> Find pilot (wildcards: % _): <input name='user_fullname' type='text' size='15' style='font-size:9px' value='nde'>
       <input name='go' type='submit' value='Go' style='font-size:9px'>
       </form>
-      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=6924'>JHON ALEXANDER QUINTERO GUTIERREZ</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=8167'>Anders Steffensen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11048'>Lars Funder</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=10258'>Sofie K. H. Andersen</a><br>France:<br>...
-      ...&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=3140'>Anders Lindmarker</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11512'>Matt Sanders</a><br><hr>
+      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900015'>Pilot Fifteen</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900013'>Pilot Thirteen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900012'>Pilot Twelve</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900014'>Pilot Fourteen</a><br>France:<br>...
+      ...&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900022'>Pilot Twenty-Two</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900023'>Pilot Twenty-Three</a><br><hr>
 </div>
 ```
 
@@ -577,7 +576,7 @@ separate ones for takeoff detail vs. flights.
 <tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2026-02-14 13:52:15 Martin Krossøy</td></tr>
 </table>
 <table><tr><td><h4>Club members</h4><table cellspacing='1' cellpadding='3' bgcolor='black'>
-<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=8711>Ada Sofie Thrane Bjorøy</a></td></tr>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=900005>Pilot Five</a></td></tr>
 …
 </table></td><td>&nbsp;&nbsp;</td></tr><table>
 </div>
@@ -633,8 +632,7 @@ separate ones for takeoff detail vs. flights.
   on the document, the same scoping discipline `parse-clubs.ts` already uses for its own anchor
   search.
 - **A name can legitimately belong to two different members.** Voss's 1271-row roster has 7 name
-  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. "Cato Wiese-Hansen" as
-  `user_id` 5286 and 11085; the 7th is the 5 phantom blank-name icon anchors above, which never
+  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. one name shared by two distinct `user_id`s; the 7th is the 5 phantom blank-name icon anchors above, which never
   reach the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
   `user_id` only, never by name, so two members sharing a name are two rows, not one.
 - **HTML entities decode to identical text across the roster and `rqtid=1`'s stats table** —
@@ -650,8 +648,8 @@ separate ones for takeoff detail vs. flights.
 to have no reliable per-pilot key for this table, only a name. Cross-referencing it against
 `a=26`'s roster is therefore a genuine best-effort join, not a lookup with a guaranteed answer,
 and the ambiguity is real: Voss's 290-row stats table resolves 289 rows to exactly one roster
-`user_id` and leaves exactly 1 — "Cato Wiese-Hansen" — unresolved, because that name belongs to
-two distinct roster members (5286, 11085) and there is nothing in either response to say which
+`user_id` and leaves exactly 1, one shared name, unresolved, because that name belongs to
+two distinct roster members (two user_ids) and there is nothing in either response to say which
 one actually flew.
 
 This app's own join (`src/features/browse-club/resolve-stats-pilots.ts`) is built FROM the
@@ -662,7 +660,7 @@ button is therefore unconditional (the roster always has their `user_id`, indepe
 whether they show up in `rqtid=1` at all); a stats-leaderboard row's follow button/link is
 conditional, resolved only where its name indexes to exactly one roster `user_id` — zero
 matches (a name in `rqtid=1` that isn't in the current roster at all) and more-than-one match
-(the Cato Wiese-Hansen case) both resolve to no link, never a guess. This repo has shipped the
+(the shared-name case) both resolve to no link, never a guess. This repo has shipped the
 "parser answers confidently with the wrong thing" failure five times before this issue (#25,
 #6, #32, #8, #59) — silently picking one of two ambiguous `user_id`s here would be a sixth.
 
@@ -700,7 +698,7 @@ the ambiguous 302), just not a detail page — this app never fetches it.
   of these labels. A parser fed either by mistake sees the identical table selector but none of
   the expected labels, and throws rather than returning an empty-looking detail object.
 - **`Siterecord`** — the best PG, HG and HG2 distance ever flown from this takeoff, e.g. `PG:
-  <a href='…a=34&trip_id=803981'>Mikael Benjamin Ulstrup, 196.9 Km</a>&nbsp;&nbsp;HG: …`. The
+  <a href='…a=34&trip_id=9000005'>Pilot Seventeen, 196.9 Km</a>&nbsp;&nbsp;HG: …`. The
   class label (`PG`/`HG`/`HG2`) is a bare text node immediately before its anchor, not an
   attribute. Each anchor's `href` carries a `trip_id` but **no `user_id`** — unlike `a=42`'s own
   flight rows (below), a site record's pilot name cannot be a follow target from this response
@@ -747,7 +745,7 @@ the ambiguous 302), just not a detail page — this app never fetches it.
 ### Flight detail (`a=34`) — #215
 
 ```
-GET /fl.html?l=1&a=34&trip_id=803981
+GET /fl.html?l=1&a=34&trip_id=9000005
 ```
 
 - **Results table.** `a=34`'s own label/value fields live in `table[cellspacing='1'

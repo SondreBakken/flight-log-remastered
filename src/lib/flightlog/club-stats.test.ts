@@ -31,7 +31,7 @@ const mockedCacheTag = vi.mocked(cacheTag)
 describe('getClubStats', () => {
   it('requests rqtid=1 with club_id and the flightlog-origin referer, caches for hours under a per-club tag, and returns the parsed result', async () => {
     mockedFetch.mockResolvedValue('<html>voss stats stub</html>')
-    mockedParseClubStats.mockReturnValue([{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }])
+    mockedParseClubStats.mockReturnValue([{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }])
 
     const stats = await getClubStats(51)
 
@@ -39,7 +39,7 @@ describe('getClubStats', () => {
       referer: 'https://flightlog.org',
     })
     expect(mockedParseClubStats).toHaveBeenCalledWith('<html>voss stats stub</html>', 51)
-    expect(stats).toEqual([{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }])
+    expect(stats).toEqual([{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }])
     expect(mockedCacheLife).toHaveBeenCalledWith('hours')
     expect(mockedCacheTag).toHaveBeenCalledWith('club-stats-51')
   })

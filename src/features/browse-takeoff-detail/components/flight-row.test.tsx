@@ -26,9 +26,9 @@ function remountRow(flight: TakeoffFlight, isFollowed = false, isSignedIn = true
 }
 
 const BASE_FLIGHT: TakeoffFlight = {
-  tripId: 1000946,
-  userId: 3365,
-  pilotName: 'Jarl Christian Kind',
+  tripId: 9000006,
+  userId: 900018,
+  pilotName: 'Pilot Eighteen',
   club: 'Pyongyang Freedom Fighters',
   glider: 'Gin Camino M',
   duration: '02:41',
@@ -48,7 +48,7 @@ describe('TakeoffFlightRow', () => {
 
     fireEvent.click(row)
 
-    expect(mockPush).toHaveBeenCalledWith('/flights/1000946')
+    expect(mockPush).toHaveBeenCalledWith('/flights/9000006')
   })
 
   it('navigates on Enter and Space, for keyboard users who cannot click', () => {
@@ -58,7 +58,7 @@ describe('TakeoffFlightRow', () => {
     fireEvent.keyDown(row, { key: ' ' })
 
     expect(mockPush).toHaveBeenCalledTimes(2)
-    expect(mockPush).toHaveBeenCalledWith('/flights/1000946')
+    expect(mockPush).toHaveBeenCalledWith('/flights/9000006')
   })
 
   it('does not navigate on an unrelated keypress', () => {
@@ -74,7 +74,7 @@ describe('TakeoffFlightRow', () => {
   // the pilot name would ALSO push to the flight page.
   it('does not navigate to the flight page when the nested pilot link is clicked', () => {
     remountRow(BASE_FLIGHT)
-    const pilotLink = screen.getByRole('link', { name: 'Jarl Christian Kind' })
+    const pilotLink = screen.getByRole('link', { name: 'Pilot Eighteen' })
 
     fireEvent.click(pilotLink)
 
@@ -88,7 +88,7 @@ describe('TakeoffFlightRow', () => {
   // feed-entry-row.test.tsx's sibling assertion for the same gap, #217).
   it('does not navigate to the flight page when Enter or Space is pressed on the nested pilot link', () => {
     remountRow(BASE_FLIGHT)
-    const pilotLink = screen.getByRole('link', { name: 'Jarl Christian Kind' })
+    const pilotLink = screen.getByRole('link', { name: 'Pilot Eighteen' })
 
     const enterEvent = createEvent.keyDown(pilotLink, { key: 'Enter' })
     fireEvent(pilotLink, enterEvent)

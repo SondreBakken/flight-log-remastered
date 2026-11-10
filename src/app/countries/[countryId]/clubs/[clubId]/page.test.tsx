@@ -86,9 +86,9 @@ describe('Club route guard', () => {
         createdAt: null,
         updatedAt: null,
       },
-      roster: [{ userId: 1, name: 'Ade Hawkins' }],
+      roster: [{ userId: 1, name: 'Pilot One' }],
     })
-    mockedGetClubStats.mockResolvedValue([{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }])
+    mockedGetClubStats.mockResolvedValue([{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }])
 
     const element = await Club({ params: Promise.resolve({ countryId: '160', clubId: '51' }) })
 
@@ -98,7 +98,7 @@ describe('Club route guard', () => {
     // omitting club_id silently returns a different club's stats).
     expect(mockedGetClubStats).toHaveBeenCalledWith(51)
     expect(element.props.countryName).toBe('Norway')
-    expect(element.props.roster).toEqual([{ userId: 1, name: 'Ade Hawkins' }])
-    expect(element.props.stats).toEqual([{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }])
+    expect(element.props.roster).toEqual([{ userId: 1, name: 'Pilot One' }])
+    expect(element.props.stats).toEqual([{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }])
   })
 })

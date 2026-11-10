@@ -21,8 +21,8 @@ describe('formatCalendarDate', () => {
 
   it('keeps whatever follows the leading date (time, author) as-is', () => {
     expect(formatCalendarDate('2026-07-21 14:05', 'en-GB')).toBe('21 Jul 2026 14:05')
-    expect(formatCalendarDate('2026-02-14 13:52:15 Martin Krossoy', 'en-GB')).toBe(
-      '14 Feb 2026 13:52:15 Martin Krossoy',
+    expect(formatCalendarDate('2026-02-14 13:52:15 Pilot Two', 'en-GB')).toBe(
+      '14 Feb 2026 13:52:15 Pilot Two',
     )
   })
 
