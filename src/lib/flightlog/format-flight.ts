@@ -1,10 +1,13 @@
 import type { Flight } from './types'
 
+// Shown wherever a flight or club figure has no value, so every view spells it the same way.
+export const MISSING_VALUE = '\u2014'
+
 // Shared by every view that lists flights (pilot logbook, flight feed) so the two never
 // drift into showing the same flight differently.
 export function formatFlightDistance(flight: Flight): string {
   const distance = flight.distanceKm ?? flight.openDistanceKm
-  return distance === null ? '—' : `${distance.toFixed(1)} km`
+  return distance === null ? MISSING_VALUE : `${distance.toFixed(1)} km`
 }
 
 // `duration` on an aggregated row (`flightCount > 1`) is the GROUP TOTAL across those flights,
@@ -16,7 +19,7 @@ export function formatFlightDistance(flight: Flight): string {
 // — say what the row actually means instead of leaving the total-vs-per-flight relationship
 // unstated.
 export function formatFlightDuration(flight: Flight): string {
-  if (flight.duration === null) return '—'
+  if (flight.duration === null) return MISSING_VALUE
   return flight.flightCount > 1
     ? `${flight.duration} total (${flight.flightCount} flights)`
     : flight.duration
