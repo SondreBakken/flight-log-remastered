@@ -56,6 +56,26 @@ describe('SearchPilots', () => {
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
   })
 
+  it('styles the results table with the form layer: rule borders and form-label headers', () => {
+    const { container } = render(
+      <SearchPilots
+        query="Surname"
+        minLength={3}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
+        isSignedIn
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...container.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...container.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(1)
+    for (const tr of rows) expect(tr.className).toContain('border-rule')
+  })
+
   it('marks a result row as already-followed when its pilot id is in followedPilotIds', () => {
     render(
       <SearchPilots
