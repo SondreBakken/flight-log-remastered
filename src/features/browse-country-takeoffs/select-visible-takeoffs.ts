@@ -4,6 +4,9 @@ import { isCompassOctant, windIncludesDirection, type CompassOctant } from '@/li
 import { hasKnownLocation } from '@/lib/flightlog/has-known-location'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 
+// Pinned so the dropdown order is the same on server and client, whatever the host locale.
+const SORT_LOCALE = 'en-US'
+
 export type RegionOption = { regionId: number; name: string }
 
 // 'all' rather than a bare number sentinel like -1 or 0 — 0 never appears in the regions
@@ -87,7 +90,7 @@ export function withUnregionedOptions(regions: RegionOption[], takeoffs: Takeoff
 // Pure — the dropdown's own alphabetisation, extracted so it's testable without mounting the
 // component or reimplementing the sort in the assertion that checks it.
 export function sortRegionOptions(regions: RegionOption[]): RegionOption[] {
-  return [...regions].sort((a, b) => a.name.localeCompare(b.name))
+  return [...regions].sort((a, b) => a.name.localeCompare(b.name, SORT_LOCALE))
 }
 
 export type TakeoffMatch = TakeoffDirectoryEntry & {
@@ -151,7 +154,7 @@ function sortByDistance(takeoffs: LocatedTakeoff[]): LocatedTakeoff[] {
 // back to while a location isn't in hand yet (no request made, still pending, denied, or
 // unavailable; see #12's decision that all of those are normal, not error, states).
 function sortAlphabetically<T extends TakeoffDirectoryEntry>(takeoffs: T[]): T[] {
-  return [...takeoffs].sort((a, b) => a.name.localeCompare(b.name))
+  return [...takeoffs].sort((a, b) => a.name.localeCompare(b.name, SORT_LOCALE))
 }
 
 // Nearby sort's own composition rule, mirroring the wind filter's "compose, never silently

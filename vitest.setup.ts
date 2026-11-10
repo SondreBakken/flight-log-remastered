@@ -12,3 +12,38 @@ vi.mock('server-only', () => ({}))
 afterEach(() => {
   cleanup()
 })
+
+// Node 25 enables webstorage by default and defines a global `localStorage` that shadows
+// jsdom's; without --localstorage-file it has no working `clear()`. Replace it with an
+// in-memory Storage so tests behave the same on Node 24 and 25.
+class MemoryStorage implements Storage {
+  private readonly entries = new Map<string, string>()
+
+  get length(): number {
+    return this.entries.size
+  }
+
+  clear(): void {
+    this.entries.clear()
+  }
+
+  getItem(key: string): string | null {
+    return this.entries.get(key) ?? null
+  }
+
+  key(index: number): string | null {
+    return [...this.entries.keys()][index] ?? null
+  }
+
+  removeItem(key: string): void {
+    this.entries.delete(key)
+  }
+
+  setItem(key: string, value: string): void {
+    this.entries.set(key, String(value))
+  }
+}
+
+if (typeof globalThis.localStorage?.clear !== 'function') {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: new MemoryStorage() })
+}

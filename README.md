@@ -13,7 +13,7 @@ deployed app reads live data with no proxy in between.
 pnpm dev            # http://localhost:3000
 pnpm build && pnpm start
 pnpm run check                            # every check:* script plus the test suite, in one pass
-pnpm test                                 # Vitest: components, jsdom + React Testing Library
+pnpm test                                 # Vitest: components (jsdom + RTL) and DB tests on in-process PGlite, no Postgres needed; Node 24 (.nvmrc)
 pnpm lint                                 # ESLint
 ```
 
