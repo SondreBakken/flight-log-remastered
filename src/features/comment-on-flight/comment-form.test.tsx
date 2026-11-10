@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CommentForm } from './comment-form'
 
 const mockSubmitComment = vi.fn()
@@ -40,12 +40,18 @@ describe('CommentForm', () => {
   })
 
   it('clears the textarea once the action reports success', async () => {
-    mockSubmitComment.mockResolvedValue({ status: 'success' })
+    let resolveAction!: (state: { status: 'success' }) => void
+    mockSubmitComment.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
 
     render(<CommentForm tripId={1} />)
     fillAndSubmit('nice flight')
+    await screen.findByRole('button', { name: 'Posting…' })
 
-    await screen.findByDisplayValue('')
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(textarea.value).toBe('nice flight')
+
+    resolveAction({ status: 'success' })
+    await waitFor(() => expect(textarea.value).toBe(''))
   })
 
   it('disables the submit button while the action is pending', async () => {
