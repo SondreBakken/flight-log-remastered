@@ -33,14 +33,14 @@
   }
 }
 
-body {
-  background: var(--paper);
-  color: var(--entry);
-  font-family: var(--font-sans);
-}
-
 /* In @layer base so Tailwind utilities (no-underline, hover:underline, text-stamp) still win. */
 @layer base {
+  body {
+    background: var(--paper);
+    color: var(--entry);
+    font-family: var(--font-sans);
+  }
+
   main a {
     text-decoration-line: underline;
     text-decoration-thickness: 1px;
@@ -63,7 +63,7 @@ body {
 }
 
 @utility form-label {
-  font-stretch: 75%;
+  @apply font-condensed;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--form);
