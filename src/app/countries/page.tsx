@@ -1,6 +1,9 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import CountryIndex from '@/features/browse-countries'
 import { getCountries } from '@/lib/flightlog/countries'
+
+export const metadata: Metadata = { title: 'Countries' }
 
 export default function CountriesPage() {
   return (

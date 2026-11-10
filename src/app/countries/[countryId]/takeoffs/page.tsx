@@ -1,7 +1,8 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import TakeoffDirectory from '@/features/browse-country-takeoffs'
 import { CURATED_TAKEOFF_COUNTRY_IDS, parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
-import { getCountries } from '@/lib/flightlog/countries'
+import { countryNameFor, getCountries } from '@/lib/flightlog/countries'
 import { getRegions } from '@/lib/flightlog/regions'
 
 type TakeoffsParams = Promise<{ countryId: string }>
@@ -12,6 +13,20 @@ type TakeoffsParams = Promise<{ countryId: string }>
 // front too rather than rendering a directory that can only ever show a fetch error.
 export async function generateStaticParams(): Promise<{ countryId: string }[]> {
   return CURATED_TAKEOFF_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) }))
+}
+
+// Same parse and getCountries call as TakeoffsPage (shared 'use cache' entry).
+export async function generateMetadata({ params }: { params: TakeoffsParams }): Promise<Metadata> {
+  const id = await parseTakeoffsParams(params)
+  return { title: `Takeoffs in ${countryNameFor(await getCountries(), id)}` }
+}
+
+// Shared by generateMetadata and TakeoffsPage so the title and the 404 can never parse the id differently.
+async function parseTakeoffsParams(params: TakeoffsParams): Promise<number> {
+  const { countryId } = await params
+  const id = parseCuratedCountryId(countryId)
+  if (id === null) notFound()
+  return id
 }
 
 // #9's directory page, replacing #38's proof-of-mechanism preview — that component's own
@@ -43,12 +58,10 @@ export async function generateStaticParams(): Promise<{ countryId: string }[]> {
 // its own readWindFilterFromUrl), which costs nothing here and keeps this whole page a plain,
 // build-time-prerenderable static route for the curated set above.
 export default async function TakeoffsPage({ params }: { params: TakeoffsParams }) {
-  const { countryId } = await params
-  const id = parseCuratedCountryId(countryId)
-  if (id === null) notFound()
+  const id = await parseTakeoffsParams(params)
 
   const [countries, regions] = await Promise.all([getCountries(), getRegions(id)])
-  const countryName = countries.find((country) => country.countryId === id)?.name ?? `Country ${id}`
+  const countryName = countryNameFor(countries, id)
   const regionOptions = regions.map((region) => ({ regionId: region.regionId, name: region.name }))
 
   return <TakeoffDirectory countryId={id} countryName={countryName} regions={regionOptions} />

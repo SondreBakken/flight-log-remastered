@@ -26,7 +26,7 @@ vi.mock('@/features/comment-on-flight', () => ({
 
 import { getTrack, hasTrack } from '@/lib/flightlog/tracks'
 import { getFlightDetail } from '@/lib/flightlog/flight-detail'
-import { Flight } from './page'
+import { Flight, generateMetadata } from './page'
 
 const mockedGetTrack = vi.mocked(getTrack)
 const mockedHasTrack = vi.mocked(hasTrack)
@@ -234,5 +234,45 @@ describe('Flight', () => {
     const { container } = render(element)
 
     expect(container.querySelector('a svg')).toBeTruthy()
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (tripId: string) => generateMetadata({ params: Promise.resolve({ tripId }) })
+
+  it.each(['abc', '0', '-1', '1.5'])('renders notFound for the malformed id %j without fetching detail', async (tripId) => {
+    await expect(metadataFor(tripId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetFlightDetail).not.toHaveBeenCalled()
+  })
+
+  it('titles with pilot and takeoff, fetching detail by the parsed numeric id', async () => {
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    expect(await metadataFor('123')).toEqual({ title: 'Pilot One, Voss, Hjelle/Gjelle' })
+    expect(mockedGetFlightDetail).toHaveBeenCalledWith(123)
+  })
+
+  it('omits the pilot when the detail has none', async () => {
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, pilot: null })
+
+    expect(await metadataFor('123')).toEqual({ title: 'Voss, Hjelle/Gjelle' })
+  })
+
+  it('falls back to `Flight <id>` when the detail is null, never notFound', async () => {
+    mockedGetFlightDetail.mockResolvedValue(null)
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
+  })
+
+  it('falls back to `Flight <id>` when the detail has neither pilot nor takeoff', async () => {
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, pilot: null, takeoff: null })
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
+  })
+
+  it('falls back to `Flight <id>` when the detail fetch throws, so a tracked flight is never 404ed', async () => {
+    mockedGetFlightDetail.mockRejectedValue(new Error('scrape failed'))
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
   })
 })

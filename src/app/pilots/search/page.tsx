@@ -1,8 +1,11 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import SearchPilots from '@/features/search-pilots'
 import { isValidSearchQuery, MIN_SIGNIFICANT_QUERY_LENGTH, searchPilots } from '@/lib/flightlog/pilot-search'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
+
+export const metadata: Metadata = { title: 'Find pilots' }
 
 type SearchPageParams = Promise<{ q?: string | string[] }>
 

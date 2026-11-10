@@ -1,5 +1,8 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import AccountActivity from '@/features/account-activity'
+
+export const metadata: Metadata = { title: 'Activity' }
 
 // Suspense boundary wrapping a Server Component that reads cookie-based auth (see
 // AccountActivity's own doc comment on why this is server-side, unlike account/page.tsx's

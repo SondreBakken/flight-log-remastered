@@ -1,4 +1,5 @@
 import { Fragment, Suspense } from 'react'
+import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -25,12 +26,28 @@ export default function FlightPage({ params }: { params: FlightParams }) {
   )
 }
 
-// Exported (same reasoning as TakeoffDetail in the sibling takeoffs/[takeoffId]/page.tsx) so the
-// hasTrack/getTrack guard is exercised directly in page.test.tsx without a request context.
-export async function Flight({ params }: { params: FlightParams }) {
+// Parse shared by Flight and generateMetadata so both reject the same malformed ids.
+async function parseTripId(params: FlightParams): Promise<number> {
   const { tripId } = await params
   const id = Number(tripId)
   if (!Number.isInteger(id) || id <= 0) notFound()
+  return id
+}
+
+// Title is `pilot, takeoff` from the same cached getFlightDetail the page uses. Unlike Flight it
+// never 404s a well-formed id: a tracked flight whose detail fetch fails is still a real page, so
+// a null or throwing detail falls back to `Flight <id>`.
+export async function generateMetadata({ params }: { params: FlightParams }): Promise<Metadata> {
+  const id = await parseTripId(params)
+  const detail = await getDetailOrNull(id)
+  const parts = [detail?.pilot?.name, detail?.takeoff].filter((part): part is string => Boolean(part))
+  return { title: parts.length > 0 ? parts.join(', ') : `Flight ${id}` }
+}
+
+// Exported (same reasoning as TakeoffDetail in the sibling takeoffs/[takeoffId]/page.tsx) so the
+// hasTrack/getTrack guard is exercised directly in page.test.tsx without a request context.
+export async function Flight({ params }: { params: FlightParams }) {
+  const id = await parseTripId(params)
 
   // Most flights have no GPS track (#213 made every row reachable here, tracked or not), and
   // parseTrack deliberately throws when a trip has no track placemark at all — kept loud so a
