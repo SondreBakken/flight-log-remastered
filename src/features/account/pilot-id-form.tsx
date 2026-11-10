@@ -14,7 +14,7 @@ type PilotIdFormProps = {
   // disabled rather than inviting a submit that looks like a deliberate change.
   pilotIdLoadFailed?: boolean
   // The note is only true while the id is unverified, so it follows the verification status.
-  verificationStatus: OwnPilotVerificationState
+  verification: OwnPilotVerificationState
   // Called once, right after a save succeeds. The invalidate_verification_on_pilot_id_change
   // trigger deletes the user's verification when the pilot id changes, and nothing client-side
   // learns of that write on its own; without this, a relinked user keeps seeing "Re-verify" for a
@@ -30,7 +30,7 @@ type PilotIdFormProps = {
 //
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
-export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verificationStatus, onSaved }: PilotIdFormProps) {
+export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verification, onSaved }: PilotIdFormProps) {
   const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
 
@@ -45,9 +45,9 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verific
   // Shown while a pilot id is on record (already loaded on mount, just saved by this submission, or
   // still on record despite an unrelated failed resubmission) and it is not verified, so a
   // first-time visitor with nothing linked yet doesn't see a note about a link that doesn't exist.
-  // The 'error' kind hides it too: a failed lookup says nothing about whether the id is unverified.
-  const isUnverified = verificationStatus.kind === 'none' || verificationStatus.kind === 'pending'
-  const showUnverifiedNote = (state.status === 'success' || initialPilotId != null) && isUnverified
+  // Only 'verified' hides it: a failed lookup ('error') never reads as verified. It also overrides
+  // the just-saved branch, since a stale 'verified' prop persists until the refresh after the save.
+  const showUnverifiedNote = verification.kind !== 'verified' && (state.status === 'success' || initialPilotId != null)
 
   return (
     <form action={formAction} className="flex max-w-sm flex-col gap-2">
