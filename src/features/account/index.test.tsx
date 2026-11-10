@@ -153,6 +153,18 @@ describe('AccountSettings', () => {
     expect(screen.getByText(/temporarily un-verifies your pilot id/)).toBeTruthy()
   })
 
+  it('shows the unverified note for a linked, unverified pilot id and hides it once verified', async () => {
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
+    const { unmount } = await renderAccountSettings()
+    expect(screen.getByText('Self-declared, unverified.')).toBeTruthy()
+    unmount()
+
+    mockGetOwnPilotVerification.mockResolvedValue({ kind: 'verified' })
+    await renderAccountSettings()
+    expect(screen.getByRole('button', { name: 'Re-verify' })).toBeTruthy()
+    expect(screen.queryByText('Self-declared, unverified.')).toBeNull()
+  })
+
   it('shows a load-failure notice, not a start trigger, when the verification lookup fails', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
     mockGetOwnPilotVerification.mockRejectedValue(new ProfilesQueryError('verification query failed'))

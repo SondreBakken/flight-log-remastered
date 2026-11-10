@@ -34,6 +34,7 @@ export function SignedInAccountSettings({ ownProfile, ownVerification }: SignedI
         initialPilotId={profile?.flightlogPilotId}
         onSaved={refreshAccountSettings}
         pilotIdLoadFailed={profileLoadFailed}
+        verificationStatus={ownVerification}
       />
       {profile?.flightlogPilotId != null && (
         <PilotVerification onStatusChanged={refreshAccountSettings} status={ownVerification} />
