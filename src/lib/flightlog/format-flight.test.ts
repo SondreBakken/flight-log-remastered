@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Flight } from './types'
-import { formatFlightDuration, formatHours } from './format-flight'
+import { formatFlightDuration, formatHours, formatTrackDuration } from './format-flight'
 
 const baseFlight: Flight = {
   tripId: 1,
@@ -64,5 +64,26 @@ describe('formatHours', () => {
   it('formats zero and whole hours', () => {
     expect(formatHours(0)).toBe('0.0 h')
     expect(formatHours(120)).toBe('2.0 h')
+  })
+})
+
+describe('formatTrackDuration', () => {
+  it.each([
+    ['0 : 18 : 05', '18 min'],
+    ['1 : 05 : 00', '1 h 05 min'],
+    ['2 : 00 : 00', '2 h 00 min'],
+    ['0 : 59 : 40', '1 h 00 min'],
+    ['0 : 00 : 40', '1 min'],
+    ['0 : 00 : 10', '0 min'],
+    ['0 : 00 : 30', '1 min'],
+    ['0 : 00 : 29', '0 min'],
+    ['abc', 'abc'],
+    ['18:05', '18:05'],
+  ])('formats %j as %j', (raw, expected) => {
+    expect(formatTrackDuration(raw)).toBe(expected)
+  })
+
+  it('returns null for null', () => {
+    expect(formatTrackDuration(null)).toBeNull()
   })
 })

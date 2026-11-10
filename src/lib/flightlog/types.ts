@@ -61,6 +61,8 @@ export type TrackPoint = {
 // and track-235690.kml) is read nowhere in this file — the newer GpsDumpAndroid format has no
 // equivalent line to reconcile it against, so it stays unparsed rather than added as a field
 // only the older fixtures could ever populate.
+export type MaxSpeedKind = '10s/60s' | 'mean/top'
+
 export type TrackStats = {
   date: string | null
   startFinish: string | null
@@ -68,6 +70,8 @@ export type TrackStats = {
   maxAltitude: number | null
   minAltitude: number | null
   maxSpeed: string | null
+  // Which label the maxSpeed pair was read under; null iff maxSpeed is null.
+  maxSpeedKind: MaxSpeedKind | null
   maxClimb: string | null
   minClimb: string | null
 }

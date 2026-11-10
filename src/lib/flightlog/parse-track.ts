@@ -4,6 +4,7 @@ import { SCORING_KIND_LABELS } from './types'
 import type {
   LineScoringGeometry,
   LineScoringGeometryKind,
+  MaxSpeedKind,
   ScoringGeometry,
   ScoringGeometryKind,
   ScoringGeometryResult,
@@ -109,7 +110,10 @@ function parseStats(block: string, tripId: number): TrackStatsResult {
   )
   const maxAltitude = readNumber(height?.[1])
   const minAltitude = readNumber(height?.[2])
-  const maxSpeed = readStatLine(block, ['Max\\. speed \\(10s/60s\\)', 'Max\\. mean/top speed'])
+  const speed10s60s = readStatLine(block, 'Max\\. speed \\(10s/60s\\)')
+  const speedMeanTop = speed10s60s === null ? readStatLine(block, 'Max\\. mean/top speed') : null
+  const maxSpeed = speed10s60s ?? speedMeanTop
+  const maxSpeedKind: MaxSpeedKind | null = speed10s60s !== null ? '10s/60s' : speedMeanTop !== null ? 'mean/top' : null
   const { maxClimb, minClimb } = parseClimbRates(block)
   const date = readStatLine(block, 'Date')
   const startFinish = readStatLine(block, 'Start/finish')
@@ -124,7 +128,7 @@ function parseStats(block: string, tripId: number): TrackStatsResult {
     return 'unparseable'
   }
 
-  return { date, startFinish, duration, maxAltitude, minAltitude, maxSpeed, maxClimb, minClimb }
+  return { date, startFinish, duration, maxAltitude, minAltitude, maxSpeed, maxSpeedKind, maxClimb, minClimb }
 }
 
 function parseCoordinates(raw: string): Array<[number, number, number]> {

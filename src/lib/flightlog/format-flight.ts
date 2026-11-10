@@ -32,3 +32,18 @@ export function formatHours(minutes: number): string {
   const tenthsOfHour = Math.round(minutes / 6)
   return `${(tenthsOfHour / 10).toFixed(1)} h`
 }
+
+const TRACK_DURATION = /^(\d+)\s*:\s*(\d{1,2})\s*:\s*(\d{1,2})$/
+
+// The KML stats block spells duration `H : MM : SS`. Rounded to the nearest whole minute
+// (30 s rounds up); a string in any other shape is returned as is rather than guessed at.
+export function formatTrackDuration(raw: string | null): string | null {
+  if (raw === null) return null
+  const match = raw.match(TRACK_DURATION)
+  if (!match) return raw
+  const totalSeconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])
+  const totalMinutes = Math.round(totalSeconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return hours === 0 ? `${minutes} min` : `${hours} h ${String(minutes).padStart(2, '0')} min`
+}
