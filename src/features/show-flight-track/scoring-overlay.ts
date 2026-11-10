@@ -15,8 +15,8 @@ export function scoringLabel(kind: ScoringGeometryKind, scoring: Track['scoring'
   return isScoringGeometry(state) ? state.name : SCORING_KIND_LABELS[kind]
 }
 
-// The single reason a disabled overlay option is disabled, worded for both the option's
-// tooltip and its inline text (see ScoringOverlaySelect) — one phrasing kept in one place
+// The single reason a disabled overlay option is disabled, worded for the option text
+// (see ScoringOverlaySelect) — one phrasing kept in one place
 // rather than drifting into two, the way "— not available" and "— not available for this
 // flight" used to.
 export function scoringUnavailableReason(state: ScoringGeometryResult): string | null {

@@ -19,7 +19,7 @@ const { report, finish } = createReporter()
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] })
 
-type RadioState = { label: string; checked: boolean; disabled: boolean }
+type OptionState = { label: string; checked: boolean; disabled: boolean }
 
 function trackBadResponses(page: Page): string[] {
   const bad: string[] = []
@@ -48,19 +48,18 @@ async function waitForSceneSettled(page: Page): Promise<boolean> {
 }
 
 // data-testid, not the earlier `fieldset label`/`fieldset p` tag selectors: the same PR gives
-// turnpoint markers their own data-testid, so the radio options and summary line get one too
+// turnpoint markers their own data-testid, so the select options and summary line get one too
 // rather than staying the odd ones out.
-function readRadios(page: Page): Promise<RadioState[]> {
+function readOptions(page: Page): Promise<OptionState[]> {
   return page.evaluate(() => {
-    const labels = Array.from(document.querySelectorAll('[data-testid="scoring-overlay-option"]'))
-    return labels.map((label) => {
-      const input = label.querySelector('input[type="radio"]') as HTMLInputElement | null
-      return {
-        label: label.textContent?.trim() ?? '',
-        checked: input?.checked ?? false,
-        disabled: input?.disabled ?? false,
-      }
-    })
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('[data-testid="scoring-overlay-option"]'),
+    )
+    return options.map((option) => ({
+      label: option.textContent?.trim() ?? '',
+      checked: option.selected,
+      disabled: option.disabled,
+    }))
   })
 }
 
@@ -115,12 +114,16 @@ function anyTwoRectsIntersect(rects: DOMRect[]): boolean {
   return rects.some((rect, index) => rects.some((other, otherIndex) => otherIndex > index && rectsIntersect(rect, other)))
 }
 
-async function clickRadioByLabelPrefix(page: Page, prefix: string): Promise<void> {
+async function selectOptionByLabelPrefix(page: Page, prefix: string): Promise<void> {
   await page.evaluate((labelPrefix) => {
-    const labels = Array.from(document.querySelectorAll('[data-testid="scoring-overlay-option"]'))
-    const target = labels.find((label) => label.textContent?.trim().startsWith(labelPrefix))
-    const input = target?.querySelector('input[type="radio"]') as HTMLInputElement | null
-    input?.click()
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('[data-testid="scoring-overlay-option"]'),
+    )
+    const target = options.find((option) => option.textContent?.trim().startsWith(labelPrefix))
+    const select = target?.closest('select')
+    if (!target || !select) return
+    select.value = target.value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
   }, prefix)
 }
 
@@ -193,15 +196,15 @@ async function sampleCanvasColors(page: Page, sampleRect: CanvasRect, colorHex: 
 // so the reload is a cache hit.
 const COLD_SERVER_RETRY_DELAY_MS = 3000
 
-async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: RadioState[]; summary: string | null }> {
+async function loadSceneWithColdServerRetry(page: Page, url: string, label: string, bad: string[]): Promise<{ radios: OptionState[]; summary: string | null }> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   const settled = await waitForSceneSettled(page)
   if (settled) {
-    return { radios: await readRadios(page), summary: await readSummary(page) }
+    return { radios: await readOptions(page), summary: await readSummary(page) }
   }
   if (await pageHasErrorBoundaryText(page)) {
     report(false, `${label}: app error boundary rendered ("Could not load this from flightlog.org") instead of the scoring overlay`)
-    return { radios: await readRadios(page), summary: await readSummary(page) }
+    return { radios: await readOptions(page), summary: await readSummary(page) }
   }
   if (bad.length === 0) {
     console.log(`RETRY - ${label}: the scene did not settle on first load (no map handle, or its flight-track source never finished loading), retrying once for a cold server`)
@@ -209,13 +212,13 @@ async function loadSceneWithColdServerRetry(page: Page, url: string, label: stri
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     const settledOnRetry = await waitForSceneSettled(page)
     report(settledOnRetry, `${label}: the scene settles after one cold-server retry (map handle present, flight-track source loaded)`)
-    return { radios: await readRadios(page), summary: await readSummary(page) }
+    return { radios: await readOptions(page), summary: await readSummary(page) }
   }
   report(false, `${label}: the scene did not settle (no map handle, or its flight-track source never finished loading) and bad responses were recorded`)
-  return { radios: await readRadios(page), summary: await readSummary(page) }
+  return { radios: await readOptions(page), summary: await readSummary(page) }
 }
 
-type SceneContext = { page: Page; radios: RadioState[]; summary: string | null }
+type SceneContext = { page: Page; radios: OptionState[]; summary: string | null }
 
 // Every scene shares the same open/navigate/close/report-bad-responses skeleton; only the body
 // in between (the scene's own assertions) differs. Routing every scene through
@@ -248,14 +251,14 @@ async function assertToggleToFivePointDistance(page: Page, summaryBeforeToggle: 
     return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
   })
 
-  await clickRadioByLabelPrefix(page, 'Distance over 5 points')
+  await selectOptionByLabelPrefix(page, 'Distance over 5 points')
   await page.waitForTimeout(500)
 
   const centerAfter = await page.evaluate(() => {
     const map = window.__flightTrackMap
     return map ? { center: map.getCenter().toArray(), zoom: map.getZoom() } : null
   })
-  const toggledRadios = await readRadios(page)
+  const toggledRadios = await readOptions(page)
   const toggledMarkerCount = await readTurnpointMarkerCount(page)
   const toggledLabels = await readTurnpointMarkerLabels(page)
   const toggledSummary = await readSummary(page)
@@ -551,7 +554,7 @@ await runScene({
       'trip 233524: the FAI triangle is a real, non-degenerate geometry, not disabled',
     )
 
-    await clickRadioByLabelPrefix(page, 'Flat triangle')
+    await selectOptionByLabelPrefix(page, 'Flat triangle')
     await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
@@ -643,7 +646,7 @@ await runScene({
       'trip 984290: the FAI triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
     )
 
-    await clickRadioByLabelPrefix(page, 'FAI triangle')
+    await selectOptionByLabelPrefix(page, 'FAI triangle')
     await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 
@@ -694,7 +697,7 @@ await runScene({
       'trip 985713: the flat triangle is a real, non-degenerate geometry, not disabled — asserted before clicking it, so a missing/disabled radio fails here with a clear geometry diagnosis rather than downstream as a misleading marker-count failure',
     )
 
-    await clickRadioByLabelPrefix(page, 'Flat triangle')
+    await selectOptionByLabelPrefix(page, 'Flat triangle')
     await waitForMapSettled(page, { handle: '__flightTrackMap', sourceId: 'scoring-overlay' })
     await waitForPaintIdle(page, { handle: '__flightTrackMap', tailMs: 500 })
 

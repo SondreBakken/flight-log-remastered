@@ -154,13 +154,13 @@ maplibre-gl v6/Turbopack note below).
 `?__verifyMap` gate to check the scoring overlay against six real flights, each exercising a
 different shape: 1001428 (all five line-shaped geometries enabled and Open distance selected by
 default — its open-distance summary text reads `48.95 km` — its map source actually loads and
-renders 2 turnpoint markers — both triangle radios correctly DISABLED, since this fixture's own
+renders 2 turnpoint markers — both triangle select options correctly DISABLED, since this fixture's own
 triangle placemarks are the metadata-only stub, not real geometry; toggling to the 5-point
 geometry renders 4 markers, not 5 — #83: this flight's own A and B turnpoints are 0.91 km apart in
 real terms but project only ~16px apart at this flight's low fit zoom, close enough to merge into
 one 'A/B' badge even though nothing about them is coordinate-equal), 991729 (the degenerate 5- and
-4-point geometries render as disabled radio options, not silently selectable), 235690 (the
-entirely-missing out-and-return placemark is likewise disabled), 233524 (#58: both triangle radios
+4-point geometries render as disabled select options, not silently selectable), 235690 (the
+entirely-missing out-and-return placemark is likewise disabled), 233524 (#58: both triangle select options
 enabled — real, non-degenerate geometry — and, after selecting the flat triangle, the map's own
 scoring-overlay source carries exactly two line features: a self-closing 4-coordinate loop and a
 2-coordinate connector), 984290 (#78: the FAI triangle's own D and E turnpoints resolve to the
