@@ -115,22 +115,61 @@ describe('BrowseClub', () => {
     expect(screen.getByRole('button', { name: 'Following' })).toBeTruthy()
   })
 
-  it('renders a sign-in prompt instead of a follow button when signed out', () => {
-    const roster: ClubMember[] = [{ userId: 1, name: 'Never Flew' }]
+  it('renders exactly one sign-in prompt, not a link per row in either list, when signed out', () => {
+    const roster: ClubMember[] = [
+      { userId: 1, name: 'Never Flew' },
+      { userId: 2, name: 'Pilot Two' },
+    ]
+    const stats: ClubPilotStats[] = [{ name: 'Pilot Two', flights: 4, distanceKm: 12, hours: 3 }]
     render(
       <BrowseClub
         countryId={160}
         countryName="Norway"
         detail={DETAIL}
         roster={roster}
-        stats={[]}
+        stats={stats}
         isSignedIn={false}
         followedPilotIds={[]}
       />,
     )
 
     expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
-    screen.getByRole('link', { name: /sign in to follow/i })
+    const prompts = screen.getAllByRole('link', { name: /sign in to follow/i })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0].getAttribute('href')).toBe('/sign-in')
+  })
+
+  it('renders no sign-in prompt for an empty roster when signed out', () => {
+    render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        roster={[]}
+        stats={[]}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: /sign in/i })).toBeNull()
+    screen.getByText(/no members recorded/i)
+  })
+
+  it('never renders the sign-in prompt when signed in', () => {
+    render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        roster={[{ userId: 1, name: 'Never Flew' }]}
+        stats={[]}
+        isSignedIn
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: /sign in/i })).toBeNull()
   })
 
   it('renders the empty-roster state, not an empty list, for a real club with zero members', () => {
