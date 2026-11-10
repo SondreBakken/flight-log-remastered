@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Globe, Route, Search } from 'lucide-react'
-import AuthStatus, { NAV_LABEL_CLASSES } from './auth-status'
+import AuthStatus from './auth-status'
+import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 
 // The intended loop is search a pilot, follow them, search again for the next one — but until
 // this existed, the only in-app link to /pilots/search lived in the flight feed's empty state
@@ -21,7 +22,7 @@ export default function SiteNav() {
         <ul className="flex min-w-0 gap-3 sm:gap-4">
           {NAV_LINKS.map(({ href, label, Icon }) => (
             <li key={href}>
-              <Link className="flex items-center gap-1.5 whitespace-nowrap underline-offset-2 hover:underline" href={href}>
+              <Link className={NAV_ICON_ROW_CLASSES} href={href}>
                 <Icon aria-hidden="true" size={14} />
                 <span className={NAV_LABEL_CLASSES}>{label}</span>
               </Link>

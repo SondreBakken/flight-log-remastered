@@ -5,14 +5,9 @@ import type { ReactNode } from 'react'
 import { LogIn, LogOut, PlaneTakeoff, TriangleAlert, User, type LucideIcon } from 'lucide-react'
 import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
 import { VerificationStamp } from '@/components/verification-stamp'
+import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 import { useOwnPilotId } from './use-own-pilot-id'
 import { useIsOwnVerified } from './use-own-verification'
-
-const NAV_ICON_ROW_CLASSES = 'flex items-center gap-1.5 whitespace-nowrap underline-offset-2 hover:underline'
-
-// Below sm: the nav is icon-only so it fits one line at 360 px; the label stays in the DOM as
-// screen-reader text so each control keeps its accessible name.
-export const NAV_LABEL_CLASSES = 'sr-only sm:not-sr-only'
 
 // SiteNav sits in the root layout: reading the session server-side here would put a per-request
 // dynamic hole in every page under Cache Components, including the curated country pages

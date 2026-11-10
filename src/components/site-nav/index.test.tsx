@@ -6,10 +6,7 @@ import SiteNav from './index'
 // states. Stubbing it out here keeps this test focused on what it already promises in its name
 // — the nav links render regardless of other page state — without also having to stand up a
 // signed-in user mock this test has no other use for.
-vi.mock('./auth-status', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./auth-status')>()),
-  default: () => null,
-}))
+vi.mock('./auth-status', () => ({ default: () => null }))
 
 describe('SiteNav', () => {
   it('links to the flight feed, pilot search, and country index, regardless of any other page state', () => {

@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/empty-state'
 import { VerificationStamp } from '@/components/verification-stamp'
 import { FlightRow } from './components/flight-row'
 import { LogbookSummary } from './components/logbook-summary'
+import { STACKED_CELL } from './stacked-cell'
 import { groupFlightsByYear, type LogbookTotals, type YearGroup } from './year-groups'
 
 type PilotLogbookProps = {
@@ -165,15 +166,13 @@ function YearSection({
 
 // Below sm: the three value cells stack under the label row, so the colSpan={3} label cell
 // becomes a block of its own instead of spanning columns that no longer exist.
-const STACKED_TOTAL_CELL = 'max-sm:flex max-sm:justify-between max-sm:gap-4 max-sm:py-0.5 max-sm:pr-0 max-sm:before:font-medium max-sm:before:opacity-70 max-sm:before:content-[attr(data-label)]'
-
 function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
   return (
     <tr className="border-t border-black/10 max-sm:block max-sm:py-2 tabular-nums opacity-70 dark:border-white/15">
       <th className="py-2 pr-4 text-left font-medium max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
-      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
-      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>
-      <td className={`py-2 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Distance">{totals.distanceKm.toFixed(1)} km</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>
+      <td className={`py-2 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Distance">{totals.distanceKm.toFixed(1)} km</td>
     </tr>
   )
 }
