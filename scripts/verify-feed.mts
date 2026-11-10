@@ -204,7 +204,8 @@ await page.goto(url, { waitUntil: 'domcontentloaded' })
 // SignedOutHome is a server component that fetches live flightlog.org data: wait for its table
 // rows (the content under test) or its "unavailable" fallback rather than a fixed delay, and fail
 // if neither ever renders. The fallback is a legitimate state when the upstream is down, so it is
-// reported on its own line and the row assertions are skipped, not failed.
+// reported on its own line; only the two row-link assertions are skipped (no rows to inspect), the heading,
+// prompt and link assertions still run, and none of it fails.
 const SIGNED_OUT_FALLBACK_TEXT = 'Recent flights are unavailable right now.'
 function isSignedOutHomeSettled(): boolean {
   const hasRows = document.querySelectorAll('table tbody tr').length > 0
@@ -219,10 +220,9 @@ const signedOutSettled = await waitForOrReport(
 const signedOutShowsFallback =
   signedOutSettled && (await page.evaluate(() => document.querySelectorAll('table tbody tr').length === 0))
 if (signedOutShowsFallback) {
-  console.log(`signed-out home: showing the "${SIGNED_OUT_FALLBACK_TEXT}" fallback (upstream unavailable), row assertions skipped`)
+  console.log(`signed-out home: showing the "${SIGNED_OUT_FALLBACK_TEXT}" fallback (upstream unavailable), row-link assertions skipped`)
 }
-const signedOutRowsReady = signedOutSettled && !signedOutShowsFallback
-if (signedOutRowsReady) {
+if (signedOutSettled) {
   const signedOut = await page.evaluate(() => {
     // Content links only: SiteNav (outside main) carries /pilots/search and /countries on every page.
     const hrefs = [...document.querySelectorAll('main a')].map((a) => a.getAttribute('href') ?? '')
@@ -239,14 +239,16 @@ if (signedOutRowsReady) {
     }
   })
   report(signedOut.heading === 'Recent flights', `signed-out home: h1 reads "Recent flights" (saw: ${signedOut.heading})`)
-  report(
-    signedOut.rowLinks.some((l) => l.text === 'View track' && /^\/flights\/\d+$/.test(l.href)),
-    'signed-out home: a row links to /flights/[tripId] labelled "View track"',
-  )
-  report(
-    signedOut.rowLinks.some((l) => /^\/pilots\/\d+$/.test(l.href)),
-    'signed-out home: a row links to /pilots/[userId]',
-  )
+  if (!signedOutShowsFallback) {
+    report(
+      signedOut.rowLinks.some((l) => l.text === 'View track' && /^\/flights\/\d+$/.test(l.href)),
+      'signed-out home: a row links to /flights/[tripId] labelled "View track"',
+    )
+    report(
+      signedOut.rowLinks.some((l) => /^\/pilots\/\d+$/.test(l.href)),
+      'signed-out home: a row links to /pilots/[userId]',
+    )
+  }
   report(
     !signedOut.bodyText.includes('You are not following any pilots yet'),
     'signed-out home: does not show the not-following prompt',

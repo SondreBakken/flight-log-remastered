@@ -27,7 +27,7 @@ describe('encodeTakeoffRow', () => {
     expect(row).toHaveLength(TAKEOFF_ROW_LENGTH)
   })
 
-  // Values quoted verbatim from fixtures/takeoffs-160.html's row 1: `6246 | Jorde på Løten,
+  // Values quoted verbatim from row 1 of the local, untracked fixtures/takeoffs-160.html: `6246 | Jorde på Løten,
   // Klæpa airport | 60.79527778 | 11.34555556 | 56 | 160 | 6 | 0 | 180 | 0`.
   it('round-trips a real fixture row (Jorde på Løten, takeoff id 6246) field for field', () => {
     const takeoff: Takeoff = {
@@ -94,7 +94,7 @@ describe('isTakeoffRows', () => {
   })
 
   it('rejects a row with lat and altitude swapped, at real Norway-fixture scale', () => {
-    // lat=60.8, altitude=180 (Jorde på Løten, fixtures/takeoffs-160.html) — a `typeof ===
+    // lat=60.8, altitude=180 (Jorde på Løten, local untracked fixtures/takeoffs-160.html) — a `typeof ===
     // 'number'` check alone cannot tell these two fields apart in either position, since both
     // are numbers; only the ±90 latitude bound catches 180 landing in lat's slot.
     const correct: TakeoffRow = [6246, 'Jorde på Løten', 60.8, 11.3, 166, 160, 6, 2, 180, -12]
