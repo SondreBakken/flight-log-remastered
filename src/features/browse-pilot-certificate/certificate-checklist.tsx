@@ -30,7 +30,7 @@ export function CertificateChecklist({ level, items, isOwner }: CertificateCheck
   )
 }
 
-// Mirrors browse-pilot-statistics/index.tsx's formatHours rounding technique: round to
+// Mirrors formatHours (src/lib/flightlog/format-flight.ts) rounding technique: round to
 // tenths BEFORE dividing back to a decimal, so a value like 12.333... renders "12.3", not a raw
 // float — plain toFixed(1) alone can still land on the same binary-fraction boundary that
 // function's own comment explains.

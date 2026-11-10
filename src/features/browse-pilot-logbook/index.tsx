@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
 import { formatHours } from '@/lib/flightlog/format-flight'
+import { pluralize } from '@/lib/text/pluralize'
 import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
 import { VerificationStamp } from '@/components/verification-stamp'
@@ -128,7 +129,7 @@ function YearSection({
   return (
     <details open={isNewest}>
       <summary className="cursor-pointer py-2 font-medium">
-        {group.year} · {group.thisYear.flightCount} flights
+        {group.year} · {pluralize(group.thisYear.flightCount, 'flight')}
       </summary>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
@@ -166,7 +167,7 @@ function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) 
   return (
     <tr className="border-t border-black/10 tabular-nums opacity-70 dark:border-white/15">
       <th className="py-2 pr-4 text-left font-medium" colSpan={3} scope="row">{label}</th>
-      <td className="py-2 pr-4 text-right whitespace-nowrap">{totals.flightCount} flights</td>
+      <td className="py-2 pr-4 text-right whitespace-nowrap">{pluralize(totals.flightCount, 'flight')}</td>
       <td className="py-2 pr-4 text-right whitespace-nowrap">{formatHours(totals.minutes)}</td>
       <td className="py-2 text-right whitespace-nowrap">{totals.distanceKm.toFixed(1)} km</td>
     </tr>

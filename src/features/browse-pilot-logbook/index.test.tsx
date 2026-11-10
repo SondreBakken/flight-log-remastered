@@ -188,7 +188,7 @@ describe('PilotLogbook year groups', () => {
 
     const sections = [...container.querySelectorAll('details')]
     expect(sections.map((d) => d.querySelector('summary')?.textContent)).toEqual([
-      '2026 · 1 flights',
+      '2026 · 1 flight',
       '2024 · 3 flights',
     ])
     expect(sections.map((d) => d.open)).toEqual([true, false])
@@ -203,7 +203,7 @@ describe('PilotLogbook year groups', () => {
     const [y2026, y2024] = [...container.querySelectorAll('details')]
 
     expect(footerRows(y2026)).toEqual([
-      'This year1 flights1.0 h10.0 km',
+      'This year1 flight1.0 h10.0 km',
       'Brought forward3 flights2.5 h20.0 km',
       'Cumulative total4 flights3.5 h30.0 km',
     ])
