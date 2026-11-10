@@ -84,6 +84,23 @@ describe('TakeoffDetailView', () => {
     screen.getByText(/Pilot Seventeen/)
   })
 
+  it('lets a site record wrap below sm: so a long pilot name cannot widen the page', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.getByText(/Pilot Seventeen/).closest('li')?.className).toContain('max-sm:flex-wrap')
+  })
+
   it('links every flight row\'s pilot with a follow button; the row itself (not a Track link) is now the /flights/[tripId] navigation target', () => {
     render(
       <TakeoffDetailView

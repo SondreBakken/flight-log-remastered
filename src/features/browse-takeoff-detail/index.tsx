@@ -118,7 +118,7 @@ function SiteRecords({ records }: { records: SiteRecord[] }) {
       <h2 className="text-lg font-medium">Site records</h2>
       <ul className="flex flex-col gap-1 text-sm">
         {records.map((record) => (
-          <li key={record.tripId} className="flex items-center gap-2">
+          <li key={record.tripId} className="flex items-center gap-2 max-sm:flex-wrap">
             <span className="w-10 shrink-0 font-medium opacity-70">{record.recordClass}</span>
             <span>
               {record.pilotName} — {record.distanceKm.toFixed(1)} km

@@ -150,4 +150,15 @@ describe('TakeoffFlightRow', () => {
     expect(row.className).toContain('max-sm:block')
     for (const cell of cells) expect(cell.className).toContain(STACKED_CELL)
   })
+
+  it('wraps a long unbroken note anywhere and lets a long pilot name wrap beside Follow, below sm:', () => {
+    const row = remountRow({ ...BASE_FLIGHT, note: 'x'.repeat(200) })
+
+    const note = row.querySelector('td[data-label="Note"] > span')
+    expect(note?.className).toContain('max-sm:wrap-anywhere')
+    expect(note?.className).toContain('min-w-0')
+    const pilotWrapper = row.querySelector('td[data-label="Pilot"] > div')
+    expect(pilotWrapper?.className).toContain('max-sm:flex-wrap')
+    expect(pilotWrapper?.className).toContain('min-w-0')
+  })
 })

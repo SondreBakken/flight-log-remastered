@@ -59,7 +59,7 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
       </td>
       <td className={`py-2 pr-4 whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">{flight.timeOfDay ?? '—'}</td>
       <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Pilot">
-        <div className="flex items-center gap-2" onClick={stopRowNavigation}>
+        <div className="flex min-w-0 items-center gap-2 max-sm:flex-wrap max-sm:justify-end" onClick={stopRowNavigation}>
           <Link className="underline underline-offset-2" href={`/pilots/${flight.userId}`}>
             {flight.pilotName}
           </Link>
@@ -72,7 +72,9 @@ export function TakeoffFlightRow({ flight, isFollowed, isSignedIn }: TakeoffFlig
       <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Distance">
         {flight.distanceKm === null ? '—' : `${flight.distanceKm.toFixed(1)} km`}
       </td>
-      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Note">{flight.note ?? '—'}</td>
+      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Note">
+        <span className="min-w-0 max-sm:wrap-anywhere">{flight.note ?? '—'}</span>
+      </td>
       <td className={`py-2 ${STACKED_CELL}`} data-label="Track">
         <span>View track</span>
       </td>
