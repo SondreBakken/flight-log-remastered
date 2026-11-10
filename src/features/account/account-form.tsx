@@ -29,6 +29,9 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false,
 
   useEffect(() => {
     if (state.status === 'success') {
+      // Closing on the save outcome is an effect of the action's result, not derivable at render:
+      // an error must keep the form open, and both outcomes replace `state`.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsEditing(false)
       onSaved?.()
     }
