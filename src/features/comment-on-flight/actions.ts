@@ -25,18 +25,18 @@ export async function submitComment(
   formData: FormData,
 ): Promise<CommentFormState> {
   const body = formData.get('body')
-  if (typeof body !== 'string') return { status: 'error', message: EMPTY_BODY_MESSAGE }
+  if (typeof body !== 'string') return { status: 'error', message: EMPTY_BODY_MESSAGE, body: '' }
 
   // Reachable directly via POST, not just through this form (see the Server Actions security
   // guide) — getCurrentUserId() looks the session up in the database rather than trusting an
   // unverified cookie, and the resulting id is what's inserted, never anything the client sends.
   const userId = await getCurrentUserId()
-  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
+  if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE, body }
 
   const result = await postComment(getDb(), { tripId, userId, body })
   if (result.kind === 'posted') revalidatePath(`/flights/${tripId}`)
 
-  return commentFormStateFor(result)
+  return commentFormStateFor(result, body)
 }
 
 export type DeleteCommentActionResult = { status: 'success' } | { status: 'error'; message: string }

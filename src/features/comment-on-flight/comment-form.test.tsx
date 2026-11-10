@@ -54,6 +54,42 @@ describe('CommentForm', () => {
     await waitFor(() => expect(textarea.value).toBe(''))
   })
 
+  it('keeps the typed comment in the textarea when the action reports an error', async () => {
+    let resolveAction!: (state: { status: 'error'; message: string; body: string }) => void
+    mockSubmitComment.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
+
+    render(<CommentForm tripId={1} />)
+    fillAndSubmit('my comment')
+    await screen.findByRole('button', { name: 'Posting…' })
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(textarea.value).toBe('my comment')
+
+    resolveAction({ status: 'error', message: 'Something went wrong.', body: 'my comment' })
+    await screen.findByText('Something went wrong.')
+    expect(textarea.value).toBe('my comment')
+  })
+
+  it('leaves the textarea empty when a success follows an error', async () => {
+    let resolveFirst!: (state: { status: 'error'; message: string; body: string }) => void
+    mockSubmitComment.mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)))
+
+    render(<CommentForm tripId={1} />)
+    fillAndSubmit('x')
+    resolveFirst({ status: 'error', message: 'Try again.', body: 'x' })
+    await screen.findByText('Try again.')
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(textarea.value).toBe('x')
+
+    let resolveSecond!: (state: { status: 'success' }) => void
+    mockSubmitComment.mockReturnValueOnce(new Promise((resolve) => (resolveSecond = resolve)))
+    fireEvent.click(screen.getByRole('button', { name: 'Post comment' }))
+    await screen.findByRole('button', { name: 'Posting…' })
+    resolveSecond({ status: 'success' })
+    await waitFor(() => expect(textarea.value).toBe(''))
+    expect(screen.queryByText('Try again.')).toBeNull()
+  })
+
   it('disables the submit button while the action is pending', async () => {
     let resolveAction!: (state: { status: 'success' }) => void
     mockSubmitComment.mockReturnValue(new Promise((resolve) => (resolveAction = resolve)))
