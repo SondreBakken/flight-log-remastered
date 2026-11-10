@@ -1,6 +1,7 @@
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
 import type { TrackPoint } from '@/lib/flightlog/types'
+import { MapFrame } from '@/components/map-frame'
 import { TRACK_LINE_COLOR } from './colors'
 import {
   type AltitudeScale,
@@ -119,43 +120,45 @@ export function Barogram({ points, hoveredIndex, onHoverIndex }: BarogramProps) 
           the viewBox, so text sized to be legible on desktop shrinks to a few CSS px
           on a phone. Plain HTML text sits in real CSS pixels regardless of how far the
           SVG itself is scaled down, so one font size stays legible everywhere. */}
-      <div className="relative w-full" style={aspectRatioStyle(scale.bounds)}>
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${scale.bounds.width} ${scale.bounds.height}`}
-          className="absolute inset-0 h-full w-full touch-none text-black/70 dark:text-white/70"
-          role="slider"
-          aria-label={describeAltitudeChart(scale)}
-          aria-valuemin={0}
-          aria-valuemax={scale.maxSeconds}
-          aria-valuenow={hoveredPoint ? hoveredPoint.secondsFromStart : 0}
-          aria-valuetext={valueText}
-          tabIndex={0}
-          onPointerMove={handlePointerMove}
-          onPointerDown={handlePointerMove}
-          onPointerLeave={handlePointerLeave}
-          onKeyDown={handleKeyDown}
-        >
-          <AltitudeGridlines ticks={altitudeTicks} scale={scale} />
-          <path
-            d={path}
-            fill="none"
-            stroke={TRACK_LINE_COLOR}
-            strokeWidth={2}
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
-          {hoveredPoint && (
-            <HoverIndicator point={hoveredPoint} scale={scale} fullIndex={fullIndexOf.get(hoveredPoint) ?? null} />
-          )}
-        </svg>
-        {/* The SVG's aria-label already carries the range and duration, so these
-            overlay labels would only repeat that content for assistive tech. */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-          <AltitudeLabels ticks={altitudeTicks} scale={scale} />
-          <TimeLabels ticks={timeTicks} scale={scale} />
+      <MapFrame>
+        <div className="relative w-full" style={aspectRatioStyle(scale.bounds)}>
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${scale.bounds.width} ${scale.bounds.height}`}
+            className="absolute inset-0 h-full w-full touch-none text-black/70 dark:text-white/70"
+            role="slider"
+            aria-label={describeAltitudeChart(scale)}
+            aria-valuemin={0}
+            aria-valuemax={scale.maxSeconds}
+            aria-valuenow={hoveredPoint ? hoveredPoint.secondsFromStart : 0}
+            aria-valuetext={valueText}
+            tabIndex={0}
+            onPointerMove={handlePointerMove}
+            onPointerDown={handlePointerMove}
+            onPointerLeave={handlePointerLeave}
+            onKeyDown={handleKeyDown}
+          >
+            <AltitudeGridlines ticks={altitudeTicks} scale={scale} />
+            <path
+              d={path}
+              fill="none"
+              stroke={TRACK_LINE_COLOR}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            {hoveredPoint && (
+              <HoverIndicator point={hoveredPoint} scale={scale} fullIndex={fullIndexOf.get(hoveredPoint) ?? null} />
+            )}
+          </svg>
+          {/* The SVG's aria-label already carries the range and duration, so these
+              overlay labels would only repeat that content for assistive tech. */}
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+            <AltitudeLabels ticks={altitudeTicks} scale={scale} />
+            <TimeLabels ticks={timeTicks} scale={scale} />
+          </div>
         </div>
-      </div>
+      </MapFrame>
     </BarogramFrame>
   )
 }

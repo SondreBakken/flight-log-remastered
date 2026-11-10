@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import FlightTrack from '@/features/show-flight-track'
 import CommentsOnFlight from '@/features/comment-on-flight'
+import { MapFrame } from '@/components/map-frame'
 import { CalendarDate } from '@/components/calendar-date'
 import { BackLink } from '@/features/browse-flight-detail/back-link'
 import { flightlogFlightUrl } from '@/lib/flightlog/config'
@@ -220,7 +221,9 @@ function FlightSkeleton() {
   return (
     <div className="flex flex-col gap-4">
       <div className="h-8 w-48 animate-pulse rounded bg-black/10 dark:bg-white/10" />
-      <div className="h-[70vh] w-full animate-pulse rounded-md bg-black/5 dark:bg-white/5" />
+      <MapFrame>
+        <div className="h-[70vh] w-full animate-pulse rounded-md bg-black/5 dark:bg-white/5" />
+      </MapFrame>
       <CommentsSkeleton />
     </div>
   )

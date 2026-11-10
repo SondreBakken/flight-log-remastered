@@ -9,6 +9,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { ScoringGeometry, TrackPoint } from '@/lib/flightlog/types'
+import { MapFrame } from '@/components/map-frame'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
@@ -367,10 +368,12 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
 
   return (
     <div className={classes('flex flex-col gap-2', className)}>
-      <div
-        ref={containerRef}
-        className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')}
-      />
+      <MapFrame>
+        <div
+          ref={containerRef}
+          className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')}
+        />
+      </MapFrame>
       <AltitudeLegend minAltitude={gradient.minAltitude} maxAltitude={gradient.maxAltitude} />
     </div>
   )

@@ -12,6 +12,7 @@ import {
   type MapMouseEvent,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { MapFrame } from '@/components/map-frame'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import {
@@ -354,7 +355,11 @@ export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps
     )
   }
 
-  return <div ref={containerRef} className={classes(sizeClasses, 'overflow-hidden rounded-md')} />
+  return (
+    <MapFrame>
+      <div ref={containerRef} className={classes(sizeClasses, 'overflow-hidden rounded-md')} />
+    </MapFrame>
+  )
 }
 
 // Exported so the excluded-count clause (#12/#10's shared "excluding is fine, doing it
