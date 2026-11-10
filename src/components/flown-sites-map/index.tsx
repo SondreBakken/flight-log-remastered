@@ -1,5 +1,6 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import { useEffect, useMemo, useRef } from 'react'
 import { LngLatBounds, MapLibreMap, NavigationControl, Popup, type MapGeoJSONFeature, type MapMouseEvent } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -27,10 +28,6 @@ type FlownSitesMapProps = {
 }
 
 const DEFAULT_SIZE_CLASSES = 'h-[60vh] w-full'
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 function siteBounds(geojson: FlownSitesGeoJSON): LngLatBounds | null {
   if (geojson.features.length === 0) return null

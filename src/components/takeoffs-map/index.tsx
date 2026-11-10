@@ -1,5 +1,6 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import { useEffect, useMemo, useRef } from 'react'
 import {
   LngLatBounds,
@@ -68,10 +69,6 @@ const UNCLUSTERED_FILTER: ExpressionSpecification = ['!', ['has', 'point_count']
 
 export function unclusteredCategoryFilter(category: string): ExpressionSpecification {
   return ['all', UNCLUSTERED_FILTER, ['==', ['get', 'windCategory'], category]]
-}
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 function siteBounds(features: TakeoffSiteFeature[]): LngLatBounds | null {
