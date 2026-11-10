@@ -133,6 +133,18 @@ describe('PilotIdForm focus and note placement', () => {
     expect(document.activeElement).toBe(document.body)
   })
 
+  it('returns focus to the pencil when a first save closes a form that opened on mount', async () => {
+    mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
+    const { rerender } = render(<PilotIdForm initialPilotId={null} verification={NONE} />)
+
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: String(LINKED_PILOT_ID) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mockSaveFlightlogPilotId).toHaveBeenCalled())
+    rerender(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_PILOT_ID })))
+  })
+
   it('returns focus to the pencil after a successful save', async () => {
     mockSaveFlightlogPilotId.mockResolvedValue({ status: 'success' })
     render(<PilotIdForm initialPilotId={LINKED_PILOT_ID} verification={NONE} />)

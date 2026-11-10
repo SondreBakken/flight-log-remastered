@@ -111,6 +111,18 @@ describe('AccountForm focus', () => {
     expect(document.activeElement).toBe(document.body)
   })
 
+  it('returns focus to the pencil when a first save closes a form that opened on mount', async () => {
+    mockSaveDisplayName.mockResolvedValue({ status: 'success' })
+    const { rerender } = render(<AccountForm initialDisplayName={null} />)
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Alex' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mockSaveDisplayName).toHaveBeenCalled())
+    rerender(<AccountForm initialDisplayName="Alex" />)
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: EDIT_NAME })))
+  })
+
   it('returns focus to the pencil after a successful save closes the form', async () => {
     mockSaveDisplayName.mockResolvedValue({ status: 'success' })
     render(<AccountForm initialDisplayName="Alex" />)

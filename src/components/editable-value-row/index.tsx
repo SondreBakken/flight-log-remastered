@@ -39,18 +39,22 @@ export function EditableValueRow({
 }: EditableValueRowProps) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const pencilRef = useRef<HTMLButtonElement>(null)
-  // Starts equal to the initial value so a form shown on first mount does not steal focus.
-  const wasEditing = useRef(isEditing)
-
-  useEffect(() => {
-    if (isEditing === wasEditing.current) return
-    wasEditing.current = isEditing
-    if (isEditing) wrapperRef.current?.querySelector<HTMLElement>(FIRST_FIELD)?.focus()
-    else pencilRef.current?.focus()
-  }, [isEditing])
-
   const isFormVisible = toggle ? isEditing : showForm
   const isRowVisible = toggle || !showForm
+  // Start equal to the initial values so a form shown on first mount does not steal focus.
+  const wasEditing = useRef(isEditing)
+  const wasRowVisible = useRef(isRowVisible)
+
+  useEffect(() => {
+    const opened = isEditing && !wasEditing.current
+    const closed = !isEditing && wasEditing.current
+    // A form open on first mount closes by the row reappearing (isEditing never changed).
+    const rowReappeared = isRowVisible && !wasRowVisible.current
+    wasEditing.current = isEditing
+    wasRowVisible.current = isRowVisible
+    if (opened) wrapperRef.current?.querySelector<HTMLElement>(FIRST_FIELD)?.focus()
+    else if (closed || rowReappeared) pencilRef.current?.focus()
+  }, [isEditing, isRowVisible])
 
   return (
     <div ref={wrapperRef} className="flex max-w-sm flex-col gap-2">
