@@ -41,14 +41,14 @@ describe('submitComment', () => {
 
     const state = await submitComment(1, { status: 'idle' }, formDataWithBody('hello'))
 
-    expect(state).toEqual({ status: 'error', message: 'Sign in to post a comment.' })
+    expect(state).toEqual({ status: 'error', message: 'Sign in to post a comment.', body: 'hello' })
     expect(mockPostComment).not.toHaveBeenCalled()
   })
 
   it('rejects without posting when the body field is missing (a malformed direct POST)', async () => {
     const state = await submitComment(1, { status: 'idle' }, formDataWithBody(undefined))
 
-    expect(state).toEqual({ status: 'error', message: 'Write something before posting.' })
+    expect(state).toEqual({ status: 'error', message: 'Write something before posting.', body: '' })
     expect(mockPostComment).not.toHaveBeenCalled()
   })
 
@@ -84,13 +84,22 @@ describe('submitComment', () => {
     expect(mockRevalidatePath).toHaveBeenCalledWith('/flights/42')
   })
 
+  it('echoes a whitespace-only body unchanged on the empty-body error', async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
+    mockPostComment.mockResolvedValue({ kind: 'empty-body' })
+
+    const state = await submitComment(42, { status: 'idle' }, formDataWithBody('   '))
+
+    expect(state).toEqual({ status: 'error', message: 'Write something before posting.', body: '   ' })
+  })
+
   it('does not revalidate and surfaces the rate-limit error when postComment rejects the post', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockPostComment.mockResolvedValue({ kind: 'rate-limited' })
 
     const state = await submitComment(42, { status: 'idle' }, formDataWithBody('one too many'))
 
-    expect(state).toEqual({ status: 'error', message: "You're posting comments too quickly. Wait a minute and try again." })
+    expect(state).toEqual({ status: 'error', message: "You're posting comments too quickly. Wait a minute and try again.", body: 'one too many' })
     expect(mockRevalidatePath).not.toHaveBeenCalled()
   })
 
@@ -148,19 +157,22 @@ describe('deleteCommentAction', () => {
 })
 
 describe('commentFormStateFor', () => {
-  it('maps every PostCommentResult kind to a form state', () => {
-    expect(commentFormStateFor({ kind: 'posted' })).toEqual({ status: 'success' })
-    expect(commentFormStateFor({ kind: 'empty-body' })).toEqual({
+  it('maps every PostCommentResult kind to a form state, echoing the body on errors', () => {
+    expect(commentFormStateFor({ kind: 'posted' }, 'hi')).toEqual({ status: 'success' })
+    expect(commentFormStateFor({ kind: 'empty-body' }, '   ')).toEqual({
       status: 'error',
       message: 'Write something before posting.',
+      body: '   ',
     })
-    expect(commentFormStateFor({ kind: 'rate-limited' })).toEqual({
+    expect(commentFormStateFor({ kind: 'rate-limited' }, 'one too many')).toEqual({
       status: 'error',
       message: "You're posting comments too quickly. Wait a minute and try again.",
+      body: 'one too many',
     })
-    expect(commentFormStateFor({ kind: 'db-error', message: 'raw db detail' })).toEqual({
+    expect(commentFormStateFor({ kind: 'db-error', message: 'raw db detail' }, 'keep me')).toEqual({
       status: 'error',
       message: 'Something went wrong posting your comment. Try again.',
+      body: 'keep me',
     })
   })
 })
