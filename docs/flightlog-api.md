@@ -274,11 +274,11 @@ capture of both endpoints, full and empty alike) — just one `<table border=1>`
 ### rqtid=21 (the sync endpoint)
 
 ```
-GET /fl.html?rqtid=21&user_id=4549&year=2026&ts=0
+GET /fl.html?rqtid=21&user_id=900003&year=2026&ts=0
 {"description":"Returns id and ts (timestamp) for all tracklogs by a user in a given year
   that been created/updated after given ts. Use query string ?rqtid=19&trip_id={trip_id}
   to fetch tracklog in kml format.",
- "query_string_parameters":{"rqtid":21,"user_id":4549,"year":2026,"ts":0},
+ "query_string_parameters":{"rqtid":21,"user_id":900003,"year":2026,"ts":0},
  "data_item_count":7,
  "data_fields":"trip_id, ts",
  "data_items":[[991729,"20260523164423"],[1001428,"20260720135025"], …]}
@@ -445,20 +445,19 @@ the same div that holds the search form itself, with `<br>` as the only separato
   the same way an empty text node does — nothing special to special-case there.
 - The whole result set is closed by a bare `<hr>` before the div closes; there is no other
   terminator.
-- Non-ASCII names appear undecorated (`Samúel Alexandersson`, `ú`) and decode normally as HTML
+- Non-ASCII names appear undecorated (`Pílot Twenty-One`, `ú`) and decode normally as HTML
   text content.
 
-**Matching semantics**, resolved with two queries against the known-good `Henden` set (Børge 2831,
-Nils Aage 754, Patrick 11072, all Norway):
+**Matching semantics**, resolved with two queries against the known three-pilot surname set (all Norway):
 
-- `user_fullname=nde` — an interior substring of "Henden" (not a token, not a prefix or suffix, not
+- `user_fullname=nde` — an interior substring of that surname (not a token, not a prefix or suffix, not
   the surname itself) returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
   India, Netherlands, Northern Mariana Islands, Norway, Sweden, United Kingdom in the fixture on
-  hand), including the 3 known Hendens and many whose *first* name alone contains "nde" (e.g.
+  hand), including the 3 known pilots and many whose *first* name alone contains "nde" (e.g.
   "Anders...", "Aleksander..."). This confirms **case-insensitive substring match against the full
   display name** (first + last, not a surname-only column) — it rules out token match,
   surname-prefix match, and exact-surname-column match in the one query.
-- `user_fullname=H_nden` (literal underscore) returned exactly the same 3 Hendens. This confirms
+- `user_fullname=S_rname` (literal underscore) returned exactly the same 3 pilots. This confirms
   the advertised `_` wildcard is a real SQL `LIKE` single-char wildcard layered on top of the
   implicit substring wrap, not a literal character requiring escaping — the wildcard claim is
   accurate, and it is not made redundant by the implicit substring behavior since it lets a caller

@@ -8,7 +8,7 @@ import { PROFILE_CELL_SELECTOR } from './parse-flights'
 // `a[href^="mailto:"]` rather than a fixed `<br>`-split line index: a profile with a photo has
 // an extra sibling `<td>` for the thumbnail, but that shifts no index INSIDE this cell — still
 // safer than assuming the mailto anchor is always the same line position, since phone/glider
-// free-text lines (fixtures/pilot-4549.html has none) can shift what comes after it. Scoped to
+// free-text lines (the no-email profile fixture has none) can shift what comes after it. Scoped to
 // PROFILE_CELL_SELECTOR specifically (not a document-wide `a[href^="mailto:"]` search) so a
 // mailto anchor anywhere else on the page — a footer contact address, another pilot's link —
 // can never be picked up in place of this profile's own (see parse-pilot-email.test.ts's
@@ -49,7 +49,7 @@ function readMailtoAddress(hrefWithoutPrefix: string): string | null {
 
 // Returns the address, or null when the profile's info block has no `mailto:` anchor at all, or
 // when the anchor's own href doesn't survive readMailtoAddress's validation — confirmed live as
-// a real, distinct "no email on file" shape (fixtures/pilot-4549.html: name/country/club/phone
+// a real, distinct "no email on file" shape (the no-email profile fixture: name/country/club/phone
 // all present, no email line) rather than a hypothetical. Callers combine this with pilot
 // existence separately (see get-pilot-email.ts) — a nonexistent pilot's synthetic fallback cell
 // (see is-fallback-pilot.ts) has no mailto anchor either, so this alone cannot tell "opted out"

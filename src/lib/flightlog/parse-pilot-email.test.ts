@@ -6,7 +6,7 @@ import { parsePilotEmail } from './parse-pilot-email'
 // on `<br>`-separated lines, alongside a sibling `<td>` for the profile photo — the extra `<td>`
 // is why this parser selects by `a[href^="mailto:"]` rather than a fixed line index.
 const WITH_PHOTO_AND_EMAIL_HTML = `<html><body>
-<div><table cellpadding="2px" cellspacing="1px" bgcolor="black"><tr><td width="s180" bgcolor="white">Sondre Bakken<br>Norway<br><a href="https://flightlog.org/fl.html?l=1&a=26&club_id=51&country_id=160">Voss Hang- Og Paragliderklubb</a><br><a href="mailto:owner@example.com">owner@example.com</a><br/>+47+4700000000<br></td><td bgcolor="white"><a href='/fl.html?rqtid=3&user_id=12677'><img src='/fl.html?rqtid=3&user_id=12677&thumb' alt='user photo'></a></td></tr></table></div>
+<div><table cellpadding="2px" cellspacing="1px" bgcolor="black"><tr><td width="s180" bgcolor="white">Sondre Bakken<br>Norway<br><a href="https://flightlog.org/fl.html?l=1&a=26&club_id=51&country_id=160">Voss Hang- Og Paragliderklubb</a><br><a href="mailto:owner@example.com">owner@example.com</a><br/>+4700000000<br></td><td bgcolor="white"><a href='/fl.html?rqtid=3&user_id=12677'><img src='/fl.html?rqtid=3&user_id=12677&thumb' alt='user photo'></a></td></tr></table></div>
 </body></html>`
 
 // Trimmed from a real `a=28&user_id=<id>` response: same cell
