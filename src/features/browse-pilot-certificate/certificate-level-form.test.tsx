@@ -69,13 +69,18 @@ describe('CertificateLevelForm, expanding and collapsing', () => {
 describe('CertificateLevelForm, saving', () => {
   it('saves the selected level on submit and collapses back to the new plain-text value', async () => {
     mockSaveCertificateLevelAction.mockResolvedValue({ status: 'success' })
-    render(<CertificateLevelForm currentLevel={null} />)
+    const { rerender } = render(<CertificateLevelForm currentLevel={null} />)
     openEditor()
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'PP4' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
 
-    await screen.findByText('PP4')
+    await waitFor(() => expect(screen.queryByRole('combobox')).toBeNull())
+    expect(screen.queryByText('PP4')).toBeNull()
+    screen.getByText('Not set')
+
+    rerender(<CertificateLevelForm currentLevel="PP4" />)
+    screen.getByText('PP4')
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(mockSaveCertificateLevelAction).toHaveBeenCalledWith('PP4')
     expect(mockRefresh).toHaveBeenCalled()
