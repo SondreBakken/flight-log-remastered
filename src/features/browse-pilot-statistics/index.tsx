@@ -25,7 +25,7 @@ type PilotStatisticsProps = {
 // a synchronous read of `flights`, so this stays a plain server component with no 'use client'.
 // That "no new fetch" decision is scoped to THIS component, not the whole page: #76 adds the
 // page's first new fetch (a flown-sites map, joined against getTakeoffs(160)) as its own
-// sibling section in page.tsx, behind its own <Suspense>, deliberately kept out of this file so
+// section in page.tsx (the logbook's map slot), behind its own <Suspense>, deliberately kept out of this file so
 // PilotStatistics itself stays synchronous and every existing test below keeps rendering it
 // with a plain `flights` prop, no `await` required.
 export default function PilotStatistics({ flights }: PilotStatisticsProps) {
