@@ -8,6 +8,9 @@ import { TrackHoverView } from './track-hover-view'
 
 type FlightTrackProps = {
   track: Track
+  // From the a=34 detail, not the KML: omitted (undefined or null) when that fetch failed or
+  // the page has no distance.
+  distanceKm?: number | null
 }
 
 type Stat = { label: string; value: ReactNode }
@@ -30,10 +33,10 @@ function toStats(stats: TrackStats, points: TrackPoint[]): Stat[] {
   ]
 }
 
-export default function FlightTrack({ track }: FlightTrackProps) {
+export default function FlightTrack({ track, distanceKm }: FlightTrackProps) {
   return (
     <div className="flex flex-col gap-6">
-      {isTrackStats(track.stats) && <SummaryRow stats={track.stats} />}
+      {isTrackStats(track.stats) && <SummaryRow stats={track.stats} distanceKm={distanceKm} />}
       <TrackHoverView points={track.points} scoring={track.scoring} />
       {isTrackStats(track.stats) ? (
         <StatGrid stats={toStats(track.stats, track.points)} />
@@ -44,13 +47,17 @@ export default function FlightTrack({ track }: FlightTrackProps) {
   )
 }
 
-function SummaryRow({ stats }: { stats: TrackStats }) {
+function SummaryRow({ stats, distanceKm }: { stats: TrackStats; distanceKm?: number | null }) {
+  const summary: Stat[] = [
+    { label: 'Duration', value: formatTrackDuration(stats.duration) ?? NULL_PLACEHOLDER },
+    { label: 'Max altitude', value: formatAltitude(stats.maxAltitude) },
+  ]
+  if (typeof distanceKm === 'number' && Number.isFinite(distanceKm)) {
+    summary.push({ label: 'Distance', value: `${distanceKm} km` })
+  }
   return (
     <StatList
-      stats={[
-        { label: 'Duration', value: formatTrackDuration(stats.duration) ?? NULL_PLACEHOLDER },
-        { label: 'Max altitude', value: formatAltitude(stats.maxAltitude) },
-      ]}
+      stats={summary}
       className="flex gap-x-8 text-base"
       testId="flight-summary-row"
     />

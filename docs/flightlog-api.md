@@ -500,7 +500,7 @@ honeypot copy, same as every other page) around one results block:
   happens to sit only in the shared nav chrome above the results table, never inside it, so
   immunity today is incidental to where the trap happens to be, not to what the selector checks.
   A trap constructed with a `club_id=` and an `a=26` href, placed inside the results table, is
-  indistinguishable from a real row by href alone. The parser (`parse-clubs.ts`) therefore
+  indistinguishable from a real row by href alone. The parsers (`parse-clubs.ts`, `parse-pilot-search.ts`, `parse-flight-detail.ts`, via the shared `HONEYPOT_SELECTOR` in `honeypot.ts`) therefore
   excludes anchors carrying `class="hp-nav"`, `data-trap`, or `rel="nofollow"` explicitly,
   regardless of where in the document they sit or what their href contains — a structural check,
   not a positional one.
@@ -757,9 +757,9 @@ GET /fl.html?l=1&a=34&trip_id=9000005
   `2608 meters above sea-level`, not a bare number — same convention as `a=22`'s own `Altitude`
   row), `Description` (free HTML, `<br>`-separated, no leading wind-compass image the way
   `a=22`'s own Description cell has one), `Takeoff type` (e.g. `mountain`).
-- **Tracked-only extras, interleaved between `Description` and `Takeoff type` — not
-  requested by this app's own scraper, which only ever runs for a trip `hasTrack` already
-  reported false for.** A tracked flight's `Description` cell has flightlog.org's own
+- **Tracked-only extras, interleaved between `Description` and `Takeoff type`.** This app
+  requests `a=34` for tracked trips too (#303: pilot and distance for the page heading and
+  summary row). A tracked flight's `Description` cell has flightlog.org's own
   auto-generated `Flight statistics` block appended (`<pre>…</pre>`) after the pilot's own free
   text, and a `View trip`, `Open distance` and `Best distance over 5 points` row each appear
   between `Description` and `Takeoff type`. The `Open distance` row is genuinely malformed live
@@ -769,6 +769,12 @@ GET /fl.html?l=1&a=34&trip_id=9000005
   ordinary HTML parser still recovers a normal 2-`<td>` row from it, but only label-keyed
   extraction (not a fixed row index) survives this reliably, since these extra rows' PRESENCE,
   COUNT and POSITION all vary with the flight's own track/scoring data.
+- **Breadcrumb pilot (#303).** Outside the content div, the breadcrumb reads `Home ->
+  Pilots/Clubs -> <pilot> -> Flights -> …`; the pilot is an anchor `…a=28&user_id=<id>` right
+  after the `Pilots/Clubs` anchor (confirmed live on a tracked trip). The per-request `hp-nav`
+  honeypot anchor (`data-trap='1'`) can sit anywhere in the page, including with an `a=28&user_id=`
+  href, so anchors inside `.hp-nav` or `[data-trap]` are ignored before the breadcrumb is walked.
+  Missing or malformed breadcrumb gives a null pilot, not a parse error.
 - **Untracked flight (`fixtures/a34-1001964-detail.html`, this app's own pilot account, which
   has no GPS tracks at all — see #215's own background).** Every row above is still present,
   but `Distance (km)` and `Max altitude` render with a BLANK value, not an absent row — the same
