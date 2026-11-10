@@ -31,7 +31,10 @@ pnpm exec tsx scripts/verify-shot.mts                     # pixel-level proof sh
 
 `pnpm test` needs no database: the data-access tests run against in-process PGlite with the real
 `drizzle/` migrations. Node 24 is the supported runtime (`.nvmrc`, `engines.node`); `vitest.setup.ts`
-shims `localStorage` so Node 25 also passes.
+shims `localStorage` so Node 25 also passes. `vitest.config.mts` raises `hookTimeout` (60 s) and
+`testTimeout` (30 s) because every DB test file boots PGlite and runs the migrations in `beforeAll`
+(about 1.5 s idle, over the 10 s default when the CPU is shared). `createUnmigratedTestDatabase` is a
+stub that rejects every query, so failure-path tests do not boot a second PGlite.
 
 ## Checks and gates
 
