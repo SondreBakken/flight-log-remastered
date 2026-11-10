@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   selectVisibleTakeoffs,
   foldTakeoffNames,
@@ -38,6 +38,11 @@ function select(
 ) {
   return selectVisibleTakeoffs(takeoffs, foldTakeoffNames(takeoffs), query, regionFilter, windFilter, userLocation)
 }
+
+// The localeCompare spies must not outlive a failed assertion.
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('selectVisibleTakeoffs', () => {
   it('filters by folded, substring name match', () => {
@@ -526,6 +531,33 @@ describe('sortRegionOptions', () => {
     expect(sortRegionOptions(regions).map((r) => r.name)).toEqual(['Agder', 'Østlandet', 'Vestlandet'])
   })
 
+  // The sort order depends on the host locale unless the locale is passed, so the order alone
+  // cannot prove the pin on an en-US host. Asserting the argument holds on every host.
+  it('collates in en-US, whatever the host locale', () => {
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare')
+
+    sortRegionOptions([
+      { regionId: 1, name: 'Østlandet' },
+      { regionId: 2, name: 'Agder' },
+    ])
+
+    expect(localeCompare).toHaveBeenCalled()
+    expect(localeCompare.mock.calls.map(([, locale]) => locale)).toEqual(localeCompare.mock.calls.map(() => 'en-US'))
+  })
+
+  it('keeps the input order of regions with equal names', () => {
+    const regions: RegionOption[] = [
+      { regionId: 2, name: 'Agder' },
+      { regionId: 1, name: 'Agder' },
+    ]
+
+    expect(sortRegionOptions(regions).map((r) => r.regionId)).toEqual([2, 1])
+  })
+
+  it('returns an empty list for no regions', () => {
+    expect(sortRegionOptions([])).toEqual([])
+  })
+
   it('does not mutate the input array', () => {
     const regions: RegionOption[] = [
       { regionId: 2, name: 'Vestlandet' },
@@ -535,5 +567,26 @@ describe('sortRegionOptions', () => {
     sortRegionOptions(regions)
 
     expect(regions.map((r) => r.regionId)).toEqual([2, 1])
+  })
+})
+
+describe('alphabetical fallback order', () => {
+  it('collates takeoff names in en-US, whatever the host locale', () => {
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare')
+
+    select([makeTakeoff({ takeoffId: 1, name: 'Østlandet' }), makeTakeoff({ takeoffId: 2, name: 'Agder' })], '', 'all')
+
+    expect(localeCompare).toHaveBeenCalled()
+    expect(localeCompare.mock.calls.map(([, locale]) => locale)).toEqual(localeCompare.mock.calls.map(() => 'en-US'))
+  })
+
+  it('keeps the fetch order of takeoffs with equal names', () => {
+    const result = select([makeTakeoff({ takeoffId: 2, name: 'Same' }), makeTakeoff({ takeoffId: 1, name: 'Same' })], '', 'all')
+
+    expect(result.matches.map((t) => t.takeoffId)).toEqual([2, 1])
+  })
+
+  it('returns no matches for an empty takeoff list', () => {
+    expect(select([], '', 'all').matches).toEqual([])
   })
 })
