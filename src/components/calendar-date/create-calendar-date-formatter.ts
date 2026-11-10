@@ -5,6 +5,6 @@ import { formatCalendarDate } from '@/lib/text/format-calendar-date'
 // A constant renders the identical string everywhere and keeps prerendered pages static.
 const DATE_LOCALE = 'en-GB'
 
-export function useCalendarDateFormatter(): (value: string) => string {
+export function createCalendarDateFormatter(): (value: string) => string {
   return (value) => formatCalendarDate(value, DATE_LOCALE)
 }
