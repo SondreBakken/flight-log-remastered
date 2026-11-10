@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { PilotVerification } from '@/lib/profiles/get-own-pilot-verification'
 import type { Profile } from '@/lib/profiles/get-profile'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+import { subscribeOwnVerificationChanged } from '@/lib/profiles/own-verification-changed'
 import AccountSettings from './index'
 
 const mockGetCurrentUserId = vi.fn<() => Promise<string | null>>()
@@ -257,5 +258,22 @@ describe('AccountSettings', () => {
 
     await screen.findByText('Saved.')
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the site nav the verification may have changed after each refresh', async () => {
+    const onChanged = vi.fn()
+    const stop = subscribeOwnVerificationChanged(onChanged)
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
+    mockGetOwnPilotVerification.mockResolvedValue(PENDING_VERIFICATION)
+    mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
+
+    await renderAccountSettings()
+
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    stop()
   })
 })

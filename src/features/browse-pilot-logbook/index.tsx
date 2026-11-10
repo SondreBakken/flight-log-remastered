@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import { BadgeCheck } from 'lucide-react'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
 import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
+import { VerificationStamp } from '@/components/verification-stamp'
 import { FlightRow } from './components/flight-row'
 
 type PilotLogbookProps = {
@@ -72,7 +72,7 @@ function PilotHeader({
     <header className="flex flex-col gap-1">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{pilot.name}</h1>
-        {isVerified && <VerifiedAccountIcon />}
+        {isVerified && <VerificationStamp label={VERIFIED_ACCOUNT_LABEL} size={20} />}
         <span className="shrink-0 whitespace-nowrap">
           <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={pilot.userId} variant="prominent" />
         </span>
@@ -88,14 +88,6 @@ function PilotHeader({
 }
 
 const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flight Log Remastered'
-
-function VerifiedAccountIcon() {
-  return (
-    <span className="shrink-0 text-sky-600 dark:text-sky-400" role="img" aria-label={VERIFIED_ACCOUNT_LABEL} title={VERIFIED_ACCOUNT_LABEL}>
-      <BadgeCheck aria-hidden="true" size={20} />
-    </span>
-  )
-}
 
 function FlightTable({
   flights,
