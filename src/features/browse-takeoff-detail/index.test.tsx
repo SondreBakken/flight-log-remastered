@@ -84,6 +84,23 @@ describe('TakeoffDetailView', () => {
     screen.getByText(/Pilot Seventeen/)
   })
 
+  it('lets a site record wrap below sm: so a long pilot name cannot widen the page', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.getByText(/Pilot Seventeen/).closest('li')?.className).toContain('max-sm:flex-wrap')
+  })
+
   it('links every flight row\'s pilot with a follow button; the row itself (not a Track link) is now the /flights/[tripId] navigation target', () => {
     render(
       <TakeoffDetailView
@@ -146,6 +163,25 @@ describe('TakeoffDetailView', () => {
     // its own accessible name includes "Sign in to follow" as part of the whole row's text.
     expect(screen.queryByRole('button', { name: 'Follow' })).toBeNull()
     screen.getByRole('link', { name: /sign in to follow/i })
+  })
+
+  it('stacks the flights table into labelled rows below sm:', () => {
+    const { container } = render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('table')?.className).toContain('max-sm:block')
+    expect(container.querySelector('tbody')?.className).toContain('max-sm:block')
+    expect(container.querySelector('thead')?.className).toContain('max-sm:sr-only')
   })
 
   it('renders the deliberate empty state, not an empty table, when there are no flights this year', () => {

@@ -118,7 +118,7 @@ function SiteRecords({ records }: { records: SiteRecord[] }) {
       <h2 className="text-lg font-medium">Site records</h2>
       <ul className="flex flex-col gap-1 text-sm">
         {records.map((record) => (
-          <li key={record.tripId} className="flex items-center gap-2">
+          <li key={record.tripId} className="flex items-center gap-2 max-sm:flex-wrap">
             <span className="w-10 shrink-0 font-medium opacity-70">{record.recordClass}</span>
             <span>
               {record.pilotName} — {record.distanceKm.toFixed(1)} km
@@ -206,8 +206,8 @@ function FlightsTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
+      <table className="w-full border-collapse text-sm max-sm:block">
+        <thead className="max-sm:sr-only">
           <tr className="border-b border-black/10 text-left dark:border-white/15">
             <th className="py-2 pr-4 font-medium">Date</th>
             <th className="py-2 pr-4 font-medium">Time</th>
@@ -220,7 +220,7 @@ function FlightsTable({
             <th className="py-2 font-medium">Track</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-sm:block">
           {flights.map((flight) => (
             <TakeoffFlightRow
               key={flight.tripId}
