@@ -202,12 +202,26 @@ function reportNoUnexpectedFailures(scenarioLabel: string): void {
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 // SignedOutHome is a server component that fetches live flightlog.org data: wait for its table
-// rows (the content under test) rather than a fixed delay, and fail if none ever render.
-const signedOutRowsReady = await waitForOrReport(
+// rows (the content under test) or its "unavailable" fallback rather than a fixed delay, and fail
+// if neither ever renders. The fallback is a legitimate state when the upstream is down, so it is
+// reported on its own line and the row assertions are skipped, not failed.
+const SIGNED_OUT_FALLBACK_TEXT = 'Recent flights are unavailable right now.'
+function isSignedOutHomeSettled(): boolean {
+  const hasRows = document.querySelectorAll('table tbody tr').length > 0
+  const hasFallback = document.body.textContent?.includes('Recent flights are unavailable right now.') ?? false
+  return hasRows || hasFallback
+}
+const signedOutSettled = await waitForOrReport(
   page,
-  () => document.querySelectorAll('table tbody tr').length > 0,
-  'signed-out home: at least one recent flight row renders within the timeout',
+  isSignedOutHomeSettled,
+  `signed-out home: recent flight rows or the "${SIGNED_OUT_FALLBACK_TEXT}" fallback render within the timeout`,
 )
+const signedOutShowsFallback =
+  signedOutSettled && (await page.evaluate(() => document.querySelectorAll('table tbody tr').length === 0))
+if (signedOutShowsFallback) {
+  console.log(`signed-out home: showing the "${SIGNED_OUT_FALLBACK_TEXT}" fallback (upstream unavailable), row assertions skipped`)
+}
+const signedOutRowsReady = signedOutSettled && !signedOutShowsFallback
 if (signedOutRowsReady) {
   const signedOut = await page.evaluate(() => {
     // Content links only: SiteNav (outside main) carries /pilots/search and /countries on every page.
