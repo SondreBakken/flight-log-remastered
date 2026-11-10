@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { EditableValueRow } from '@/components/editable-value-row'
 import { saveFlightlogPilotId } from './actions'
 import type { PilotIdFormState } from './pilot-id-form-state'
 import type { OwnPilotVerificationState } from './pilot-verification'
@@ -57,60 +57,56 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verific
   const showUnverifiedNote = verification.kind !== 'verified' && (state.status === 'success' || initialPilotId != null)
 
   return (
-    <div className="flex max-w-sm flex-col gap-2">
-      {showForm ? (
-        <form action={formAction} className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1 text-sm" htmlFor="flightlog-pilot-id">
-            flightlog.org pilot id
-            <input
-              // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
-              key={defaultPilotId}
-              className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-              defaultValue={defaultPilotId}
-              disabled={pilotIdLoadFailed}
-              id="flightlog-pilot-id"
-              min={1}
-              name="flightlogPilotId"
-              placeholder="e.g. 12677"
-              step={1}
-              type="number"
-            />
-          </label>
-          {pilotIdLoadFailed && (
-            <p className="text-sm opacity-70">
-              Couldn&apos;t load your current flightlog.org pilot id, so it can&apos;t be changed right now. Reload the
-              page to try again.
-            </p>
-          )}
-          <button
-            className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-            disabled={pending || pilotIdLoadFailed}
-            type="submit"
-          >
-            {pending ? 'Saving…' : 'Save'}
-          </button>
-        </form>
-      ) : (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="opacity-70">flightlog.org pilot id:</span>
-          <span className="font-medium">{initialPilotId}</span>
-          <button
-            aria-label="Edit pilot id"
-            className="rounded p-1 opacity-70 hover:opacity-100"
-            onClick={() => setIsEditing(true)}
-            type="button"
-          >
-            <Pencil size={14} />
-          </button>
-        </div>
-      )}
-      <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
-        {state.status === 'error' && state.message}
-      </p>
-      <p aria-live="polite" className="text-sm opacity-70">
-        {state.status === 'success' && !isEditing && 'Saved.'}
-      </p>
-      {showUnverifiedNote && <p className="text-sm opacity-70">Self-declared, unverified.</p>}
-    </div>
+    <EditableValueRow
+      editLabel="Edit pilot id"
+      feedback={
+        <>
+          <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
+            {state.status === 'error' && state.message}
+          </p>
+          <p aria-live="polite" className="text-sm opacity-70">
+            {state.status === 'success' && !isEditing && 'Saved.'}
+          </p>
+        </>
+      }
+      isEditing={isEditing}
+      label="flightlog.org pilot id:"
+      note={showUnverifiedNote && <p className="text-sm opacity-70">Self-declared, unverified.</p>}
+      onEdit={() => setIsEditing(true)}
+      showForm={showForm}
+      value={initialPilotId}
+    >
+      <form action={formAction} className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-sm" htmlFor="flightlog-pilot-id">
+          flightlog.org pilot id
+          <input
+            // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
+            key={defaultPilotId}
+            className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+            defaultValue={defaultPilotId}
+            disabled={pilotIdLoadFailed}
+            id="flightlog-pilot-id"
+            min={1}
+            name="flightlogPilotId"
+            placeholder="e.g. 12677"
+            step={1}
+            type="number"
+          />
+        </label>
+        {pilotIdLoadFailed && (
+          <p className="text-sm opacity-70">
+            Couldn&apos;t load your current flightlog.org pilot id, so it can&apos;t be changed right now. Reload the
+            page to try again.
+          </p>
+        )}
+        <button
+          className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+          disabled={pending || pilotIdLoadFailed}
+          type="submit"
+        >
+          {pending ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+    </EditableValueRow>
   )
 }

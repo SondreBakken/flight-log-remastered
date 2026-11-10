@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { EditableValueRow } from '@/components/editable-value-row'
 import { saveDisplayName } from './actions'
 import type { AccountFormState } from './account-form-state'
 
@@ -39,58 +39,54 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false,
   }
 
   return (
-    <div className="flex max-w-sm flex-col gap-2">
-      {showForm ? (
-        <form action={formAction} className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1 text-sm" htmlFor="display-name">
-            Display name
-            <input
-              // Uncontrolled, so defaultValue applies only on mount: keying on it remounts the input
-              // when a server re-render hands down a different stored name.
-              key={defaultDisplayName}
-              className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-              defaultValue={defaultDisplayName}
-              disabled={displayNameLoadFailed}
-              id="display-name"
-              name="displayName"
-              placeholder="Shown on your comments"
-              type="text"
-            />
-          </label>
-          {displayNameLoadFailed && (
-            <p className="text-sm opacity-70">
-              Couldn&apos;t load your current display name, so it can&apos;t be changed right now. Reload the page to
-              try again.
-            </p>
-          )}
-          <button
-            className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-            disabled={pending || displayNameLoadFailed}
-            type="submit"
-          >
-            {pending ? 'Saving…' : 'Save'}
-          </button>
-        </form>
-      ) : (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="opacity-70">Display name:</span>
-          <span className="font-medium">{initialDisplayName}</span>
-          <button
-            aria-label="Edit display name"
-            className="rounded p-1 opacity-70 hover:opacity-100"
-            onClick={() => setIsEditing(true)}
-            type="button"
-          >
-            <Pencil size={14} />
-          </button>
-        </div>
-      )}
-      <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
-        {state.status === 'error' && state.message}
-      </p>
-      <p aria-live="polite" className="text-sm opacity-70">
-        {state.status === 'success' && !isEditing && 'Saved.'}
-      </p>
-    </div>
+    <EditableValueRow
+      editLabel="Edit display name"
+      feedback={
+        <>
+          <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
+            {state.status === 'error' && state.message}
+          </p>
+          <p aria-live="polite" className="text-sm opacity-70">
+            {state.status === 'success' && !isEditing && 'Saved.'}
+          </p>
+        </>
+      }
+      isEditing={isEditing}
+      label="Display name:"
+      onEdit={() => setIsEditing(true)}
+      showForm={showForm}
+      value={initialDisplayName}
+    >
+      <form action={formAction} className="flex flex-col gap-2">
+        <label className="flex flex-col gap-1 text-sm" htmlFor="display-name">
+          Display name
+          <input
+            // Uncontrolled, so defaultValue applies only on mount: keying on it remounts the input
+            // when a server re-render hands down a different stored name.
+            key={defaultDisplayName}
+            className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+            defaultValue={defaultDisplayName}
+            disabled={displayNameLoadFailed}
+            id="display-name"
+            name="displayName"
+            placeholder="Shown on your comments"
+            type="text"
+          />
+        </label>
+        {displayNameLoadFailed && (
+          <p className="text-sm opacity-70">
+            Couldn&apos;t load your current display name, so it can&apos;t be changed right now. Reload the page to
+            try again.
+          </p>
+        )}
+        <button
+          className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+          disabled={pending || displayNameLoadFailed}
+          type="submit"
+        >
+          {pending ? 'Saving…' : 'Save'}
+        </button>
+      </form>
+    </EditableValueRow>
   )
 }
