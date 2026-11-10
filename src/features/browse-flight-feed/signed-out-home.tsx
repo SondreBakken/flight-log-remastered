@@ -1,7 +1,7 @@
-import Link from 'next/link'
 import { EmptyState } from '@/components/empty-state'
 import { getRecentTrackedFlights } from '@/lib/flightlog/recent-public-flights'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
+import { DiscoveryLinks } from './components/discovery-links'
 import { PublicFlightRow } from './components/public-flight-row'
 
 // What a signed-out visitor sees on `/`: recent Norway flights that have a GPS track, so the
@@ -18,7 +18,9 @@ export async function SignedOutHome({ defaultPilotId }: { defaultPilotId: number
         Recent paragliding flights in Norway that have a GPS track. Follow pilots to get their flights here.
       </p>
       {flights.length > 0 ? <RecentFlightsTable flights={flights} /> : <EmptyState>Recent flights are unavailable right now.</EmptyState>}
-      <DiscoveryLinks defaultPilotId={defaultPilotId} />
+      <div className="flex flex-col gap-2 text-sm">
+        <DiscoveryLinks defaultPilotId={defaultPilotId} />
+      </div>
     </section>
   )
 }
@@ -51,22 +53,6 @@ function RecentFlightsTable({ flights }: { flights: TakeoffFlight[] }) {
           ))}
         </tbody>
       </table>
-    </div>
-  )
-}
-
-function DiscoveryLinks({ defaultPilotId }: { defaultPilotId: number }) {
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      <Link className="underline" href="/pilots/search">
-        Search for a pilot by name
-      </Link>
-      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
-        Browse a pilot&apos;s logbook
-      </Link>
-      <Link className="underline" href="/countries">
-        Browse clubs by country
-      </Link>
     </div>
   )
 }

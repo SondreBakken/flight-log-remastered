@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
+import { DiscoveryLinks } from './components/discovery-links'
 import { FeedEntryRow } from './components/feed-entry-row'
 import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
 import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
@@ -221,15 +222,7 @@ function NotFollowingAnyoneNotice({ defaultPilotId }: { defaultPilotId: number }
         Open a pilot&apos;s logbook and use the Follow button there to add their flights to this
         feed.
       </p>
-      <Link className="underline" href="/pilots/search">
-        Search for a pilot by name
-      </Link>
-      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
-        Browse a pilot&apos;s logbook
-      </Link>
-      <Link className="underline" href="/countries">
-        Browse clubs by country
-      </Link>
+      <DiscoveryLinks defaultPilotId={defaultPilotId} />
     </div>
   )
 }
