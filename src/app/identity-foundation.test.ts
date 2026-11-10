@@ -71,7 +71,7 @@ describe('identity foundation: ink tokens', () => {
   })
 
   it('styles body from the tokens, not Tailwind colour classes', () => {
-    const body = blockBody(css, /^body\s*\{/m)
+    const body = blockBody(base, /^\s*body\s*\{/m)
     expect(body).toContain('background: var(--paper);')
     expect(body).toContain('color: var(--entry);')
     expect(body).toContain('font-family: var(--font-sans);')
@@ -88,7 +88,7 @@ describe('identity foundation: font-condensed and form-label utilities', () => {
 
   it('defines form-label as small condensed medium form-coloured text without case or tracking changes', () => {
     const body = blockBody(css, /@utility form-label\s*\{/)
-    expect(body).toContain('font-stretch: 75%;')
+    expect(body).toContain('@apply font-condensed;')
     expect(body).toContain('font-size: 0.75rem;')
     expect(body).toContain('font-weight: 500;')
     expect(body).toContain('color: var(--form);')
