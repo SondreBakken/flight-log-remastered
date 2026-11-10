@@ -1,11 +1,15 @@
 const LEADING_ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(.*)$/
 
 // Formats the leading `YYYY-MM-DD` of `value` for `locale`, keeping any trailing text (a time,
-// an author) untouched. Values without a real calendar date at the start come back unchanged.
+// an author) untouched. flightlog.org's placeholder dates degrade to what they know: a `-00`
+// day reads as month and year, a `-00` month as the year alone. Values without a real calendar
+// date at the start come back unchanged.
 export function formatCalendarDate(value: string, locale: string): string {
   const match = LEADING_ISO_DATE.exec(value)
   if (!match) return value
   const [, year, month, day, rest] = match
+  if (month === '00') return `${year}${rest}`
+  if (day === '00') return formatPlaceholderDay(Number(year), Number(month), locale, rest) ?? value
   const date = toUtcCalendarDate(Number(year), Number(month), Number(day))
   if (!date) return value
   return `${formatUtcDate(date, locale)}${rest}`
@@ -26,4 +30,14 @@ function formatUtcDate(date: Date, locale: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(date)
+}
+
+function formatPlaceholderDay(year: number, month: number, locale: string, rest: string): string | null {
+  if (month < 1 || month > 12) return null
+  const formatted = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, 1)))
+  return `${formatted}${rest}`
 }

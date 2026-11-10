@@ -38,7 +38,7 @@ describe('FlightTrack', () => {
     render(<FlightTrack track={trackWithStats(REAL_STATS)} />)
 
     expect(screen.queryByTestId('stats-unparseable')).toBeNull()
-    screen.getByText('Jan 1, 2020')
+    screen.getByText('1 Jan 2020')
   })
 
   // #59's fix round: the stats block failing to parse must render a distinguishable fallback,

@@ -57,7 +57,7 @@ describe('FeedEntryRow', () => {
     const row = remountRow(baseEntry)
     const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = within(row).getAllByRole('cell')
 
-    expect(dateCell.textContent).toBe('May 1, 2026')
+    expect(dateCell.textContent).toBe('1 May 2026')
 
     const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
     expect(pilotLink.getAttribute('href')).toBe('/pilots/42')
