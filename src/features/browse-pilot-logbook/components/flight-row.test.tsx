@@ -103,4 +103,39 @@ describe('FlightRow', () => {
     expect(row.getAttribute('role')).toBeNull()
     expect(row.getAttribute('aria-label')).toBe('View flight details')
   })
+
+  it('renders a real anchor to the flight page in a tracked row\'s Track cell', () => {
+    const row = renderRow(true)
+
+    const link = row.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/flights/1002674')
+    expect(link.textContent).toBe('View track')
+  })
+
+  it('leaves an untracked row\'s Track cell empty, with no anchor and no "none" text', () => {
+    const row = renderRow(false)
+
+    const trackCell = row.querySelectorAll('td')[5]
+    expect(trackCell.textContent).toBe('')
+    expect(row.querySelector('a')).toBeNull()
+  })
+
+  it('does not also call router.push when the anchor is ctrl- or cmd-clicked', () => {
+    const row = renderRow(true)
+    const link = row.querySelector('a') as HTMLAnchorElement
+
+    fireEvent.click(link, { ctrlKey: true })
+    fireEvent.click(link, { metaKey: true })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('does not trigger the row handler when Enter is pressed on the focused anchor', () => {
+    const row = renderRow(true)
+    const link = row.querySelector('a') as HTMLAnchorElement
+
+    fireEvent.keyDown(link, { key: 'Enter' })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
 })

@@ -1,10 +1,14 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
+import { formatHours } from '@/lib/flightlog/format-flight'
 import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
 import { VerificationStamp } from '@/components/verification-stamp'
 import { FlightRow } from './components/flight-row'
+import { LogbookSummary } from './components/logbook-summary'
+import { groupFlightsByYear, type LogbookTotals, type YearGroup } from './year-groups'
 
 type PilotLogbookProps = {
   pilot: Pilot
@@ -15,9 +19,12 @@ type PilotLogbookProps = {
   isFollowed: boolean
   isSignedIn: boolean
   isVerified: boolean
+  // Rendered between the summary and the table: the page owns the flown-sites map's own
+  // Suspense boundary, the logbook only owns where it sits.
+  mapSlot: ReactNode
 }
 
-export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn, isVerified }: PilotLogbookProps) {
+export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn, isVerified, mapSlot }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
       <PilotHeader
@@ -29,7 +36,11 @@ export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowe
         isVerified={isVerified}
       />
       {flights.length === 0 ? <EmptyLogbook /> : (
-        <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
+        <>
+          <LogbookSummary flights={flights} />
+          {mapSlot}
+          <YearTables flights={flights} trackedTripIds={trackedTripIds} />
+        </>
       )}
     </section>
   )
@@ -89,7 +100,7 @@ function PilotHeader({
 
 const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flight Log Remastered'
 
-function FlightTable({
+function YearTables({
   flights,
   trackedTripIds,
 }: {
@@ -97,29 +108,68 @@ function FlightTable({
   trackedTripIds: Set<number>
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Takeoff</th>
-            <th className="py-2 pr-4 font-medium">Glider</th>
-            <th className="py-2 pr-4 text-right font-medium">Time</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 font-medium">Track</th>
-          </tr>
-        </thead>
-        <tbody>
-          {flights.map((flight) => (
-            <FlightRow
-              key={flight.tripId}
-              flight={flight}
-              hasTrack={trackedTripIds.has(flight.tripId)}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-4">
+      {groupFlightsByYear(flights).map((group, index) => (
+        <YearSection key={group.year} group={group} isNewest={index === 0} trackedTripIds={trackedTripIds} />
+      ))}
     </div>
+  )
+}
+
+function YearSection({
+  group,
+  isNewest,
+  trackedTripIds,
+}: {
+  group: YearGroup
+  isNewest: boolean
+  trackedTripIds: Set<number>
+}) {
+  return (
+    <details open={isNewest}>
+      <summary className="cursor-pointer py-2 font-medium">
+        {group.year} · {group.thisYear.flightCount} flights
+      </summary>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-black/10 text-left dark:border-white/15">
+              <th className="py-2 pr-4 font-medium">Date</th>
+              <th className="py-2 pr-4 font-medium">Takeoff</th>
+              <th className="py-2 pr-4 font-medium">Glider</th>
+              <th className="py-2 pr-4 text-right font-medium">Time</th>
+              <th className="py-2 pr-4 text-right font-medium">Distance</th>
+              <th className="py-2 font-medium">Track</th>
+            </tr>
+          </thead>
+          <tbody>
+            {group.flights.map((flight) => (
+              <FlightRow
+                key={flight.tripId}
+                flight={flight}
+                hasTrack={trackedTripIds.has(flight.tripId)}
+              />
+            ))}
+          </tbody>
+          <tfoot>
+            <TotalsRow label="This year" totals={group.thisYear} />
+            <TotalsRow label="Brought forward" totals={group.broughtForward} />
+            <TotalsRow label="Cumulative total" totals={group.cumulative} />
+          </tfoot>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
+  return (
+    <tr className="border-t border-black/10 tabular-nums opacity-70 dark:border-white/15">
+      <th className="py-2 pr-4 text-left font-medium" colSpan={3} scope="row">{label}</th>
+      <td className="py-2 pr-4 text-right whitespace-nowrap">{totals.flightCount} flights</td>
+      <td className="py-2 pr-4 text-right whitespace-nowrap">{formatHours(totals.minutes)}</td>
+      <td className="py-2 text-right whitespace-nowrap">{totals.distanceKm.toFixed(1)} km</td>
+    </tr>
   )
 }
 
