@@ -3,6 +3,7 @@
 import { useActionState, useEffect } from 'react'
 import { saveFlightlogPilotId } from './actions'
 import type { PilotIdFormState } from './pilot-id-form-state'
+import type { OwnPilotVerificationState } from './pilot-verification'
 
 const initialState: PilotIdFormState = { status: 'idle' }
 
@@ -12,6 +13,8 @@ type PilotIdFormProps = {
   // A failed lookup renders a blank input too (#163), so the field and its Save button are
   // disabled rather than inviting a submit that looks like a deliberate change.
   pilotIdLoadFailed?: boolean
+  // The note is only true while the id is unverified, so it follows the verification status.
+  verification: OwnPilotVerificationState
   // Called once, right after a save succeeds. The invalidate_verification_on_pilot_id_change
   // trigger deletes the user's verification when the pilot id changes, and nothing client-side
   // learns of that write on its own; without this, a relinked user keeps seeing "Re-verify" for a
@@ -27,7 +30,7 @@ type PilotIdFormProps = {
 //
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
-export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, onSaved }: PilotIdFormProps) {
+export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verification, onSaved }: PilotIdFormProps) {
   const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
 
@@ -39,11 +42,12 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, onSaved
     // once when the save itself actually succeeded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
-  // Shown whenever a pilot id is on record — either already loaded on mount, just saved by this
-  // submission, or still on record despite an unrelated failed resubmission — not on every idle
-  // render, so a first-time visitor with nothing linked yet doesn't see a note about a link that
-  // doesn't exist.
-  const showUnverifiedNote = state.status === 'success' || initialPilotId != null
+  // Shown while a pilot id is on record (already loaded on mount, just saved by this submission, or
+  // still on record despite an unrelated failed resubmission) and it is not verified, so a
+  // first-time visitor with nothing linked yet doesn't see a note about a link that doesn't exist.
+  // Only 'verified' hides it: a failed lookup ('error') never reads as verified. It also overrides
+  // the just-saved branch, since a stale 'verified' prop persists until the refresh after the save.
+  const showUnverifiedNote = verification.kind !== 'verified' && (state.status === 'success' || initialPilotId != null)
 
   return (
     <form action={formAction} className="flex max-w-sm flex-col gap-2">

@@ -153,6 +153,36 @@ describe('AccountSettings', () => {
     expect(screen.getByText(/temporarily un-verifies your pilot id/)).toBeTruthy()
   })
 
+  it('shows the unverified note for a linked, unverified pilot id and hides it once verified', async () => {
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
+    const { unmount } = await renderAccountSettings()
+    expect(screen.getByText('Self-declared, unverified.')).toBeTruthy()
+    unmount()
+
+    mockGetOwnPilotVerification.mockResolvedValue({ kind: 'verified' })
+    await renderAccountSettings()
+    expect(screen.getByRole('button', { name: 'Re-verify' })).toBeTruthy()
+    expect(screen.queryByText('Self-declared, unverified.')).toBeNull()
+  })
+
+  it('drops the unverified note after confirming a code and the refreshed page reports verified', async () => {
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
+    mockGetOwnPilotVerification.mockResolvedValue(PENDING_VERIFICATION)
+    mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
+
+    const { rerender } = await renderAccountSettings()
+    expect(screen.getByText('Self-declared, unverified.')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
+
+    // router.refresh() re-renders the server component; simulate it with the verified state.
+    mockGetOwnPilotVerification.mockResolvedValue({ kind: 'verified' })
+    rerender(await AccountSettings())
+    expect(screen.queryByText('Self-declared, unverified.')).toBeNull()
+  })
+
   it('shows a load-failure notice, not a start trigger, when the verification lookup fails', async () => {
     mockGetProfile.mockResolvedValue(LINKED_PROFILE)
     mockGetOwnPilotVerification.mockRejectedValue(new ProfilesQueryError('verification query failed'))
