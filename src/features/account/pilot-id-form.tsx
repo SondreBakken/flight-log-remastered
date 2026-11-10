@@ -14,7 +14,7 @@ type PilotIdFormProps = {
   // A failed lookup renders a blank input too (#163), so the field and its Save button are
   // disabled rather than inviting a submit that looks like a deliberate change.
   pilotIdLoadFailed?: boolean
-  // The note is only true while the id is unverified, so it follows the verification status.
+  // Hides the self-declared note once the linked id is verified.
   verification: OwnPilotVerificationState
   // Called once, right after a save succeeds. The invalidate_verification_on_pilot_id_change
   // trigger deletes the user's verification when the pilot id changes, and nothing client-side
