@@ -36,6 +36,7 @@ describe('getFlightDetail', () => {
       maxAltitude: null,
       description: 'Min første høydetur',
       takeoffType: 'mountain',
+      pilot: { name: 'Pilot One', userId: 900001 },
     })
 
     const detail = await getFlightDetail(1001964)

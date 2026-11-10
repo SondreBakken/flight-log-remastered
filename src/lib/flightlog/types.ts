@@ -347,6 +347,9 @@ export type FlightDetail = {
   maxAltitude: string | null
   description: string | null
   takeoffType: string | null
+  // Read from the page's breadcrumb (`Pilots/Clubs -> <pilot>`), not the results table; null when
+  // the breadcrumb is absent or malformed.
+  pilot: { name: string; userId: number } | null
 }
 
 // A single row from a=42 (flights at a takeoff), current year only — see takeoff-flights.ts

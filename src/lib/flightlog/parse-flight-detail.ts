@@ -65,11 +65,10 @@ function cellNumber(rows: Map<string, Nodes>, label: string): number | null {
 }
 
 // A tracked flight's Description cell appends flightlog.org's own auto-generated stats block
-// (`<pre>Flight statistics\n…</pre>`) after the pilot's own free text — this parser is only
-// ever called for an UNTRACKED flight (see flight-detail.ts's own doc comment), where no such
-// block is present (confirmed: fixtures/a34-1001964-detail.html), so no attempt is made here to
-// strip it out; it would simply flow through as extra lines if this were ever fed a tracked
-// flight's markup. Same `<br>`-split-then-reload technique as parse-takeoff-detail.ts's
+// (`<pre>Flight statistics\n…</pre>`) after the pilot's own free text. An untracked flight has
+// no such block (confirmed: fixtures/a34-1001964-detail.html); no attempt is made here to strip
+// it out, so for a tracked flight it flows through as extra lines (the tracked page only reads
+// the pilot and distance from this parse, see page.tsx). Same `<br>`-split-then-reload technique as parse-takeoff-detail.ts's
 // readDescription, for the same reason: it drops inline markup (none present here, but kept
 // consistent) while preserving the upstream `<br>` line breaks.
 function readDescription(cell: Nodes): string | null {
@@ -91,6 +90,31 @@ function readTakeoffRef(rows: Map<string, Nodes>): FlightDetail['takeoffRef'] {
   const countryId = readIdFromHref(href, 'country_id')
   const takeoffId = readIdFromHref(href, 'start_id')
   return countryId === null || takeoffId === null ? null : { countryId, takeoffId }
+}
+
+// Every page carries an `hp-nav` honeypot link (see parse-clubs.ts); its position in the
+// document is not fixed, so every anchor inside one is dropped before the breadcrumb is walked.
+const HONEYPOT_SELECTOR = '.hp-nav, [data-trap]'
+const BREADCRUMB_ANCHOR_TEXT = 'Pilots/Clubs'
+const PILOT_LINK_ACTION = /[?&]a=28(?:&|$)/
+
+// The breadcrumb (`Home -> Pilots/Clubs -> <pilot> -> Flights -> …`) sits outside the content
+// div, so the whole document is searched. The pilot is the anchor right after `Pilots/Clubs`,
+// not the first a=28 link anywhere, since the page nav carries other a=28 links. Any shape
+// mismatch is a normal null, never a throw: the pilot is a bonus on top of the results table.
+function readPilot($: ReturnType<typeof cheerio.load>): FlightDetail['pilot'] {
+  const anchors = $('a')
+    .toArray()
+    .filter((anchor) => $(anchor).closest(HONEYPOT_SELECTOR).length === 0)
+  const breadcrumbIndex = anchors.findIndex((anchor) => $(anchor).text().trim() === BREADCRUMB_ANCHOR_TEXT)
+  const pilotAnchor = breadcrumbIndex === -1 ? undefined : anchors[breadcrumbIndex + 1]
+  if (!pilotAnchor) return null
+
+  const href = $(pilotAnchor).attr('href')
+  const userId = readIdFromHref(href, 'user_id')
+  const name = textOrNull($(pilotAnchor).text())
+  if (userId === null || name === null || !PILOT_LINK_ACTION.test(href ?? '')) return null
+  return { name, userId }
 }
 
 // Throws for markup this parser cannot recognise at all (no content container, or a content
@@ -135,5 +159,6 @@ export function parseFlightDetail(html: string, tripId: number): FlightDetail | 
     maxAltitude: cellText(rows, 'Max altitude'),
     description: readDescription(rows.get('Description')!),
     takeoffType: cellText(rows, 'Takeoff type'),
+    pilot: readPilot($),
   }
 }
