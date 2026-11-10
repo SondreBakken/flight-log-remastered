@@ -123,10 +123,20 @@ describe('parseFlightDetail pilot', () => {
     })
   })
 
-  it('ignores a honeypot anchor between Pilots/Clubs and the pilot anchor, and one nested in a hp-nav ancestor', () => {
+  it('ignores a honeypot anchor between Pilots/Clubs and the pilot anchor', () => {
     const between = BREADCRUMB.replace(' -> <span><a href=', `${HONEYPOT} -> <span><a href=`)
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, between), 803981)?.pilot?.userId).toBe(900001)
+  })
+
+  it('ignores an unmarked a=28 anchor nested in an hp-nav ancestor, between Pilots/Clubs and the pilot', () => {
     const nested = `<div class='hp-nav'><a href='/fl.html?l=1&a=28&user_id=900666'>Pilot Trap</a></div>`
-    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, between + nested), 803981)?.pilot?.userId).toBe(900001)
+    const between = BREADCRUMB.replace(' -> <span><a href=', `${nested} -> <span><a href=`)
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, between), 803981)?.pilot?.userId).toBe(900001)
+  })
+
+  it('ignores a nested trap whose text is Pilots/Clubs placed before the breadcrumb', () => {
+    const trap = `<div class='hp-nav'><a href='/fl.html?l=1&a=3'>Pilots/Clubs</a></div><a href='/fl.html?l=1&a=28&user_id=900666'>Pilot Trap</a>`
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, trap + BREADCRUMB), 803981)?.pilot?.userId).toBe(900001)
   })
 
   it('is null when only a honeypot a=28 link exists and no real breadcrumb', () => {

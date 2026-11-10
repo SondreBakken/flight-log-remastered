@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { HONEYPOT_SELECTOR } from './honeypot'
 import type { Nodes } from './parse-flightlog-table'
 import type { FlightDetail } from './types'
 import { readIdFromHref } from './parse-takeoff-flights'
@@ -92,9 +93,6 @@ function readTakeoffRef(rows: Map<string, Nodes>): FlightDetail['takeoffRef'] {
   return countryId === null || takeoffId === null ? null : { countryId, takeoffId }
 }
 
-// Every page carries an `hp-nav` honeypot link (see parse-clubs.ts); its position in the
-// document is not fixed, so every anchor inside one is dropped before the breadcrumb is walked.
-const HONEYPOT_SELECTOR = '.hp-nav, [data-trap]'
 const BREADCRUMB_ANCHOR_TEXT = 'Pilots/Clubs'
 const PILOT_LINK_ACTION = /[?&]a=28(?:&|$)/
 
@@ -102,6 +100,7 @@ const PILOT_LINK_ACTION = /[?&]a=28(?:&|$)/
 // div, so the whole document is searched. The pilot is the anchor right after `Pilots/Clubs`,
 // not the first a=28 link anywhere, since the page nav carries other a=28 links. Any shape
 // mismatch is a normal null, never a throw: the pilot is a bonus on top of the results table.
+// Every anchor inside a honeypot is dropped before the breadcrumb is walked (position not fixed).
 function readPilot($: ReturnType<typeof cheerio.load>): FlightDetail['pilot'] {
   const anchors = $('a')
     .toArray()

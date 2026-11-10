@@ -500,7 +500,7 @@ honeypot copy, same as every other page) around one results block:
   happens to sit only in the shared nav chrome above the results table, never inside it, so
   immunity today is incidental to where the trap happens to be, not to what the selector checks.
   A trap constructed with a `club_id=` and an `a=26` href, placed inside the results table, is
-  indistinguishable from a real row by href alone. The parser (`parse-clubs.ts`) therefore
+  indistinguishable from a real row by href alone. The parsers (`parse-clubs.ts`, `parse-pilot-search.ts`, `parse-flight-detail.ts`, via the shared `HONEYPOT_SELECTOR` in `honeypot.ts`) therefore
   excludes anchors carrying `class="hp-nav"`, `data-trap`, or `rel="nofollow"` explicitly,
   regardless of where in the document they sit or what their href contains — a structural check,
   not a positional one.
