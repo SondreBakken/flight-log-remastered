@@ -138,4 +138,22 @@ describe('FlightRow', () => {
 
     expect(mockPush).not.toHaveBeenCalled()
   })
+
+  it('labels every cell for the stacked layout below sm: and keeps the takeoff test id', () => {
+    const row = renderRow(true)
+
+    const cells = [...row.querySelectorAll('td')]
+    expect(cells.map((cell) => cell.getAttribute('data-label'))).toEqual(['Date', 'Takeoff', 'Glider', 'Time', 'Distance', 'Track'])
+    expect(row.querySelector('[data-testid="flight-takeoff"]')?.getAttribute('data-label')).toBe('Takeoff')
+    expect(row.className).toContain('max-sm:block')
+    for (const cell of cells) expect(cell.className).toContain('max-sm:flex')
+  })
+
+  it('leaves the Track cell empty, and hidden below sm:, for a flight with no track', () => {
+    const cell = renderRow(false).querySelectorAll('td')[5]
+
+    expect(cell.childElementCount).toBe(0)
+    expect(cell.textContent).toBe('')
+    expect(cell.className).toContain('max-sm:empty:hidden!')
+  })
 })

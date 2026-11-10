@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Flight } from '@/lib/flightlog/types'
 import { CalendarDate } from '@/components/calendar-date'
+import { STACKED_CELL } from '../stacked-cell'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 
 type FlightRowProps = {
@@ -46,27 +47,27 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Date">
         <CalendarDate value={flight.date} />
       </td>
       {/* data-testid: scripts/verify-flown-sites.mts (F5) cross-checks the flown-sites
           section's own matched+unmatched count against the DISTINCT takeoff names this table
           renders independently — an under-reporting bug in the join would show up here as a
           disagreement between the two. */}
-      <td className="py-2 pr-4" data-testid="flight-takeoff">{flight.takeoff ?? '—'}</td>
-      <td className="py-2 pr-4 opacity-70">{flight.glider ?? '—'}</td>
-      <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Takeoff" data-testid="flight-takeoff">{flight.takeoff ?? '—'}</td>
+      <td className={`py-2 pr-4 opacity-70 ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">
         {formatFlightDuration(flight)}
       </td>
-      <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Distance">
         {formatFlightDistance(flight)}
       </td>
-      <td className="py-2">
+      <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Track">
         {hasTrack && <Link className="underline" href={href}>View track</Link>}
       </td>
     </tr>
