@@ -10,7 +10,7 @@ const NORWAY_COUNTRY_ID = 160
 // uncached candidate is one rqtid=22 request.
 const HAS_TRACK_CONCURRENCY = 4
 
-// The newest CANDIDATE_LIMIT flights of the country's list that have a GPS track, newest first.
+// Of the country's newest CANDIDATE_LIMIT flights, those with a GPS track, newest first.
 // A failed hasTrack check drops that one row; a failed list fetch propagates, since there is
 // nothing to show without it.
 export async function getRecentTrackedFlights(countryId = NORWAY_COUNTRY_ID): Promise<TakeoffFlight[]> {
