@@ -1,6 +1,7 @@
 'use client'
 
-import { useActionState, useEffect } from 'react'
+import { useActionState, useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { saveFlightlogPilotId } from './actions'
 import type { PilotIdFormState } from './pilot-id-form-state'
 import type { OwnPilotVerificationState } from './pilot-verification'
@@ -31,17 +32,23 @@ type PilotIdFormProps = {
 // The link is explicitly self-declared and unverified: nothing here proves the signed-in visitor
 // actually is this flightlog.org pilot, only that they typed an id flightlog.org recognises.
 export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verification, onSaved }: PilotIdFormProps) {
-  const [state, formAction, pending] = useActionState(saveFlightlogPilotId, initialState)
+  const [state, formAction, pending] = useActionState(saveAndClose, initialState)
+  const [isEditing, setIsEditing] = useState(false)
   const defaultPilotId = initialPilotId != null ? String(initialPilotId) : ''
+  const hasValue = initialPilotId != null && !pilotIdLoadFailed
+  const showForm = !hasValue || isEditing
 
-  useEffect(() => {
-    if (state.status === 'success') onSaved?.()
-    // onSaved excluded deliberately — see confirm-pilot-verification-form.tsx's own identical
-    // effect for why: signed-in-account-settings.tsx passes a fresh closure every render, and including it would
-    // re-fire this on every unrelated parent re-render while state is still 'success', not only
-    // once when the save itself actually succeeded.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
+  // Closes the form and notifies the parent in the submit path, once per save: an error result
+  // leaves the form open, and no effect has to react to `state` after the fact.
+  async function saveAndClose(previous: PilotIdFormState, formData: FormData) {
+    const next = await saveFlightlogPilotId(previous, formData)
+    if (next.status === 'success') {
+      setIsEditing(false)
+      onSaved?.()
+    }
+    return next
+  }
+
   // Shown while a pilot id is on record (already loaded on mount, just saved by this submission, or
   // still on record despite an unrelated failed resubmission) and it is not verified, so a
   // first-time visitor with nothing linked yet doesn't see a note about a link that doesn't exist.
@@ -50,43 +57,60 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verific
   const showUnverifiedNote = verification.kind !== 'verified' && (state.status === 'success' || initialPilotId != null)
 
   return (
-    <form action={formAction} className="flex max-w-sm flex-col gap-2">
-      <label className="flex flex-col gap-1 text-sm" htmlFor="flightlog-pilot-id">
-        flightlog.org pilot id
-        <input
-          // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
-          key={defaultPilotId}
-          className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-          defaultValue={defaultPilotId}
-          disabled={pilotIdLoadFailed}
-          id="flightlog-pilot-id"
-          min={1}
-          name="flightlogPilotId"
-          placeholder="e.g. 12677"
-          step={1}
-          type="number"
-        />
-      </label>
-      {pilotIdLoadFailed && (
-        <p className="text-sm opacity-70">
-          Couldn&apos;t load your current flightlog.org pilot id, so it can&apos;t be changed right now. Reload the
-          page to try again.
-        </p>
+    <div className="flex max-w-sm flex-col gap-2">
+      {showForm ? (
+        <form action={formAction} className="flex flex-col gap-2">
+          <label className="flex flex-col gap-1 text-sm" htmlFor="flightlog-pilot-id">
+            flightlog.org pilot id
+            <input
+              // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
+              key={defaultPilotId}
+              className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+              defaultValue={defaultPilotId}
+              disabled={pilotIdLoadFailed}
+              id="flightlog-pilot-id"
+              min={1}
+              name="flightlogPilotId"
+              placeholder="e.g. 12677"
+              step={1}
+              type="number"
+            />
+          </label>
+          {pilotIdLoadFailed && (
+            <p className="text-sm opacity-70">
+              Couldn&apos;t load your current flightlog.org pilot id, so it can&apos;t be changed right now. Reload the
+              page to try again.
+            </p>
+          )}
+          <button
+            className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+            disabled={pending || pilotIdLoadFailed}
+            type="submit"
+          >
+            {pending ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      ) : (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="opacity-70">flightlog.org pilot id:</span>
+          <span className="font-medium">{initialPilotId}</span>
+          <button
+            aria-label="Edit pilot id"
+            className="rounded p-1 opacity-70 hover:opacity-100"
+            onClick={() => setIsEditing(true)}
+            type="button"
+          >
+            <Pencil size={14} />
+          </button>
+        </div>
       )}
-      <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-        disabled={pending || pilotIdLoadFailed}
-        type="submit"
-      >
-        {pending ? 'Saving…' : 'Save'}
-      </button>
       <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
         {state.status === 'error' && state.message}
       </p>
       <p aria-live="polite" className="text-sm opacity-70">
-        {state.status === 'success' && 'Saved.'}
+        {state.status === 'success' && !isEditing && 'Saved.'}
       </p>
       {showUnverifiedNote && <p className="text-sm opacity-70">Self-declared, unverified.</p>}
-    </form>
+    </div>
   )
 }

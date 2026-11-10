@@ -29,7 +29,11 @@ export function SignedInAccountSettings({ ownProfile, ownVerification }: SignedI
 
   return (
     <div className="flex flex-col gap-6">
-      <AccountForm displayNameLoadFailed={profileLoadFailed} initialDisplayName={profile?.displayName} />
+      <AccountForm
+        displayNameLoadFailed={profileLoadFailed}
+        initialDisplayName={profile?.displayName}
+        onSaved={refreshAccountSettings}
+      />
       <PilotIdForm
         initialPilotId={profile?.flightlogPilotId}
         onSaved={refreshAccountSettings}
