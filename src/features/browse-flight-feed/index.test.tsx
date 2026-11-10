@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { FlightFeedView } from './index'
+
+vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({ resolveViewerFollowState: vi.fn() }))
+vi.mock('./signed-out-home', () => ({ SignedOutHome: vi.fn(() => null) }))
+
+import FlightFeed, { FlightFeedView } from './index'
+import { SignedOutHome } from './signed-out-home'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import type { ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import { getSeenTripIds, recordSeenTripIds } from '@/lib/seen-trip-store/storage'
 
 describe('FlightFeedView empty state', () => {
@@ -26,12 +33,32 @@ describe('FlightFeedView follows-unavailable state', () => {
 
     expect(screen.queryByText("Couldn't load the pilots you follow right now.")).toBeNull()
   })
+})
 
-  it('renders the ordinary empty state for a signed-out visitor too, same as a resolved empty list', () => {
-    render(<FlightFeedView follows={{ status: 'signed-out' }} defaultPilotId={4549} />)
+describe('FlightFeed branching on the viewer follow state', () => {
+  const DEFAULT_PILOT_ID = 4549
 
-    expect(screen.queryByText("Couldn't load the pilots you follow right now.")).toBeNull()
-    expect(screen.getByText('Flights from pilots you follow show up here.')).toBeTruthy()
+  async function feedFor(follows: ViewerFollowState) {
+    vi.mocked(resolveViewerFollowState).mockResolvedValue(follows)
+    return FlightFeed({ defaultPilotId: DEFAULT_PILOT_ID })
+  }
+
+  it('renders SignedOutHome, not FlightFeedView, for a signed-out visitor', async () => {
+    const element = await feedFor({ status: 'signed-out' })
+
+    expect(element.type).toBe(SignedOutHome)
+    expect(element.props).toEqual({ defaultPilotId: DEFAULT_PILOT_ID })
+  })
+
+  it.each<ViewerFollowState>([
+    { status: 'resolved', followedPilotIds: [] },
+    { status: 'resolved', followedPilotIds: [11, 12] },
+    { status: 'follows-unavailable' },
+  ])('renders FlightFeedView with the unchanged follows prop for %o', async (follows) => {
+    const element = await feedFor(follows)
+
+    expect(element.type).toBe(FlightFeedView)
+    expect(element.props).toEqual({ follows, defaultPilotId: DEFAULT_PILOT_ID })
   })
 })
 
