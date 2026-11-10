@@ -19,6 +19,9 @@ type StatsLeaderboardProps = {
   followedPilotIds: PilotId[]
 }
 
+// Below sm: each <td> becomes a flex row labelled from its data-label, so no horizontal scroll.
+const STACKED_CELL = 'max-sm:flex max-sm:justify-between max-sm:gap-4 max-sm:py-0.5 max-sm:pr-0 max-sm:before:font-medium max-sm:before:opacity-70 max-sm:before:content-[attr(data-label)]'
+
 const COLUMNS: { key: ClubStatsSortKey; label: string }[] = [
   { key: 'flights', label: 'Flights' },
   { key: 'distanceKm', label: 'Distance (km)' },
@@ -56,14 +59,15 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Pilot</th>
+      <table className="w-full border-collapse text-sm max-sm:block">
+        {/* Stays visible below sm: as a flex row of the sort buttons, since the column headers are the only sort control. */}
+        <thead className="max-sm:block">
+          <tr className="border-b border-black/10 text-left max-sm:flex max-sm:flex-wrap max-sm:gap-x-4 dark:border-white/15">
+            <th className="py-2 pr-4 font-medium max-sm:hidden">Pilot</th>
             {COLUMNS.map((column) => (
               <th
                 key={column.key}
-                className="py-2 pr-4 text-right font-medium"
+                className="py-2 pr-4 text-right font-medium max-sm:pr-0"
                 aria-sort={sort.key === column.key ? (sort.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
                 <button
@@ -77,10 +81,10 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 </button>
               </th>
             ))}
-            <th className="py-2 font-medium">Follow</th>
+            <th className="py-2 font-medium max-sm:hidden">Follow</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-sm:block">
           {rows.map((row) => (
             <StatsRow
               key={row.userId ?? `${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`}
@@ -107,8 +111,8 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
 // screen reader — so the same explanation is repeated as visible text via `sr-only`.
 function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isFollowed: boolean; isSignedIn: boolean }) {
   return (
-    <tr className="border-b border-black/5 dark:border-white/10">
-      <td className="py-2 pr-4">
+    <tr className="border-b border-black/5 max-sm:block max-sm:py-2 dark:border-white/10">
+      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Pilot">
         {row.userId === null ? (
           <span title="No pilot profile link available for this name">
             <span>{row.name}</span>
@@ -120,10 +124,10 @@ function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isF
           </Link>
         )}
       </td>
-      <td className="py-2 pr-4 text-right">{row.flights}</td>
-      <td className="py-2 pr-4 text-right">{row.distanceKm.toFixed(1)}</td>
-      <td className="py-2 pr-4 text-right">{row.hours.toFixed(1)}</td>
-      <td className="py-2">
+      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Flights">{row.flights}</td>
+      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Distance (km)">{row.distanceKm.toFixed(1)}</td>
+      <td className={`py-2 pr-4 text-right ${STACKED_CELL}`} data-label="Hours">{row.hours.toFixed(1)}</td>
+      <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Follow">
         {row.userId !== null && (
           <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={row.userId} variant="compact" />
         )}

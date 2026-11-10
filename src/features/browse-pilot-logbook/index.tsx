@@ -132,8 +132,8 @@ function YearSection({
         {group.year} · {pluralize(group.thisYear.flightCount, 'flight')}
       </summary>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
+        <table className="w-full border-collapse text-sm max-sm:block">
+          <thead className="max-sm:sr-only">
             <tr className="border-b border-black/10 text-left dark:border-white/15">
               <th className="py-2 pr-4 font-medium">Date</th>
               <th className="py-2 pr-4 font-medium">Takeoff</th>
@@ -143,7 +143,7 @@ function YearSection({
               <th className="py-2 font-medium">Track</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="max-sm:block">
             {group.flights.map((flight) => (
               <FlightRow
                 key={flight.tripId}
@@ -152,7 +152,7 @@ function YearSection({
               />
             ))}
           </tbody>
-          <tfoot>
+          <tfoot className="max-sm:block">
             <TotalsRow label="This year" totals={group.thisYear} />
             <TotalsRow label="Brought forward" totals={group.broughtForward} />
             <TotalsRow label="Cumulative total" totals={group.cumulative} />
@@ -163,13 +163,17 @@ function YearSection({
   )
 }
 
+// Below sm: the three value cells stack under the label row, so the colSpan={3} label cell
+// becomes a block of its own instead of spanning columns that no longer exist.
+const STACKED_TOTAL_CELL = 'max-sm:flex max-sm:justify-between max-sm:gap-4 max-sm:py-0.5 max-sm:pr-0 max-sm:before:font-medium max-sm:before:opacity-70 max-sm:before:content-[attr(data-label)]'
+
 function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
   return (
-    <tr className="border-t border-black/10 tabular-nums opacity-70 dark:border-white/15">
-      <th className="py-2 pr-4 text-left font-medium" colSpan={3} scope="row">{label}</th>
-      <td className="py-2 pr-4 text-right whitespace-nowrap">{pluralize(totals.flightCount, 'flight')}</td>
-      <td className="py-2 pr-4 text-right whitespace-nowrap">{formatHours(totals.minutes)}</td>
-      <td className="py-2 text-right whitespace-nowrap">{totals.distanceKm.toFixed(1)} km</td>
+    <tr className="border-t border-black/10 max-sm:block max-sm:py-2 tabular-nums opacity-70 dark:border-white/15">
+      <th className="py-2 pr-4 text-left font-medium max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>
+      <td className={`py-2 text-right whitespace-nowrap ${STACKED_TOTAL_CELL}`} data-label="Distance">{totals.distanceKm.toFixed(1)} km</td>
     </tr>
   )
 }

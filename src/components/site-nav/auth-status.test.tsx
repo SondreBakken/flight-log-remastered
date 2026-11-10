@@ -199,4 +199,25 @@ describe('AuthStatus', () => {
     await act(async () => notifyOwnVerificationChanged())
     await waitFor(() => expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull())
   })
+
+  it('keeps every signed-out and signed-in control findable by name with a sr-only-below-sm label', async () => {
+    mockUseSignedInUser.mockReturnValue({ kind: 'signed-out' })
+    const signedOut = render(<AuthStatus />)
+    expect(screen.getByText('Sign in').className).toContain('sr-only sm:not-sr-only')
+    expect(screen.getByRole('link', { name: 'Sign in' }).className).toContain('whitespace-nowrap')
+    signedOut.unmount()
+
+    mockFetchOwnPilotId.mockResolvedValue(42)
+    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
+    render(<AuthStatus />)
+    await screen.findByRole('link', { name: 'My flights' })
+
+    for (const name of ['My flights', 'pilot@example.com', 'Sign out']) {
+      const label = screen.getByText(name)
+      expect(label.className).toContain('sr-only')
+      expect(label.className).toContain('sm:not-sr-only')
+    }
+    expect(screen.getByText('pilot@example.com').className).toContain('sm:truncate')
+    expect(screen.getByRole('button', { name: 'Sign out' }).className).toContain('whitespace-nowrap')
+  })
 })

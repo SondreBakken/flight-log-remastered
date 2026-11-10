@@ -8,7 +8,11 @@ import { VerificationStamp } from '@/components/verification-stamp'
 import { useOwnPilotId } from './use-own-pilot-id'
 import { useIsOwnVerified } from './use-own-verification'
 
-const NAV_ICON_ROW_CLASSES = 'flex items-center gap-1.5 underline-offset-2 hover:underline'
+const NAV_ICON_ROW_CLASSES = 'flex items-center gap-1.5 whitespace-nowrap underline-offset-2 hover:underline'
+
+// Below sm: the nav is icon-only so it fits one line at 360 px; the label stays in the DOM as
+// screen-reader text so each control keeps its accessible name.
+export const NAV_LABEL_CLASSES = 'sr-only sm:not-sr-only'
 
 // SiteNav sits in the root layout: reading the session server-side here would put a per-request
 // dynamic hole in every page under Cache Components, including the curated country pages
@@ -21,9 +25,9 @@ export default function AuthStatus() {
 
   if (state.kind === 'signed-out') {
     return (
-      <Link className="flex items-center gap-1.5 underline-offset-2 hover:underline" href="/sign-in">
+      <Link className={NAV_ICON_ROW_CLASSES} href="/sign-in">
         <LogIn aria-hidden="true" size={14} />
-        Sign in
+        <span className={NAV_LABEL_CLASSES}>Sign in</span>
       </Link>
     )
   }
@@ -39,16 +43,16 @@ function SignedInStatus({ userId, email }: { userId: string; email: string }) {
   const isVerified = useIsOwnVerified(userId)
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex shrink-0 items-center gap-3">
       <OwnFlightsLink ownPilotId={ownPilotId} />
       <NavIconLink href="/account" icon={User} muted>
-        {email}
+        <span className={`${NAV_LABEL_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
         {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
       </NavIconLink>
       <form action="/api/auth/sign-out" method="post">
         <button className={NAV_ICON_ROW_CLASSES} type="submit">
           <LogOut aria-hidden="true" size={14} />
-          Sign out
+          <span className={NAV_LABEL_CLASSES}>Sign out</span>
         </button>
       </form>
     </div>
@@ -71,7 +75,7 @@ function OwnFlightsLink({ ownPilotId }: { ownPilotId: ReturnType<typeof useOwnPi
 
   return (
     <NavIconLink href={`/pilots/${ownPilotId.pilotId}`} icon={PlaneTakeoff}>
-      My flights
+      <span className={NAV_LABEL_CLASSES}>My flights</span>
     </NavIconLink>
   )
 }

@@ -183,6 +183,20 @@ describe('PilotLogbook year groups', () => {
     )
   }
 
+  it('stacks the table below sm: with a visually hidden header and labelled totals cells', () => {
+    const { container } = renderLogbook(FLIGHTS)
+    const details = container.querySelector('details') as HTMLDetailsElement
+
+    expect(details.querySelector('thead')?.className).toContain('max-sm:sr-only')
+    for (const tag of ['table', 'tbody', 'tfoot']) expect(details.querySelector(tag)?.className).toContain('max-sm:block')
+    const totals = [...details.querySelectorAll('tfoot tr')]
+    for (const tr of totals) {
+      expect(tr.className).toContain('max-sm:block')
+      expect([...tr.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual(['Flights', 'Time', 'Distance'])
+    }
+    expect(totals).toHaveLength(3)
+  })
+
   it('renders one details per year, newest first, with only the newest open', () => {
     const { container } = renderLogbook(FLIGHTS)
 

@@ -89,4 +89,21 @@ describe('StatsLeaderboard', () => {
     expect(container.querySelector('th[aria-sort="descending"] svg')).toBeTruthy()
     expect(screen.getByRole('columnheader', { name: /^flights/i }).textContent).not.toContain('↓')
   })
+
+  it('labels each cell for the stacked layout and keeps the sort headers visible below sm:', () => {
+    const { container } = render(<StatsLeaderboard stats={ROWS} isSignedIn followedPilotIds={[]} />)
+
+    const firstRow = container.querySelector('tbody tr') as HTMLTableRowElement
+    expect([...firstRow.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual(['Pilot', 'Flights', 'Distance (km)', 'Hours', 'Follow'])
+    expect(container.querySelector('thead')?.className).not.toContain('sr-only')
+    for (const th of container.querySelectorAll('th[aria-sort]')) expect(th.className).not.toContain('max-sm:hidden')
+  })
+
+  it('leaves the Follow cell empty, and hidden below sm:, for a pilot without a userId', () => {
+    render(<StatsLeaderboard stats={ROWS} isSignedIn followedPilotIds={[]} />)
+
+    const cell = screen.getByText('Ambiguous Name').closest('tr')?.querySelectorAll('td')[4] as HTMLTableCellElement
+    expect(cell.childElementCount).toBe(0)
+    expect(cell.className).toContain('max-sm:empty:hidden!')
+  })
 })
