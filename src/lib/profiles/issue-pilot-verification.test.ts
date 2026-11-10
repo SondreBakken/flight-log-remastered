@@ -38,14 +38,14 @@ function sha256Hex(value: string): string {
 
 describe('issuePilotVerification', () => {
   it("issues a six-digit code bound to the user's linked pilot id and stores it pending", async () => {
-    const userId = await createLinkedUser(4549)
+    const userId = await createLinkedUser(900024)
 
     const result = await issuePilotVerification(testDatabase.db, userId, 'pilot@example.test')
 
-    expect(result).toEqual({ kind: 'issued', code: expect.stringMatching(/^\d{6}$/), boundPilotId: 4549 })
+    expect(result).toEqual({ kind: 'issued', code: expect.stringMatching(/^\d{6}$/), boundPilotId: 900024 })
     expect(await findTestVerification(testDatabase.db, userId)).toMatchObject({
       status: 'pending',
-      flightlogPilotId: 4549,
+      flightlogPilotId: 900024,
       email: 'pilot@example.test',
     })
   })

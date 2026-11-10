@@ -40,7 +40,7 @@ describe('isValidTimestamp', () => {
 describe('parseStoredWatermarks / serializeWatermarks', () => {
   it('round-trips a valid watermark map through serialize then parse', () => {
     const original = new Map([
-      [4549, '20260523164423'],
+      [900024, '20260523164423'],
       [12677, '20250128081334'],
     ])
     const result = parseStoredWatermarks(serializeWatermarks(original))
@@ -76,7 +76,7 @@ describe('parseStoredWatermarks / serializeWatermarks', () => {
   })
 
   it('an entry with an invalid pilot id or malformed timestamp is dropped, but a valid entry alongside it still succeeds', () => {
-    const raw = JSON.stringify({ '-1': '20260523164423', abc: '20260523164423', 4549: 'not-a-timestamp', 12677: '20250128081334' })
+    const raw = JSON.stringify({ '-1': '20260523164423', abc: '20260523164423', 900024: 'not-a-timestamp', 12677: '20250128081334' })
     const result = parseStoredWatermarks(raw)
     expect(result.ok).toBe(true)
     expect(result.ok && [...result.watermarks.entries()]).toEqual([[12677, '20250128081334']])
@@ -91,48 +91,48 @@ describe('parseStoredWatermarks / serializeWatermarks', () => {
 describe('removeWatermark', () => {
   it('removeWatermark drops a pilot entirely', () => {
     const before = new Map([
-      [4549, '20260523164423'],
+      [900024, '20260523164423'],
       [12677, '20250128081334'],
     ])
-    expect(removeWatermark(before, 4549)).toEqual(new Map([[12677, '20250128081334']]))
+    expect(removeWatermark(before, 900024)).toEqual(new Map([[12677, '20250128081334']]))
   })
 
   it('removeWatermark on a pilot with no stored watermark is a no-op', () => {
-    const before = new Map([[4549, '20260523164423']])
+    const before = new Map([[900024, '20260523164423']])
     expect(removeWatermark(before, 999)).toEqual(before)
   })
 })
 
 describe('advanceWatermark — the only place a watermark ever moves forward', () => {
   it('sets an initial watermark for a pilot with none stored yet', () => {
-    const result = advanceWatermark(new Map(), 4549, '20260523164423')
-    expect(result.get(4549)).toBe('20260523164423')
+    const result = advanceWatermark(new Map(), 900024, '20260523164423')
+    expect(result.get(900024)).toBe('20260523164423')
   })
 
   it('advances when the candidate is strictly newer than the current watermark', () => {
-    const before = new Map([[4549, '20250101000000']])
-    const result = advanceWatermark(before, 4549, '20260523164423')
-    expect(result.get(4549)).toBe('20260523164423')
+    const before = new Map([[900024, '20250101000000']])
+    const result = advanceWatermark(before, 900024, '20260523164423')
+    expect(result.get(900024)).toBe('20260523164423')
   })
 
   it('does not regress when the candidate is OLDER than the current watermark', () => {
-    const before = new Map([[4549, '20260523164423']])
-    const result = advanceWatermark(before, 4549, '20250101000000')
-    expect(result.get(4549)).toBe('20260523164423')
+    const before = new Map([[900024, '20260523164423']])
+    const result = advanceWatermark(before, 900024, '20250101000000')
+    expect(result.get(900024)).toBe('20260523164423')
   })
 
   // NOT a RED case for `>` vs `>=`: an equal candidate produces a byte-identical map either
   // way (see advanceWatermark's own doc comment), so this cannot distinguish the two operators
   // — it only pins that the resulting VALUE is correct, which a `>=` mutant would also satisfy.
   it('leaves the watermark at the same value when the candidate exactly EQUALS the current one: the ts-boundary rule this store guards is strict, so equal is not treated as an improvement', () => {
-    const before = new Map([[4549, '20260523164423']])
-    const result = advanceWatermark(before, 4549, '20260523164423')
-    expect(result.get(4549)).toBe('20260523164423')
+    const before = new Map([[900024, '20260523164423']])
+    const result = advanceWatermark(before, 900024, '20260523164423')
+    expect(result.get(900024)).toBe('20260523164423')
     expect(result).toEqual(before)
   })
 
   it('rejects an invalid candidate timestamp, leaving the watermark unchanged', () => {
-    const before = new Map([[4549, '20260523164423']])
-    expect(advanceWatermark(before, 4549, 'garbage')).toEqual(before)
+    const before = new Map([[900024, '20260523164423']])
+    expect(advanceWatermark(before, 900024, 'garbage')).toEqual(before)
   })
 })

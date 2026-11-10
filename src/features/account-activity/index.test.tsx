@@ -82,7 +82,7 @@ describe('AccountActivity', () => {
   // this and the test above exercise the same branch in AccountActivity but pin that neither
   // depends on which underlying DB state produced the empty Set.
   it('keeps showing the unverified-link note when the pilot id has a pending, unconfirmed row', async () => {
-    mockGetVerifiedPilotIds.mockResolvedValue(new Set([4549])) // some other pilot id, not this one
+    mockGetVerifiedPilotIds.mockResolvedValue(new Set([900024])) // some other pilot id, not this one
 
     await renderActivity()
 

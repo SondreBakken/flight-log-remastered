@@ -26,7 +26,7 @@ import type { usePilotFeedResults as UsePilotFeedResults, FlightFeedResults } fr
 // assertions are needed to kill both directions of the bug (blocking finding #2).
 
 const WATERMARK_KEY = 'flight-log:track-watermarks'
-const PILOT_ID = 4549
+const PILOT_ID = 900024
 
 const pilot: Pilot = { userId: PILOT_ID, name: 'Test Pilot', country: null, club: null }
 
