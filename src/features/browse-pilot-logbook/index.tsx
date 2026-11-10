@@ -169,7 +169,7 @@ function YearSection({
 function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
   return (
     <tr className="border-t border-rule max-sm:block max-sm:py-2 tabular-nums text-muted">
-      <th className="py-2 pr-4 text-left font-medium max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
+      <th className="py-2 pr-4 text-left max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
       <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
       <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>
       <td className={`py-2 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Distance">{totals.distanceKm.toFixed(1)} km</td>

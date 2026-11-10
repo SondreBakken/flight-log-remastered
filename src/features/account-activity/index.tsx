@@ -105,7 +105,7 @@ async function CommentsOnMyFlights({ pilotId }: { pilotId: PilotId }) {
 function SignInPrompt() {
   return (
     <p className="text-sm opacity-70">
-      <Link className="underline underline-offset-2" href="/sign-in">
+      <Link href="/sign-in">
         Sign in
       </Link>{' '}
       to see {WHO_FOLLOWS_AND_COMMENTED}.
@@ -117,7 +117,7 @@ function LinkPilotPrompt() {
   return (
     <p className="text-sm opacity-70">
       Link your flightlog.org pilot id on the{' '}
-      <Link className="underline underline-offset-2" href="/account">
+      <Link href="/account">
         account page
       </Link>{' '}
       to see {WHO_FOLLOWS_AND_COMMENTED}.

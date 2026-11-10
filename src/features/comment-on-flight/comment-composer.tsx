@@ -15,7 +15,7 @@ export function CommentComposer({ tripId }: { tripId: number }) {
   if (authState.kind === 'signed-out') {
     return (
       <p className="text-sm opacity-70">
-        <Link className="underline underline-offset-2" href="/sign-in">
+        <Link href="/sign-in">
           Sign in
         </Link>{' '}
         to add a comment.

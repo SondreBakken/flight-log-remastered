@@ -41,7 +41,7 @@ async function loadOwnPilotVerification(userId: string): Promise<OwnPilotVerific
 function SignInPrompt() {
   return (
     <p className="text-sm opacity-70">
-      <Link className="underline underline-offset-2" href="/sign-in">
+      <Link href="/sign-in">
         Sign in
       </Link>{' '}
       to set a display name.
