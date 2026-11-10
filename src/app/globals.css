@@ -57,3 +57,14 @@ body {
     outline-offset: 2px;
   }
 }
+
+@utility font-condensed {
+  font-stretch: 75%;
+}
+
+@utility form-label {
+  font-stretch: 75%;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--form);
+}

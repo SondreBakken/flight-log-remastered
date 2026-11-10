@@ -80,6 +80,23 @@ describe('identity foundation: ink tokens', () => {
   })
 })
 
+describe('identity foundation: font-condensed and form-label utilities', () => {
+  it('defines font-condensed as 75% font-stretch', () => {
+    const body = blockBody(css, /@utility font-condensed\s*\{/)
+    expect(body).toContain('font-stretch: 75%;')
+  })
+
+  it('defines form-label as small condensed medium form-coloured text without case or tracking changes', () => {
+    const body = blockBody(css, /@utility form-label\s*\{/)
+    expect(body).toContain('font-stretch: 75%;')
+    expect(body).toContain('font-size: 0.75rem;')
+    expect(body).toContain('font-weight: 500;')
+    expect(body).toContain('color: var(--form);')
+    expect(body).not.toContain('text-transform')
+    expect(body).not.toContain('letter-spacing')
+  })
+})
+
 describe('identity foundation: base link and focus styles', () => {
   it('underlines links inside main in rule colour', () => {
     const rule = blockBody(base, /^\s*main a\s*\{/m)
