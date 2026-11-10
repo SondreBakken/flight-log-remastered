@@ -798,32 +798,49 @@ Hand-rolled server-side HTML, no JS, no client-side rendering. Fixed-position ta
 consistent `bgcolor='white'` / `bgcolor='#22aa00'` striping, predictable `a=NN&param=X` link shapes
 across every page type. A row-based parser is sufficient; no headless browser needed.
 
-Flight row from `a=47&country_id=14`, trimmed:
+### a=47 (flights in a country)
+
+Fetched by `getCountryFlights` (`src/lib/flightlog/country-flights.ts`) for the signed-out home
+page, parsed by `parseCountryFlights`. Fixtures: `src/lib/flightlog/fixtures/a47-country-160.html`
+(bare page) and `a47-country-160-2026-11-09.html` (a day page), both trimmed from live GETs of
+`country_id=160` on 2026-11-10 (session minted at `/`, browser UA, `a=48` referer).
+
+- Anonymous GET works: HTTP 200, `<h3>Flights - Norway</h3>` heading, the same
+  `table[cellspacing=1][cellpadding=2][bgcolor=#22aa00]` results table as `a=42`.
+- The bare page lists only the newest day (one flight on 2026-11-10), above an index of
+  `YYYY-MM-DD : <a ...&year=YYYY&tripdate=YYYY-MM-DD>N flights</a>` lines (newest first, plus a
+  `tripdate=YYYY-00-00` whole-year entry). `&year=<y>&tripdate=<d>` returns that day's flights
+  (71 on 2026-11-08, 10 on 2026-11-09), grouped under per-takeoff rows.
+- Row layout inside the table: a date row (`<td colspan='6'><b>date</b></td>`), then per takeoff a
+  2-cell row (empty cell, `colspan='5'` cell with an `a=42` takeoff link), then that takeoff's
+  6-cell flight rows. The 2-cell rows are not 6-cell rows, so the `a=42` row walker skips them.
+
+Flight row, trimmed:
 
 ```html
-<tr><td bgcolor='white' colspan='6'><b>2026-07-25</b></td></tr>
+<tr><td bgcolor='white' colspan='6'><b>2026-11-09</b></td></tr>
 <tr><td bgcolor='white'></td><td bgcolor='white' colspan='5'>
-  <b><a href='?l=1&a=42&country_id=14&start_id=9006'>Emberger Alm</a></b>
+  <b><a href='?l=1&a=42&country_id=160&start_id=26'>Hemsedal, Totten (2)</a></b>
 </td></tr>
 <tr>
-  <td width='35' bgcolor='white'><img src='yi.html?h7=n6d' alt='Added in the last 24 hours'></td>
+  <td width='35' bgcolor='white'>12:50<br><img src='yi.html?h7=n6d' alt='Added in the last 24 hours'></td>
   <td width='45' bgcolor='white' align='right'>
-    <a href='?l=1&a=34&user_id=754&trip_id=1002691'><img src='yi.html?h7=tgf' alt='View trip'></a>
+    <a href='?l=1&a=34&user_id=11405&trip_id=1017579'><img src='yi.html?h7=e3u' alt='View trip'></a>
   </td>
   <td width='450' bgcolor='white'>
-    <a href='?l=1&a=28&user_id=754'>Nils Aage Henden</a> -
-    <a href='?l=1&a=43&country_id=160&club_id=32'>Jetta Luftsportsklubb</a> -
+    <a href='?l=1&a=28&user_id=11405'>Thomas Lone</a> -
+    <a href='?l=1&a=43&country_id=160&club_id=193'>Hallingdal Paragliderklubb</a> -
     <a href='?l=1&a=48&country_id=160'>Norway</a><br>
-    Moyes Litespeed RX 3,5
+    Ozone Zeolite 2
   </td>
-  <td width='35' bgcolor='white' align='right'>01:55</td>
-  <td width='50' bgcolor='white' align='right'></td>
-  <td width='100' bgcolor='white' style='font-size:9px'>V/NV flisette etter en runde vestover</td>
+  <td width='35' bgcolor='white' align='right'>00:07</td>
+  <td width='50' bgcolor='white' align='right'>2.9 km</td>
+  <td width='100' bgcolor='white' style='font-size:9px'></td>
 </tr>
 ```
 
-Columns: recency icon, trip-view icon link, pilot/club/country + glider, duration, distance
-(blank when 0), free-text note.
+Columns: recency icon (with the time of day when known), trip-view icon link, pilot/club/country
++ glider, duration, distance (blank when 0), free-text note.
 
 Filter out `class='hp-nav'` / `data-trap` links before following anything.
 
