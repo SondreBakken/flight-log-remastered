@@ -15,7 +15,7 @@ export async function SignedOutHome({ defaultPilotId }: { defaultPilotId: number
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
       <p className="text-sm opacity-70">
-        Recent paragliding flights in Norway that have a GPS track. Follow pilots to get their flights here.
+        Recent flights in Norway that have a GPS track. Follow pilots to get their flights here.
       </p>
       {flights.length > 0 ? <RecentFlightsTable flights={flights} /> : <EmptyState>Recent flights are unavailable right now.</EmptyState>}
       <div className="flex flex-col gap-2 text-sm">
