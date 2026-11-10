@@ -53,6 +53,33 @@ describe('BrowseClub', () => {
     expect(screen.queryByText('Link')).toBeNull()
   })
 
+  it('lays every club detail field out label-above-value with form-label dts and no opacity classes', () => {
+    const { container } = render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={{ ...DETAIL, createdAt: '2025-01-02 10:00:00 Pilot One' }}
+        roster={[]}
+        stats={[]}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    const dl = container.querySelector('dl') as HTMLElement
+    expect(dl.className).not.toMatch(/grid-cols|opacity-/)
+    const dts = Array.from(dl.querySelectorAll('dt'))
+    expect(dts.map((dt) => dt.textContent)).toEqual(['Members', 'Description', 'Coordinates', 'Link', 'Created', 'Updated'])
+    for (const dt of dts) {
+      expect(dt.className).toBe('form-label')
+      expect(dt.parentElement?.tagName).toBe('DIV')
+      expect(dt.nextElementSibling?.tagName).toBe('DD')
+    }
+    for (const a of Array.from(container.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/underline|opacity-/)
+    }
+  })
+
   // Must go RED if the roster-rendering path is ever built by joining stats onto the roster
   // instead of rendering the roster directly: a member with no stats row would silently
   // disappear.
