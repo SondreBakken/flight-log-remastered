@@ -312,7 +312,7 @@ resolved with an **anonymous** session (below) — pilot search needs no auth. R
 |---|---|---|---|
 | 1 | Home | — | — |
 | 2 | Takeoffs, country index | — | `gm`, `last_days` |
-| 3 | Pilots/Clubs, country index | — | — |
+| 3 | Pilots/Clubs, country index (per-country counts, see below) | — | — |
 | 4 | Newsgroups | — | — |
 | 5 | Help | — | — |
 | 20 | Takeoffs, variant listing | — | — |
@@ -741,6 +741,28 @@ the ambiguous 302), just not a detail page — this app never fetches it.
   ruled out chasing `a=42`'s `year=` param across multiple years.
 - **`a=93`** (a flight-stats tab both `a=22` and `a=42`'s breadcrumbs link to) — not
   investigated.
+
+### Country counts (`a=3`) — #319
+
+```
+GET /fl.html?l=1&a=3
+```
+
+> Taken from the repo owner's 2026-11-11 description of the page (an anonymous fetch showed 82
+> distinct `country_id`s). **Unverified by a saved fixture**: the parser test uses an inline sample
+> written from that description. Save a real response as a fixture when one can be fetched.
+
+Two lists, each opened by a heading line:
+
+| Heading | Entry link action | Meaning |
+|---|---|---|
+| `No of registered users per country:` | `a=48` | registered pilots per country |
+| `No of clubs per country:` | `a=25` | clubs per country |
+
+Entry shape: `<a href='…country_id=N'>Name</a> (count)<br>`, count a bare integer (e.g. `(1293)`). A
+country absent from the clubs list has no clubs. Join key against `rqtid=9` is `country_id`; names
+may differ, so the app shows the `rqtid=9` name. `parseCountryCounts` skips honeypot anchors and
+entries whose count is not digits, and keeps the first entry on a duplicate id.
 
 ### Flight detail (`a=34`) — #215
 
