@@ -280,14 +280,32 @@ function compareTakeoffRefs(a: TakeoffRef, b: TakeoffRef): number {
   return a.countryId - b.countryId || a.takeoffId - b.takeoffId
 }
 
-// First entry per trip id wins. Callers list pilot entries before site entries, so a trip both
-// sources report keeps the pilot's entry, which carries the watermark-based newness.
-function dedupeByTripId(entries: FeedEntry[]): FeedEntry[] {
+// A trip is reported once: first entry per trip id wins. Callers list pilot entries before site
+// entries, so a trip both sources report keeps the pilot's entry, which carries the watermark-based
+// newness.
+//
+// Trip id alone is not enough. a=28 folds same-day, same-glider flights into ONE row with one
+// tripId and flightCount > 1 (see Flight in lib/flightlog/types.ts), while a=42 lists one row per
+// trip (each row has its own time of day and trip link; see parseFlightRows). A followed pilot's
+// 6-flight day at a followed takeoff is therefore one pilot row plus up to 5 site rows with other
+// trip ids. A site entry is dropped when a pilot-sourced entry already covers the same pilot on
+// the same date: the logbook is the complete record of that pilot's day. The match is (userId,
+// date), not glider, because a=42's glider text (e.g. "Gin Camino M (white/red)") is not
+// guaranteed to equal a=28's.
+function dedupeEntries(entries: FeedEntry[]): FeedEntry[] {
+  const pilotDays = new Set(
+    entries.filter((entry) => !entry.viaTakeoff).map((entry) => pilotDayKey(entry.flight)),
+  )
   const byTripId = new Map<number, FeedEntry>()
   for (const entry of entries) {
+    if (entry.viaTakeoff && pilotDays.has(pilotDayKey(entry.flight))) continue
     if (!byTripId.has(entry.flight.tripId)) byTripId.set(entry.flight.tripId, entry)
   }
   return [...byTripId.values()]
+}
+
+function pilotDayKey(flight: { userId: number; date: string }): string {
+  return `${flight.userId}|${flight.date}`
 }
 
 /**
@@ -296,7 +314,7 @@ function dedupeByTripId(entries: FeedEntry[]): FeedEntry[] {
  * to the feed size. Failed pilots contribute no entries here — see failedPilotResults,
  * which surfaces them instead of letting them disappear silently.
  *
- * Followed takeoffs' flights join the same merge. They are deduped by trip id BEFORE the sort and
+ * Followed takeoffs' flights join the same merge. They are deduped (by trip id, and by pilot and date against pilot entries) BEFORE the sort and
  * slice: pilot entries first, then site entries in ascending (countryId, takeoffId) order, first
  * wins. Deduping after the slice would let a duplicate of a truncated pilot entry survive.
  *
@@ -316,7 +334,7 @@ export function buildFeedEntries(
     .filter((result): result is TakeoffFeedSuccess => result.status === 'success')
     .sort((a, b) => compareTakeoffRefs(a.takeoff, b.takeoff))
     .flatMap(toSiteFeedEntries)
-  const entries = dedupeByTripId([...pilotEntries, ...siteEntries])
+  const entries = dedupeEntries([...pilotEntries, ...siteEntries])
   entries.sort((a, b) => compareFlightsNewestFirst(a.flight, b.flight))
   return entries.slice(0, limit)
 }

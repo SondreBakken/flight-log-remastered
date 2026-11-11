@@ -497,6 +497,21 @@ describe('buildFeedEntries — followed takeoffs (#246)', () => {
     expect(entries[0]?.newness).toBe('new')
   })
 
+  it('drops site rows for the same pilot and date as an aggregated pilot row, but keeps other days and other pilots', () => {
+    const aggregatedPilotRow = makeFlight({ tripId: 70, userId: 777, date: '2026-05-02', flightCount: 6 })
+    const entries = buildFeedEntries([success({ pilotId: 777, flights: [aggregatedPilotRow] })], FEED_SIZE, [
+      takeoffSuccess(SITE_A, [
+        makeTakeoffFlight({ tripId: 71, userId: 777, date: '2026-05-02', timeOfDay: '10:00' }),
+        makeTakeoffFlight({ tripId: 72, userId: 777, date: '2026-05-02', timeOfDay: '11:00' }),
+        makeTakeoffFlight({ tripId: 73, userId: 777, date: '2026-05-01' }),
+        makeTakeoffFlight({ tripId: 74, userId: 888, date: '2026-05-02' }),
+      ]),
+    ])
+
+    expect(entries.map((entry) => entry.flight.tripId)).toEqual([74, 70, 73])
+    expect(entries.find((entry) => entry.flight.tripId === 70)?.viaTakeoff).toBeUndefined()
+  })
+
   it('keeps one entry for a trip in two followed takeoffs: the first by ascending (countryId, takeoffId), whatever order the results settled in', () => {
     const shared = makeTakeoffFlight({ tripId: 60 })
     const later = takeoffSuccess({ countryId: 203, takeoffId: 1 }, [shared])
