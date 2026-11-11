@@ -636,10 +636,11 @@ separate ones for takeoff detail vs. flights.
   the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
   `user_id` only, never by name, so two members sharing a name are two rows, not one.
 - **HTML entities decode to identical text across the roster and `rqtid=1`'s stats table** —
-  the roster spells one Voss pilot `Luis &#039;&#039;Mickey&#039;&#039; Fonseca`, `rqtid=1`'s
-  own stats table spells the same pilot `Luis ''Mickey'' Fonseca` verbatim. Both parse through
-  cheerio's own `.text()`, which decodes entities during HTML parsing — confirmed live, not
-  assumed: the two strings compare equal with no extra decode step in `resolve-stats-pilots.ts`.
+  a roster name containing `&#039;&#039;` and `rqtid=1`'s own stats table spelling of the same
+  pilot parse to the identical string. Both parse through cheerio's own `.text()`, which
+  decodes entities during HTML parsing. Confirmed live against the fixtures, not assumed: the
+  two strings compare equal with no extra decode step in `resolve-stats-pilots.ts`. For
+  example, a roster `Ola &#039;&#039;Kari&#039;&#039; Nordmann` and a stats `Ola ''Kari'' Nordmann`.
   See "THE JOIN" below for why this matters.
 
 ### THE JOIN — resolving `rqtid=1`'s name-only stats to a roster `user_id` — #7
