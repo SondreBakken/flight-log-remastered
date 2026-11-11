@@ -2,11 +2,12 @@
 
 import { classes } from '@/lib/classes'
 import Link from 'next/link'
-import { List as ListIcon, LocateFixed, Map as MapIcon, Search } from 'lucide-react'
+import { List as ListIcon, LocateFixed, Map as MapIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+import { NameFilterInput } from '@/components/name-filter-input'
 import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
 import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-geojson'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
@@ -312,17 +313,7 @@ function SearchControls({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
-        <div className="relative flex-1">
-          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 opacity-50" size={14} />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Filter by name"
-            aria-label="Takeoff name"
-            className="w-full rounded border border-frame py-1.5 pr-3 pl-8 text-sm"
-          />
-        </div>
+        <NameFilterInput label="Takeoff name" className="relative flex-1" value={query} onChange={onQueryChange} />
         <select
           value={regionFilter}
           onChange={(event) => onRegionFilterChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}

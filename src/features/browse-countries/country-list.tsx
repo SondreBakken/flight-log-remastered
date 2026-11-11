@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Search } from 'lucide-react'
+import { NameFilterInput } from '@/components/name-filter-input'
 import { useState } from 'react'
 import type { CountryListData } from './build-country-rows'
 
@@ -20,17 +20,7 @@ export default function CountryList({ data }: { data: CountryListData }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="relative">
-        <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 opacity-50" size={14} />
-        <input
-          type="text"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter by name"
-          aria-label="Country name"
-          className="w-full rounded border border-frame py-1.5 pr-3 pl-8 text-sm"
-        />
-      </div>
+      <NameFilterInput label="Country name" value={query} onChange={setQuery} />
       {visible.length === 0 ? (
         <p className="text-sm opacity-70">No countries match.</p>
       ) : (
