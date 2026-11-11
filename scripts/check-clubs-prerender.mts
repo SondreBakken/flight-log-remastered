@@ -28,6 +28,19 @@ import {
 // the clubs route, not the only one the way check-takeoffs-prerender.mts's own doc comment
 // argues for its route.
 const { assert, fail, summarize } = createChecker('check:clubs-prerender')
+
+// The row class is a styling token (browse-country-clubs/index.tsx), not a contract: when it
+// changes, update ROW_CLASS here. Zero rows after the club-count text matched means the text
+// rendered but the selector no longer finds the rows, so name that instead of a bare count.
+const ROW_CLASS = 'border-b border-rule'
+
+function assertRowCount(file: string, countTextMatched: boolean, rowCount: number, expectedRowCount: number, verb: string): void {
+  if (countTextMatched && rowCount === 0) {
+    fail(`${file}: club count text matched but 0 rows found, row class selector drift (expected rows with class "${ROW_CLASS}")`)
+    return
+  }
+  assert(rowCount === expectedRowCount, `${file}: ${verb} ${expectedRowCount} club table rows (found ${rowCount})`)
+}
 requireFreshPrerenderManifest(fail)
 
 const SRC_ROUTE = '/countries/[countryId]'
@@ -91,9 +104,9 @@ for (const { countryId, countryName: expectedCountryName, rowCount: expectedRowC
   // Norway's club count ever actually drifts from the pinned 91.
   assert(html.includes(`>${expectedCountryName}</h1>`), `${htmlPath}: renders the resolved country name "${expectedCountryName}", not just the fallback shell`)
   const clubCountPattern = new RegExp(`<p class="text-sm opacity-70">${expectedRowCount}(?:<!--\\s*-->)?\\s*clubs</p>`)
-  assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)
-  const rowMatches = html.match(/<tr class="border-b border-black\/5 dark:border-white\/10">/g) ?? []
-  assert(rowMatches.length === expectedRowCount, `${htmlPath}: renders ${expectedRowCount} club table rows (found ${rowMatches.length})`)
+  const htmlCountMatched = assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)
+  const rowMatches = html.match(/<tr class="border-b border-rule">/g) ?? []
+  assertRowCount(htmlPath, htmlCountMatched, rowMatches.length, expectedRowCount, 'renders')
 
   // The .rsc payload is Next's "Flight" wire format, not the HTML above and not plain JSON
   // either — a handful of newline-delimited lines, most JSON but some prefixed with a numeric
@@ -110,9 +123,9 @@ for (const { countryId, countryName: expectedCountryName, rowCount: expectedRowC
   const rscCountryNamePattern = new RegExp(`"className":"text-2xl font-semibold tracking-tight","children":${JSON.stringify(expectedCountryName)}\\}\\]`)
   assert(rscCountryNamePattern.test(rsc), `${rscPath}: serializes the resolved country name "${expectedCountryName}", not just a fallback/reference token`)
   const rscClubCountPattern = new RegExp(`"className":"text-sm opacity-70","children":\\[${expectedRowCount},"\\s*clubs"\\]`)
-  assert(rscClubCountPattern.test(rsc), `${rscPath}: serializes the expected club count "${expectedRowCount} clubs"`)
-  const rscRowMatches = rsc.match(/\["\$","tr","\d+",\{"className":"border-b border-black\/5 dark:border-white\/10"/g) ?? []
-  assert(rscRowMatches.length === expectedRowCount, `${rscPath}: serializes ${expectedRowCount} club table rows (found ${rscRowMatches.length})`)
+  const rscCountMatched = assert(rscClubCountPattern.test(rsc), `${rscPath}: serializes the expected club count "${expectedRowCount} clubs"`)
+  const rscRowMatches = rsc.match(/\["\$","tr","\d+",\{"className":"border-b border-rule"/g) ?? []
+  assertRowCount(rscPath, rscCountMatched, rscRowMatches.length, expectedRowCount, 'serializes')
 }
 
 assertExactRouteSet(
