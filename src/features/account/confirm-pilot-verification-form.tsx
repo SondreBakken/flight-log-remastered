@@ -39,7 +39,7 @@ export function ConfirmPilotVerificationForm({ onConfirmed }: ConfirmPilotVerifi
         Verification code
         <input
           autoComplete="one-time-code"
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
           id="pilot-verification-code"
           inputMode="numeric"
           name="code"
@@ -48,7 +48,7 @@ export function ConfirmPilotVerificationForm({ onConfirmed }: ConfirmPilotVerifi
         />
       </label>
       <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
         disabled={pending}
         type="submit"
       >

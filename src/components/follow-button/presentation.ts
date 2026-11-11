@@ -12,8 +12,8 @@ export const FOLLOW_BUTTON_SIZE_CLASSES: Record<FollowButtonVariant, string> = {
 }
 
 const TONE_CLASSES: Record<'unfollowed' | 'followed', string> = {
-  unfollowed: 'border-black/20 dark:border-white/25',
-  followed: 'border-black/40 bg-black/5 dark:border-white/40 dark:bg-white/10',
+  unfollowed: 'border-frame',
+  followed: 'border-form bg-form/10',
 }
 
 // isFollowed now arrives as a server-resolved prop (see resolve-viewer-follow-state.ts),

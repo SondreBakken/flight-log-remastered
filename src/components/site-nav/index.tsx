@@ -17,7 +17,7 @@ const NAV_LINKS = [
 
 export default function SiteNav() {
   return (
-    <nav aria-label="Main" className="border-b border-black/10 dark:border-white/15">
+    <nav aria-label="Main" className="border-b border-rule">
       <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 text-sm">
         <ul className="flex min-w-0 gap-3 sm:gap-4">
           {NAV_LINKS.map(({ href, label, Icon }) => (

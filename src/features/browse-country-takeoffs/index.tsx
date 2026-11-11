@@ -212,7 +212,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
 // a different renderer.
 function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange: (view: DirectoryView) => void }) {
   return (
-    <div role="group" aria-label="Directory view" className="flex gap-1 rounded border border-black/20 p-0.5 text-sm dark:border-white/25">
+    <div role="group" aria-label="Directory view" className="flex gap-1 rounded border border-frame p-0.5 text-sm">
       <button
         type="button"
         aria-pressed={view === 'list'}
@@ -320,14 +320,14 @@ function SearchControls({
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Filter by name"
             aria-label="Takeoff name"
-            className="w-full rounded border border-black/20 py-1.5 pr-3 pl-8 text-sm dark:border-white/25"
+            className="w-full rounded border border-frame py-1.5 pr-3 pl-8 text-sm"
           />
         </div>
         <select
           value={regionFilter}
           onChange={(event) => onRegionFilterChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}
           aria-label="Region"
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
         >
           <option value="all">All regions</option>
           {sortedRegions.map((region) => (
@@ -341,7 +341,7 @@ function SearchControls({
           value={windFilter}
           onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
         >
           <option value="all">Any wind</option>
           {OCTANTS_CLOCKWISE.map((octant) => (
@@ -454,7 +454,7 @@ function TakeoffResults({
       )}
       {/* #11's detail route now exists — the name links there, replacing the plain text #4/#6
           left in place while it didn't. */}
-      <ul className="flex flex-col divide-y divide-black/5 dark:divide-white/10">
+      <ul className="flex flex-col divide-y divide-rule">
         {matches.map((takeoff) => (
           <TakeoffRow
             key={takeoff.takeoffId}

@@ -62,7 +62,7 @@ export function Barogram({ points, hoveredIndex, onHoverIndex }: BarogramProps) 
     return (
       <BarogramFrame>
         <div
-          className="flex w-full items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20"
+          className="flex w-full items-center justify-center rounded-md border border-dashed border-rule text-sm opacity-60"
           style={aspectRatioStyle(DEFAULT_CHART_BOUNDS)}
         >
           No track points

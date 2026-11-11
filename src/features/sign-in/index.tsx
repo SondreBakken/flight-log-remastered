@@ -55,7 +55,7 @@ export default function SignIn() {
   if (status.kind === 'sent') {
     return (
       <div className="flex flex-col items-start gap-3">
-        <p className="rounded-md border border-dashed border-black/15 p-6 text-sm opacity-70 dark:border-white/20">
+        <p className="rounded-md border border-dashed border-rule p-6 text-sm opacity-70">
           Check {status.email} for a sign-in link.
         </p>
         <button
@@ -74,7 +74,7 @@ export default function SignIn() {
       <label className="flex flex-col gap-1 text-sm" htmlFor="email">
         Email
         <input
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
           id="email"
           name="email"
           placeholder="you@example.com"
@@ -83,7 +83,7 @@ export default function SignIn() {
         />
       </label>
       <button
-        className="flex items-center gap-1.5 self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="flex items-center gap-1.5 self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
         disabled={status.kind === 'sending'}
         type="submit"
       >
