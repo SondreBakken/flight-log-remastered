@@ -29,6 +29,7 @@ import {
   toTakeoffFollowButtonState,
 } from './resolve-viewer-follow-state'
 import { FollowsQueryError } from './follows-query-error'
+import type { ViewerFollowState } from './viewer-follow-state'
 
 beforeEach(() => {
   mockGetFollowedTakeoffs.mockResolvedValue([])
@@ -136,7 +137,7 @@ describe('followedPilotIdsOf', () => {
 })
 
 describe('followedTakeoffsOf', () => {
-  const resolved = { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] } as const
+  const resolved: ViewerFollowState = { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] }
 
   it('returns an empty list for signed-out, the resolved list as-is, and null for follows-unavailable', () => {
     expect(followedTakeoffsOf({ status: 'signed-out' })).toEqual([])
@@ -146,7 +147,7 @@ describe('followedTakeoffsOf', () => {
 })
 
 describe('toTakeoffFollowButtonState', () => {
-  const resolved = { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] } as const
+  const resolved: ViewerFollowState = { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] }
 
   it('marks the takeoff followed only when both countryId and takeoffId match', () => {
     expect(toTakeoffFollowButtonState(resolved, { countryId: 160, takeoffId: 133 })).toEqual({ isSignedIn: true, isFollowed: true })

@@ -4,7 +4,7 @@ import { getFollowedPilotIds } from './get-followed-pilot-ids'
 import { getFollowedTakeoffs } from './get-followed-takeoffs'
 import { FollowsQueryError } from './follows-query-error'
 import { toFollowButtonState, type ViewerFollowState } from './viewer-follow-state'
-import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
+import type { PilotId } from '@/lib/flightlog/types'
 
 export {
   followedPilotIdsOf,

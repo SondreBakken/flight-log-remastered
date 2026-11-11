@@ -21,7 +21,7 @@ type FeedEntryRowProps = {
 // screen-reader users the same "this row is actionable" signal without asserting a role the
 // markup can't validly hold.
 export function FeedEntryRow({ entry }: FeedEntryRowProps) {
-  const { pilot, flight, hasTrack, newness } = entry
+  const { pilot, flight, hasTrack, newness, viaTakeoff } = entry
   const router = useRouter()
   const href = `/flights/${flight.tripId}`
 
@@ -71,6 +71,16 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
         >
           {pilot.name}
         </Link>
+        {viaTakeoff && (
+          // The pilot on a site-sourced row may not be followed: this is why the row is here.
+          <Link
+            className="block text-xs text-muted"
+            href={`/countries/${viaTakeoff.countryId}/takeoffs/${viaTakeoff.takeoffId}`}
+            onClick={stopRowNavigation}
+          >
+            via {viaTakeoff.name}
+          </Link>
+        )}
       </td>
       <td className="py-2 pr-4">{flight.takeoff ?? '—'}</td>
       <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">

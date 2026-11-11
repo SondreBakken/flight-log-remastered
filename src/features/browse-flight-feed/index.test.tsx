@@ -12,7 +12,7 @@ import { getSeenTripIds, recordSeenTripIds } from '@/lib/seen-trip-store/storage
 
 describe('FlightFeedView empty state', () => {
   it('links to /countries, the actual browse-countries route, not a typo of it', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={900024} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(
       screen.getByRole('link', { name: /browse clubs by country/i }).getAttribute('href'),
@@ -29,7 +29,7 @@ describe('FlightFeedView follows-unavailable state', () => {
   })
 
   it('renders the ordinary content for a resolved, genuinely empty follow list', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={900024} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(screen.queryByText("Couldn't load the pilots you follow right now.")).toBeNull()
   })
@@ -51,8 +51,9 @@ describe('FlightFeed branching on the viewer follow state', () => {
   })
 
   it.each<ViewerFollowState>([
-    { status: 'resolved', followedPilotIds: [] },
-    { status: 'resolved', followedPilotIds: [11, 12] },
+    { status: 'resolved', followedPilotIds: [], followedTakeoffs: [] },
+    { status: 'resolved', followedPilotIds: [11, 12], followedTakeoffs: [] },
+    { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] },
     { status: 'follows-unavailable' },
   ])('renders FlightFeedView with the unchanged follows prop for %o', async (follows) => {
     const element = await feedFor(follows)
@@ -83,7 +84,7 @@ describe('FlightFeedView seen-trip prune (#155 follow-up)', () => {
   })
 
   it('prunes a pilot who has fallen out of the resolved follow list once follows do resolve', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={900024} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(getSeenTripIds(PRUNE_TEST_PILOT_ID)).toBeNull()
   })
