@@ -25,5 +25,8 @@ export default defineConfig({
     // the same contention, which also pushed jsdom + userEvent tests past 5 s.
     hookTimeout: 60_000,
     testTimeout: 30_000,
+    // #297, #302: keep the failure message and stack of a flaky test on disk after the run.
+    reporters: ['default', 'junit'],
+    outputFile: { junit: './test-results/junit.xml' },
   },
 })
