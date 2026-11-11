@@ -1,8 +1,8 @@
 import type { Takeoff } from '@/lib/flightlog/types'
 
 // Positional tuple, not a keyed object — measured against this exact payload, the gzip gap
-// against a GeoJSON encoding is a modest 1.20x; what Vercel actually serves modern browsers
-// is Brotli, which narrows that to 1.09x. The reasoning doesn't hinge on either number: the
+// against a GeoJSON encoding is a modest 1.20x, and gzip is what `next start` sends
+// (compress.md); behind a Brotli-capable proxy it narrows to 1.09x. The reasoning doesn't hinge on either number: the
 // bigger point is that GeoJSON's per-row `properties`/`geometry.coordinates` indirection is
 // exactly what a per-keystroke search wants to avoid, and a flat tuple avoids it without
 // paying keyed objects' redundant key-name bytes either.

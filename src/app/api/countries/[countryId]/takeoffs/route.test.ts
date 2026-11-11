@@ -115,7 +115,7 @@ describe('GET', () => {
   })
 
   // Every alias here normalises to 160 under plain `Number()` — each is a distinct URL and
-  // therefore a distinct CDN cache key, so accepting any of them turns this route back into
+  // therefore a distinct HTTP cache key, so accepting any of them turns this route back into
   // an anonymous trigger for the live upstream fetch prerendering exists to eliminate. Only
   // the exact spelling generateStaticParams enumerates ('160') may reach getTakeoffs.
   it.each(['0xA0', '0Xa0', '160.0', '1.6e2', '+160', ' 160 ', '160.', '\n160\t'])(

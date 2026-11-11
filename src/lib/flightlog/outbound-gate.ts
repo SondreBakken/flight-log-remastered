@@ -4,12 +4,10 @@
 // existing split between browse-flight-feed's pure feed.ts and its client-only route.
 import { createRequestGate, type RequestGate } from '@/lib/concurrency/request-gate'
 
-// CAVEAT for whoever resizes this: this state lives in one module instance. On Vercel,
-// module state is per function instance, and instances scale out under load — four
-// concurrent route invocations can land on four separate instances, each running its own
-// gate independently starting from zero. This bounds outbound concurrency and pacing PER
-// INSTANCE, not app-wide; it is not a global rate limiter, and sizing it up "to be safe"
-// does not change that ceiling.
+// CAVEAT for whoever resizes this: this state lives in one module instance, so the gate is
+// process-wide. It is app-wide only while the app runs as a single replica: a second replica
+// would run its own gate independently, starting from zero. It is not a global rate limiter
+// across processes, and sizing it up "to be safe" does not change that ceiling.
 
 // Sized against the two concurrency knobs already established in this codebase for the
 // same traffic-safety reason (use-flight-feed.ts's CONCURRENCY_LIMIT and tracks.ts's
