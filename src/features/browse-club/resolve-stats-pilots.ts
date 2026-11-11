@@ -17,9 +17,9 @@ export type ResolvedClubStats = ClubPilotStats & { userId: number | null }
 // time either name reaches this file the "&#039; vs a literal apostrophe" mismatch that
 // motivated the "decode before comparing" rule can no longer occur; comparing the parsed
 // strings directly (verbatim, no further normalisation) IS decode-then-compare. Confirmed
-// live against Voss's own fixture (`fixtures/a26-51-club.html`'s roster spells "Luis
-// &#039;&#039;Mickey&#039;&#039; Fonseca", `fixtures/rqtid1-51.html`'s stats table spells the
-// same pilot "Luis ''Mickey'' Fonseca" verbatim — both parse to the identical string).
+// live against Voss's own fixture (`fixtures/a26-51-club.html`'s roster spells (synthetic stand-in name) "Ola
+// &#039;&#039;Kari&#039;&#039; Nordmann", `fixtures/rqtid1-51.html`'s stats table spells the
+// same pilot "Ola ''Kari'' Nordmann" verbatim — both parse to the identical string).
 function buildNameIndex(roster: ClubMember[]): Map<string, number[]> {
   const index = new Map<string, number[]>()
   for (const member of roster) {
