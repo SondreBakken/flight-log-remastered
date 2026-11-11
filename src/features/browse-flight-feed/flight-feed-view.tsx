@@ -322,7 +322,7 @@ function FailedTakeoffsNotice({ failures }: { failures: TakeoffFeedFailure[] }) 
 
 function NotFollowingAnyoneNotice({ defaultPilotId }: { defaultPilotId: number }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed border-black/15 p-6 text-sm opacity-80 dark:border-white/20">
+    <div className="flex flex-col gap-2 rounded-md border border-dashed border-rule p-6 text-sm opacity-80">
       <p>You are not following any pilots yet.</p>
       <p>
         Open a pilot&apos;s logbook and use the Follow button there to add their flights to this

@@ -49,11 +49,11 @@ function SearchForm({ query }: { query: string }) {
         defaultValue={query}
         placeholder="Pilot name"
         aria-label="Pilot name"
-        className="flex-1 rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+        className="flex-1 rounded border border-frame px-3 py-1.5 text-sm"
       />
       <button
         type="submit"
-        className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+        className="rounded border border-frame px-3 py-1.5 text-sm"
       >
         Search
       </button>

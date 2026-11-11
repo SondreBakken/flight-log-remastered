@@ -64,7 +64,7 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false,
             // Uncontrolled, so defaultValue applies only on mount: keying on it remounts the input
             // when a server re-render hands down a different stored name.
             key={defaultDisplayName}
-            className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+            className="rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
             defaultValue={defaultDisplayName}
             disabled={displayNameLoadFailed}
             id="display-name"
@@ -80,7 +80,7 @@ export function AccountForm({ initialDisplayName, displayNameLoadFailed = false,
           </p>
         )}
         <button
-          className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+          className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
           disabled={pending || displayNameLoadFailed}
           type="submit"
         >

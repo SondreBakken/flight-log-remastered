@@ -344,7 +344,7 @@ export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps
       <div
         className={classes(
           sizeClasses,
-          'flex items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20',
+          'flex items-center justify-center rounded-md border border-dashed border-rule text-sm opacity-60',
         )}
       >
         No takeoffs with a recorded location

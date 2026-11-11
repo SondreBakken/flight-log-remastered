@@ -20,7 +20,7 @@ export function CommentForm({ tripId }: { tripId: number }) {
       <label className="flex flex-col gap-1 text-sm" htmlFor="comment-body">
         Add a comment
         <textarea
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
           id="comment-body"
           name="body"
           defaultValue={state.status === 'error' ? state.body : ''}
@@ -29,7 +29,7 @@ export function CommentForm({ tripId }: { tripId: number }) {
         />
       </label>
       <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
         disabled={pending}
         type="submit"
       >

@@ -354,7 +354,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       <div
         className={classes(
           DEFAULT_SIZE_CLASSES,
-          'flex items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20',
+          'flex items-center justify-center rounded-md border border-dashed border-rule text-sm opacity-60',
           className,
         )}
       >

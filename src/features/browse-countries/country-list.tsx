@@ -20,7 +20,7 @@ export default function CountryList({ rows, showCounts }: { rows: CountryRow[]; 
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Filter by name"
           aria-label="Country name"
-          className="w-full rounded border border-black/20 py-1.5 pr-3 pl-8 text-sm dark:border-white/25"
+          className="w-full rounded border border-frame py-1.5 pr-3 pl-8 text-sm"
         />
       </div>
       {visible.length === 0 ? (

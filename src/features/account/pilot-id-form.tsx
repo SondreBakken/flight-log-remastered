@@ -82,7 +82,7 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verific
           <input
             // Keyed on the prefill for the same reason as account-form.tsx's display-name input.
             key={defaultPilotId}
-            className="rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+            className="rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
             defaultValue={defaultPilotId}
             disabled={pilotIdLoadFailed}
             id="flightlog-pilot-id"
@@ -100,7 +100,7 @@ export function PilotIdForm({ initialPilotId, pilotIdLoadFailed = false, verific
           </p>
         )}
         <button
-          className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+          className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
           disabled={pending || pilotIdLoadFailed}
           type="submit"
         >
