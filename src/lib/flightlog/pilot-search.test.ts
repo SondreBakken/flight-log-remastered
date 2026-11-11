@@ -92,19 +92,19 @@ describe('searchPilots', () => {
 
   it('POSTs the a=114 path with form=find_user/user_fullname/go, the a=114 page as referer, and returns the parsed results', async () => {
     mockedPost.mockResolvedValue({ kind: 'ok', text: '<html>results stub</html>' })
-    mockedParse.mockReturnValue([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
+    mockedParse.mockReturnValue([{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }])
 
-    const outcome = await searchPilots('Henden')
+    const outcome = await searchPilots('Surname')
 
     expect(mockedPost).toHaveBeenCalledWith(
       '/fl.html?l=1&a=114',
-      'form=find_user&user_fullname=Henden&go=Go',
+      'form=find_user&user_fullname=Surname&go=Go',
       { referer: 'https://flightlog.org/fl.html?l=1&a=114' },
     )
     expect(mockedParse).toHaveBeenCalledWith('<html>results stub</html>')
     expect(outcome).toEqual({
       kind: 'results',
-      results: [{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }],
+      results: [{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }],
     })
   })
 
@@ -169,11 +169,11 @@ describe('searchPilots', () => {
   })
 
   it('parses user_id out of a relative a=28 redirect Location the same way', async () => {
-    mockedPost.mockResolvedValue({ kind: 'redirect', location: '/fl.html?l=1&a=28&user_id=754' })
+    mockedPost.mockResolvedValue({ kind: 'redirect', location: '/fl.html?l=1&a=28&user_id=900019' })
 
-    const outcome = await searchPilots('Henden')
+    const outcome = await searchPilots('Surname')
 
-    expect(outcome).toEqual({ kind: 'single-match', userId: 754 })
+    expect(outcome).toEqual({ kind: 'single-match', userId: 900019 })
   })
 
   // A 302 that is neither the session-gate root (http.ts already retries and throws for that

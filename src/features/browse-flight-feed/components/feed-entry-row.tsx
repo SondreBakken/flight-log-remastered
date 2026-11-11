@@ -21,7 +21,7 @@ type FeedEntryRowProps = {
 // screen-reader users the same "this row is actionable" signal without asserting a role the
 // markup can't validly hold.
 export function FeedEntryRow({ entry }: FeedEntryRowProps) {
-  const { pilot, flight, hasTrack, newness } = entry
+  const { pilot, flight, hasTrack, newness, viaTakeoff } = entry
   const router = useRouter()
   const href = `/flights/${flight.tripId}`
 
@@ -47,7 +47,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
+      className="cursor-pointer border-b border-rule hover:bg-rule/30"
       onClick={navigateToFlight}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -58,7 +58,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
           // or untracked alike (see feed.ts's FlightNewness — both are fully classifiable now,
           // #62). A "seen before" badge for 'not-new' would be pure noise on an already-quiet
           // row; the "New" badge alone carries the entire signal this table needs to show.
-          <span className="mr-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
+          <span className="mr-1.5 form-label rounded border border-rule px-1.5 py-0.5">
             New
           </span>
         )}
@@ -66,12 +66,21 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
       </td>
       <td className="py-2 pr-4">
         <Link
-          className="underline underline-offset-2"
           href={`/pilots/${pilot.userId}`}
           onClick={stopRowNavigation}
         >
           {pilot.name}
         </Link>
+        {viaTakeoff && (
+          // The pilot on a site-sourced row may not be followed: this is why the row is here.
+          <Link
+            className="block text-xs text-muted"
+            href={`/countries/${viaTakeoff.countryId}/takeoffs/${viaTakeoff.takeoffId}`}
+            onClick={stopRowNavigation}
+          >
+            via {viaTakeoff.name}
+          </Link>
+        )}
       </td>
       <td className="py-2 pr-4">{flight.takeoff ?? '—'}</td>
       <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
@@ -80,7 +89,7 @@ export function FeedEntryRow({ entry }: FeedEntryRowProps) {
       <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
         {formatFlightDistance(flight)}
       </td>
-      <td className="py-2">{hasTrack ? <span>View track</span> : <span className="opacity-40">none</span>}</td>
+      <td className="py-2">{hasTrack ? <span>View track</span> : <span className="text-muted">none</span>}</td>
     </tr>
   )
 }

@@ -3,6 +3,7 @@ import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { EmptyState } from '@/components/empty-state'
 import { CalendarDate } from '@/components/calendar-date'
+import { TakeoffFollowButton } from '@/components/follow-button/takeoff-follow-button'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
 import type { PilotId, SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
@@ -22,6 +23,9 @@ type TakeoffDetailViewProps = {
   // year's flight rows' own userIds.
   isSignedIn: boolean
   followedPilotIds: PilotId[]
+  // Whether the viewer follows this takeoff itself (see toTakeoffFollowButtonState), as opposed
+  // to followedPilotIds, which is about the pilots in the flights table.
+  isFollowed: boolean
 }
 
 // #11's takeoff detail page: name/region/altitude/description/site-records from a=22, flights
@@ -38,10 +42,11 @@ export default function TakeoffDetailView({
   currentYear,
   isSignedIn,
   followedPilotIds,
+  isFollowed,
 }: TakeoffDetailViewProps) {
   return (
     <section className="flex flex-col gap-6">
-      <TakeoffHeader countryName={countryName} detail={detail} />
+      <TakeoffHeader countryId={countryId} countryName={countryName} detail={detail} isSignedIn={isSignedIn} isFollowed={isFollowed} />
       <TakeoffLinks countryId={countryId} countryName={countryName} takeoffId={detail.takeoffId} linkUrl={detail.linkUrl} />
       {detail.siteRecords.length > 0 && <SiteRecords records={detail.siteRecords} />}
       {detail.description !== null && <Description text={detail.description} />}
@@ -62,11 +67,24 @@ export default function TakeoffDetailView({
   )
 }
 
-function TakeoffHeader({ countryName, detail }: { countryName: string; detail: TakeoffDetail }) {
+function TakeoffHeader({
+  countryId,
+  countryName,
+  detail,
+  isSignedIn,
+  isFollowed,
+}: {
+  countryId: number
+  countryName: string
+  detail: TakeoffDetail
+  isSignedIn: boolean
+  isFollowed: boolean
+}) {
   return (
-    <header className="flex flex-col gap-1">
+    <header className="flex flex-col items-start gap-1">
       <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
       <p className="text-sm opacity-70">{[detail.region, detail.altitude].filter(Boolean).join(' · ') || countryName}</p>
+      <TakeoffFollowButton countryId={countryId} takeoffId={detail.takeoffId} isFollowed={isFollowed} isSignedIn={isSignedIn} />
     </header>
   )
 }
@@ -84,12 +102,12 @@ function TakeoffLinks({
 }) {
   return (
     <div className="flex flex-wrap gap-4 text-sm">
-      <Link className="flex items-center gap-1 underline underline-offset-2" href={`/countries/${countryId}/takeoffs`}>
+      <Link className="flex items-center gap-1" href={`/countries/${countryId}/takeoffs`}>
         <ChevronLeft aria-hidden="true" size={14} />
         Back to {countryName} takeoffs
       </Link>
       <a
-        className="flex items-center gap-1 underline underline-offset-2 opacity-70"
+        className="flex items-center gap-1 text-muted"
         href={flightlogTakeoffUrl(countryId, takeoffId)}
         target="_blank"
         rel="noreferrer"
@@ -98,7 +116,7 @@ function TakeoffLinks({
         <ExternalLink aria-hidden="true" size={14} />
       </a>
       {linkUrl && (
-        <a className="flex items-center gap-1 underline underline-offset-2 opacity-70" href={linkUrl} target="_blank" rel="noreferrer">
+        <a className="flex items-center gap-1 text-muted" href={linkUrl} target="_blank" rel="noreferrer">
           More info
           <ExternalLink aria-hidden="true" size={14} />
         </a>
@@ -118,12 +136,12 @@ function SiteRecords({ records }: { records: SiteRecord[] }) {
       <h2 className="text-lg font-medium">Site records</h2>
       <ul className="flex flex-col gap-1 text-sm">
         {records.map((record) => (
-          <li key={record.tripId} className="flex items-center gap-2">
+          <li key={record.tripId} className="flex items-center gap-2 max-sm:flex-wrap">
             <span className="w-10 shrink-0 font-medium opacity-70">{record.recordClass}</span>
             <span>
               {record.pilotName} — {record.distanceKm.toFixed(1)} km
             </span>
-            <Link className="underline underline-offset-2 opacity-70" href={`/flights/${record.tripId}`}>
+            <Link className="text-muted" href={`/flights/${record.tripId}`}>
               View track
             </Link>
           </li>
@@ -206,21 +224,21 @@ function FlightsTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Time</th>
-            <th className="py-2 pr-4 font-medium">Pilot</th>
-            <th className="py-2 pr-4 font-medium">Club</th>
-            <th className="py-2 pr-4 font-medium">Glider</th>
-            <th className="py-2 pr-4 text-right font-medium">Duration</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 pr-4 font-medium">Note</th>
-            <th className="py-2 font-medium">Track</th>
+      <table className="w-full border-collapse text-sm max-sm:block">
+        <thead className="max-sm:sr-only">
+          <tr className="border-b border-rule text-left">
+            <th className="py-2 pr-4 form-label">Date</th>
+            <th className="py-2 pr-4 text-right form-label">Time</th>
+            <th className="py-2 pr-4 form-label">Pilot</th>
+            <th className="py-2 pr-4 form-label">Club</th>
+            <th className="py-2 pr-4 form-label">Glider</th>
+            <th className="py-2 pr-4 text-right form-label">Duration</th>
+            <th className="py-2 pr-4 text-right form-label">Distance</th>
+            <th className="py-2 pr-4 form-label">Note</th>
+            <th className="py-2 form-label">Track</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-sm:block">
           {flights.map((flight) => (
             <TakeoffFlightRow
               key={flight.tripId}

@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react'
 import type { Club } from '@/lib/flightlog/types'
 import { CURATED_TAKEOFF_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
 import { EmptyState } from '@/components/empty-state'
+import { CLUB_HEADER_ROW_CLASS, CLUB_ROW_CLASS } from './row-classes'
 
 type CountryClubsProps = {
   countryId: number
@@ -50,20 +51,20 @@ function ClubTable({ countryId, clubs }: { countryId: number; clubs: Club[] }) {
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Club</th>
-            <th className="py-2 pr-4 text-right font-medium">Members</th>
+          <tr className={CLUB_HEADER_ROW_CLASS}>
+            <th className="py-2 pr-4 form-label">Club</th>
+            <th className="py-2 pr-4 text-right form-label">Members</th>
           </tr>
         </thead>
         <tbody>
           {clubs.map((club) => (
-            <tr key={club.clubId} className="border-b border-black/5 dark:border-white/10">
+            <tr key={club.clubId} className={CLUB_ROW_CLASS}>
               <td className="py-2 pr-4">
                 <Link className="underline underline-offset-2" href={`/countries/${countryId}/clubs/${club.clubId}`}>
                   {club.name}
                 </Link>
               </td>
-              <td className="py-2 pr-4 text-right">{club.memberCount}</td>
+              <td className="py-2 pr-4 text-right tabular-nums">{club.memberCount}</td>
             </tr>
           ))}
         </tbody>

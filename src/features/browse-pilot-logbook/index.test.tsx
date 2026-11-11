@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import PilotLogbook from './index'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
@@ -69,6 +70,7 @@ describe('PilotLogbook header', () => {
         isFollowed={false}
         isSignedIn={false}
         isVerified={false}
+        mapSlot={null}
       />,
     )
 
@@ -94,13 +96,14 @@ describe('PilotLogbook header', () => {
         isFollowed={false}
         isSignedIn={false}
         isVerified={false}
+        mapSlot={null}
       />,
     )
 
     screen.getByText('7 flights shown · 1 GPS tracks')
   })
 
-  // The extreme opposite of the boundary case above: fixtures/pilot-4549.html's 134 rows are
+  // The extreme opposite of the boundary case above: a 134-row profile fixture's rows are
   // all single-flight (no aggregation at all), so row count and flight count coincide here —
   // this pins that the fix doesn't change behaviour for the common, non-aggregated case.
   it('renders row count and flight count as the same number when no row is aggregated', () => {
@@ -119,6 +122,7 @@ describe('PilotLogbook header', () => {
         isFollowed={false}
         isSignedIn={false}
         isVerified={false}
+        mapSlot={null}
       />,
     )
 
@@ -138,6 +142,7 @@ describe('PilotLogbook verified-account icon', () => {
         isFollowed={false}
         isSignedIn={false}
         isVerified={isVerified}
+        mapSlot={null}
       />,
     )
   }
@@ -154,5 +159,106 @@ describe('PilotLogbook verified-account icon', () => {
     renderLogbook(false)
 
     expect(screen.queryByRole('img', { name: VERIFIED_LABEL })).toBeNull()
+  })
+})
+
+describe('PilotLogbook year groups', () => {
+  const FLIGHTS: Flight[] = [
+    flight({ tripId: 1, date: '2026-07-01', duration: '1:00', distanceKm: 10 }),
+    flight({ tripId: 2, date: '2024-03-03', duration: '2:00', distanceKm: 20 }),
+    flight({ tripId: 3, date: '2024-00-00', duration: '0:30', flightCount: 2 }),
+  ]
+
+  function renderLogbook(flights: Flight[], mapSlot: ReactNode = null) {
+    return render(
+      <PilotLogbook
+        pilot={PILOT}
+        flights={flights}
+        trackedTripIds={new Set([1])}
+        isFollowed={false}
+        isSignedIn={false}
+        isVerified={false}
+        mapSlot={mapSlot}
+      />,
+    )
+  }
+
+  it('stacks the table below sm: with a visually hidden header and labelled totals cells', () => {
+    const { container } = renderLogbook(FLIGHTS)
+    const details = container.querySelector('details') as HTMLDetailsElement
+
+    expect(details.querySelector('thead')?.className).toContain('max-sm:sr-only')
+    for (const tag of ['table', 'tbody', 'tfoot']) expect(details.querySelector(tag)?.className).toContain('max-sm:block')
+    const totals = [...details.querySelectorAll('tfoot tr')]
+    for (const tr of totals) {
+      expect(tr.className).toContain('max-sm:block')
+      expect([...tr.querySelectorAll('td')].map((td) => td.getAttribute('data-label'))).toEqual(['Flights', 'Time', 'Distance'])
+    }
+    expect(totals).toHaveLength(3)
+  })
+
+  it('styles the table with the form layer: rule header and footer borders, muted footer', () => {
+    const { container } = renderLogbook(FLIGHTS)
+    const details = container.querySelector('details') as HTMLDetailsElement
+
+    expect(details.querySelector('thead tr')?.className).toContain('border-rule')
+    for (const th of details.querySelectorAll('thead th')) expect(th.className).toContain('form-label')
+    for (const tr of details.querySelectorAll('tfoot tr')) {
+      expect(tr.className).toContain('border-rule')
+      expect(tr.className).toContain('text-muted')
+      expect(tr.className).not.toMatch(/opacity-|black\/|white\/|dark:/)
+    }
+  })
+
+  it('renders one details per year, newest first, with only the newest open', () => {
+    const { container } = renderLogbook(FLIGHTS)
+
+    const sections = [...container.querySelectorAll('details')]
+    expect(sections.map((d) => d.querySelector('summary')?.textContent)).toEqual([
+      '2026 · 1 flight',
+      '2024 · 3 flights',
+    ])
+    expect(sections.map((d) => d.open)).toEqual([true, false])
+    expect(sections[1].querySelectorAll('tbody tr')).toHaveLength(2)
+  })
+
+  it('ends each year with this year, brought forward and cumulative footers', () => {
+    const { container } = renderLogbook(FLIGHTS)
+
+    const footerRows = (details: Element) =>
+      [...details.querySelectorAll('tfoot tr')].map((tr) => tr.textContent)
+    const [y2026, y2024] = [...container.querySelectorAll('details')]
+
+    expect(footerRows(y2026)).toEqual([
+      'This year1 flight1.0 h10.0 km',
+      'Brought forward3 flights2.5 h20.0 km',
+      'Cumulative total4 flights3.5 h30.0 km',
+    ])
+    expect(footerRows(y2024)).toEqual([
+      'This year3 flights2.5 h20.0 km',
+      'Brought forward0 flights0.0 h0.0 km',
+      'Cumulative total3 flights2.5 h20.0 km',
+    ])
+  })
+
+  it('renders the summary, then the map slot, then the first year table', () => {
+    const { container } = renderLogbook(FLIGHTS, <div data-testid="map-slot" />)
+
+    const order = [
+      screen.getByRole('region', { name: 'Summary' }),
+      screen.getByTestId('map-slot'),
+      container.querySelector('details') as Element,
+    ]
+    expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('renders the empty state without a summary or the map slot when there are no flights', () => {
+    const { container } = renderLogbook([], <div data-testid="map-slot" />)
+
+    screen.getByText(/No flights found/)
+    expect(screen.queryByRole('region', { name: 'Summary' })).toBeNull()
+    expect(screen.queryByTestId('map-slot')).toBeNull()
+    expect(container.querySelector('details')).toBeNull()
   })
 })

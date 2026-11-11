@@ -41,6 +41,7 @@ export default function BrowseClub({
   return (
     <section className="flex flex-col gap-8">
       <ClubHeader countryId={countryId} countryName={countryName} detail={detail} />
+      {!isSignedIn && roster.length > 0 && <SignInPrompt />}
       <div className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold tracking-tight">Pilot stats</h2>
         <StatsLeaderboard stats={resolvedStats} isSignedIn={isSignedIn} followedPilotIds={followedPilotIds} />
@@ -49,7 +50,7 @@ export default function BrowseClub({
         <h2 className="text-lg font-semibold tracking-tight">Members ({roster.length})</h2>
         <Roster roster={roster} isSignedIn={isSignedIn} followedPilotIds={followedPilotIdSet} />
       </div>
-      <Link className="flex w-fit items-center gap-1 text-sm underline underline-offset-2" href={`/countries/${countryId}`}>
+      <Link className="flex w-fit items-center gap-1 text-sm" href={`/countries/${countryId}`}>
         <ChevronLeft aria-hidden="true" size={14} />
         Back to {countryName} clubs
       </Link>
@@ -60,68 +61,79 @@ export default function BrowseClub({
 function ClubHeader({ countryId, countryName, detail }: { countryId: number; countryName: string; detail: ClubDetail }) {
   return (
     <header className="flex flex-col gap-2">
-      <Link className="text-sm underline underline-offset-2" href={`/countries/${countryId}`}>
+      <Link className="text-sm" href={`/countries/${countryId}`}>
         {countryName}
       </Link>
       <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="opacity-70">Members</dt>
-        <dd>{detail.memberCount}</dd>
+      <dl className="flex flex-col gap-3 text-sm">
+        <div className="flex flex-col">
+          <dt className="form-label">Members</dt>
+          <dd>{detail.memberCount}</dd>
+        </div>
         {detail.description !== null && (
-          <>
-            <dt className="opacity-70">Description</dt>
+          <div className="flex flex-col">
+            <dt className="form-label">Description</dt>
             <dd className="whitespace-pre-line">{detail.description}</dd>
-          </>
+          </div>
         )}
         {detail.coordinatesText !== null && (
-          <>
-            <dt className="opacity-70">Coordinates</dt>
+          <div className="flex flex-col">
+            <dt className="form-label">Coordinates</dt>
             <dd className="whitespace-pre-line">
               {detail.coordinatesText}
               {detail.mapUrl !== null && (
                 <>
                   {' '}
-                  <a className="inline-flex items-center gap-1 underline underline-offset-2" href={detail.mapUrl} target="_blank" rel="noreferrer">
+                  <a className="inline-flex items-center gap-1" href={detail.mapUrl} target="_blank" rel="noreferrer">
                     View on map
                     <ExternalLink aria-hidden="true" size={14} />
                   </a>
                 </>
               )}
             </dd>
-          </>
+          </div>
         )}
         {detail.linkUrl !== null && (
-          <>
-            <dt className="opacity-70">Link</dt>
+          <div className="flex flex-col">
+            <dt className="form-label">Link</dt>
             <dd>
-              <a className="underline underline-offset-2" href={detail.linkUrl} target="_blank" rel="noreferrer">
+              <a href={detail.linkUrl} target="_blank" rel="noreferrer">
                 {detail.linkUrl}
               </a>
             </dd>
-          </>
+          </div>
         )}
         {detail.createdAt !== null && (
-          <>
-            <dt className="opacity-70">Created</dt>
+          <div className="flex flex-col">
+            <dt className="form-label">Created</dt>
             <dd>
               <CalendarDate value={detail.createdAt} />
             </dd>
-          </>
+          </div>
         )}
         {detail.updatedAt !== null && (
-          <>
-            <dt className="opacity-70">Updated</dt>
+          <div className="flex flex-col">
+            <dt className="form-label">Updated</dt>
             <dd>
               <CalendarDate value={detail.updatedAt} />
             </dd>
-          </>
+          </div>
         )}
       </dl>
     </header>
   )
 }
 
-// Every roster member gets a follow button unconditionally — unlike a stats row (see
+// One prompt for both lists, so a signed-out page does not repeat the same link on every row.
+function SignInPrompt() {
+  return (
+    <Link className="w-fit text-sm" href="/sign-in">
+      Sign in to follow pilots
+    </Link>
+  )
+}
+
+// Every roster member gets a follow button when signed in, unlike a stats row (see
 // stats-leaderboard.tsx), a roster row already carries its own `user_id` straight from
 // flightlog.org, nothing to resolve or fail to resolve.
 function Roster({
@@ -138,18 +150,15 @@ function Roster({
   }
 
   return (
-    <ul className="flex flex-col divide-y divide-black/5 dark:divide-white/10">
+    <ul className="flex flex-col divide-y divide-rule">
       {roster.map((member) => (
         <li key={member.userId} className="flex items-center justify-between gap-4 py-2 text-sm">
-          <Link className="underline underline-offset-2" href={`/pilots/${member.userId}`}>
+          <Link href={`/pilots/${member.userId}`}>
             {member.name}
           </Link>
-          <FollowButton
-            isFollowed={followedPilotIds.has(member.userId)}
-            isSignedIn={isSignedIn}
-            pilotId={member.userId}
-            variant="compact"
-          />
+          {isSignedIn && (
+            <FollowButton isFollowed={followedPilotIds.has(member.userId)} isSignedIn pilotId={member.userId} variant="compact" />
+          )}
         </li>
       ))}
     </ul>

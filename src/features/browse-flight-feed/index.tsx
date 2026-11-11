@@ -1,5 +1,6 @@
 import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 import { FlightFeedView } from './flight-feed-view'
+import { SignedOutHome } from './signed-out-home'
 
 // Re-exported so index.test.tsx can keep importing them from this
 // module's own path — same barrel shape as before the flight-feed-view.tsx split.
@@ -20,9 +21,11 @@ type FlightFeedProps = {
 //
 // The following filter IS this feature's content, unlike the adornment pages
 // toFollowButtonState degrades for (see resolve-viewer-follow-state.ts's own doc comment), so
-// the full ViewerFollowState is passed straight through rather than collapsed to a plain array —
-// FlightFeedView matches on its status itself.
+// the full ViewerFollowState is passed straight through to FlightFeedView rather than collapsed
+// to a plain array, since it matches on its status itself. A signed-out visitor has no follow list to
+// filter by at all, so they get SignedOutHome (recent public flights) instead.
 export default async function FlightFeed({ defaultPilotId }: FlightFeedProps) {
-  const follows = await resolveViewerFollowState()
+  const follows = await resolveViewerFollowState(undefined, { includeTakeoffs: true })
+  if (follows.status === 'signed-out') return <SignedOutHome defaultPilotId={defaultPilotId} />
   return <FlightFeedView follows={follows} defaultPilotId={defaultPilotId} />
 }

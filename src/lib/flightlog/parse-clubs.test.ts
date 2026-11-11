@@ -63,7 +63,7 @@ describe('parseClubs', () => {
     // rows at all. Anchoring on that div alone used to return `[]` here instead of throwing.
     const pilotPageChromeHtml = `<html><body><div style='padding:0px 10px'><table><tr><td>not a club list</td></tr></table></div></body></html>`
 
-    expect(() => parseClubs(pilotPageChromeHtml, 4549)).toThrow()
+    expect(() => parseClubs(pilotPageChromeHtml, 900024)).toThrow()
   })
 
   it('throws rather than silently returning an empty list when every row uses an unexpected action code', () => {

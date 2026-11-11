@@ -43,14 +43,14 @@ describe('Search route guard', () => {
   it('calls searchPilots and passes its results through once the query clears the guard', async () => {
     mockedSearchPilots.mockResolvedValue({
       kind: 'results',
-      results: [{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }],
+      results: [{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }],
     })
 
-    const element = await Search({ searchParams: Promise.resolve({ q: 'Henden' }) })
+    const element = await Search({ searchParams: Promise.resolve({ q: 'Surname' }) })
 
-    expect(mockedSearchPilots).toHaveBeenCalledWith('Henden')
-    expect(element.props.query).toBe('Henden')
-    expect(element.props.results).toEqual([{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }])
+    expect(mockedSearchPilots).toHaveBeenCalledWith('Surname')
+    expect(element.props.query).toBe('Surname')
+    expect(element.props.results).toEqual([{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }])
   })
 
   // The bug this fix targets: a query matching exactly one pilot must land on that pilot's own

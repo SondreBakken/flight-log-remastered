@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Flight } from './types'
-import { breakdownBySite, flyingDaysByDate, parseDurationMinutes, totalDurationMinutes } from './flight-aggregates'
+import { breakdownBySite, flyingDaysByDate, parseDurationMinutes, totalDistanceKm, totalDurationMinutes } from './flight-aggregates'
 
 let nextTripId = 1
 function flight(overrides: Partial<Flight> = {}): Flight {
@@ -120,5 +120,20 @@ describe('flyingDaysByDate', () => {
 
     expect(result.size).toBe(1)
     expect(result.has('2026-00-00')).toBe(false)
+  })
+})
+
+describe('totalDistanceKm', () => {
+  it('sums distanceKm, falls back to openDistanceKm per row, and counts a null distance as 0', () => {
+    const flights = [
+      flight({ distanceKm: 10.5 }),
+      flight({ distanceKm: null, openDistanceKm: 4.25 }),
+      flight({ distanceKm: null, openDistanceKm: null }),
+    ]
+    expect(totalDistanceKm(flights)).toBeCloseTo(14.75)
+  })
+
+  it('is 0 for no flights', () => {
+    expect(totalDistanceKm([])).toBe(0)
   })
 })

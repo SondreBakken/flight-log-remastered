@@ -1,5 +1,6 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import { useEffect, useMemo, useRef } from 'react'
 import {
   LngLatBounds,
@@ -12,6 +13,7 @@ import {
   type MapMouseEvent,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { MapFrame } from '@/components/map-frame'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import {
@@ -67,10 +69,6 @@ const UNCLUSTERED_FILTER: ExpressionSpecification = ['!', ['has', 'point_count']
 
 export function unclusteredCategoryFilter(category: string): ExpressionSpecification {
   return ['all', UNCLUSTERED_FILTER, ['==', ['get', 'windCategory'], category]]
-}
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 function siteBounds(features: TakeoffSiteFeature[]): LngLatBounds | null {
@@ -346,7 +344,7 @@ export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps
       <div
         className={classes(
           sizeClasses,
-          'flex items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20',
+          'flex items-center justify-center rounded-md border border-dashed border-rule text-sm opacity-60',
         )}
       >
         No takeoffs with a recorded location
@@ -354,7 +352,11 @@ export function TakeoffsMap({ takeoffs, countryId, className }: TakeoffsMapProps
     )
   }
 
-  return <div ref={containerRef} className={classes(sizeClasses, 'overflow-hidden rounded-md')} />
+  return (
+    <MapFrame>
+      <div ref={containerRef} className={classes(sizeClasses, 'overflow-hidden rounded-md')} />
+    </MapFrame>
+  )
 }
 
 // Exported so the excluded-count clause (#12/#10's shared "excluding is fine, doing it

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useRef } from 'react'
+import { useActionState } from 'react'
 import { submitComment } from './actions'
 import type { CommentFormState } from './comment-form-state'
 
@@ -12,29 +12,24 @@ const initialState: CommentFormState = { status: 'idle' }
 export function CommentForm({ tripId }: { tripId: number }) {
   const submitCommentForFlight = submitComment.bind(null, tripId)
   const [state, formAction, pending] = useActionState(submitCommentForFlight, initialState)
-  const formRef = useRef<HTMLFormElement>(null)
 
-  // A successful post revalidates the flight page (see actions.ts), which re-renders the
-  // comment list server-side with the new comment already in it — this effect only has to
-  // clear this form's own textarea, nothing about the list.
-  useEffect(() => {
-    if (state.status === 'success') formRef.current?.reset()
-  }, [state])
-
+  // React resets the form after every action, success or error. The textarea is restored to its
+  // defaultValue: the echoed body on error (typed text survives), empty otherwise (cleared).
   return (
-    <form ref={formRef} action={formAction} className="flex flex-col gap-2">
+    <form action={formAction} className="flex flex-col gap-2">
       <label className="flex flex-col gap-1 text-sm" htmlFor="comment-body">
         Add a comment
         <textarea
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
           id="comment-body"
           name="body"
+          defaultValue={state.status === 'error' ? state.body : ''}
           required
           rows={3}
         />
       </label>
       <button
-        className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
         disabled={pending}
         type="submit"
       >

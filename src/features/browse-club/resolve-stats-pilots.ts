@@ -17,9 +17,9 @@ export type ResolvedClubStats = ClubPilotStats & { userId: number | null }
 // time either name reaches this file the "&#039; vs a literal apostrophe" mismatch that
 // motivated the "decode before comparing" rule can no longer occur; comparing the parsed
 // strings directly (verbatim, no further normalisation) IS decode-then-compare. Confirmed
-// live against Voss's own fixture (`fixtures/a26-51-club.html`'s roster spells "Luis
-// &#039;&#039;Mickey&#039;&#039; Fonseca", `fixtures/rqtid1-51.html`'s stats table spells the
-// same pilot "Luis ''Mickey'' Fonseca" verbatim — both parse to the identical string).
+// live against Voss's fixtures: a roster name containing `&#039;&#039;` and its `rqtid=1`
+// stats spelling parse to the identical string. For example, a roster
+// `Ola &#039;&#039;Kari&#039;&#039; Nordmann` and a stats `Ola ''Kari'' Nordmann` compare equal.
 function buildNameIndex(roster: ClubMember[]): Map<string, number[]> {
   const index = new Map<string, number[]>()
   for (const member of roster) {
@@ -39,8 +39,8 @@ function buildNameIndex(roster: ClubMember[]): Map<string, number[]> {
 // `ClubMember[]` directly, not this function's output.
 //
 // Do not fuzzy-match, do not guess, do not silently pick the first id on a multi-match — a
-// name shared by two roster members (Voss has 6 real collisions: "Cato Wiese-Hansen" is
-// exactly one stats row against two distinct `user_id`s, 5286 and 11085, with nothing in
+// name shared by two roster members (Voss has 6 real collisions: one name is
+// exactly one stats row against two distinct `user_id`s, with nothing in
 // either response to say which one actually flew) resolves to `userId: null`, on purpose,
 // not to whichever id happened to be pushed into the index first.
 export function resolveStatsPilots(roster: ClubMember[], stats: ClubPilotStats[]): ResolvedClubStats[] {

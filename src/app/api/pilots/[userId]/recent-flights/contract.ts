@@ -36,8 +36,8 @@ function isTrackIndexEntry(value: unknown): value is TrackIndexEntry {
 // track is known to exist at all. It classifies 'new' only against a null watermark (this
 // pilot's first ever load); against any real watermark it reads 'not-new', since a real
 // 14-digit timestamp always sorts strictly greater than `''`. Drop this once this deploy has
-// aged out of every CDN/browser cache (bounded by the Cache-Control window above), not on any
-// fixed calendar date.
+// aged out of every browser and intermediary cache (bounded by the Cache-Control window above),
+// not on any fixed calendar date.
 function legacyTrackedTrips(candidate: Record<string, unknown>): TrackIndexEntry[] | null {
   if (!Array.isArray(candidate.trackedTripIds)) return null
   if (!candidate.trackedTripIds.every((id): id is number => typeof id === 'number')) return null

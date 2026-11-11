@@ -52,12 +52,31 @@ beforeEach(() => {
   mockPush.mockClear()
 })
 
+describe('FeedEntryRow via-takeoff marker', () => {
+  it('renders no "via" text and the unchanged pilot cell for a pilot-sourced row', () => {
+    const row = remountRow(baseEntry)
+    const pilotCell = within(row).getAllByRole('cell')[1]
+
+    expect(row.textContent).not.toContain('via')
+    expect(pilotCell.innerHTML).toBe('<a href="/pilots/42">Ada Lovelace</a>')
+  })
+
+  it('renders "via <takeoff name>" linking to the takeoff page for a site-sourced row, without navigating the row', () => {
+    const row = remountRow({ ...baseEntry, viaTakeoff: { countryId: 160, takeoffId: 133, name: 'Voss, Hanguren' } })
+
+    const link = within(row).getByText('via Voss, Hanguren')
+    expect(link.getAttribute('href')).toBe('/countries/160/takeoffs/133')
+    fireEvent.click(link)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+})
+
 describe('FeedEntryRow', () => {
   it('renders the date, pilot link, and formatted flight fields in column order, plus "View track" text when a track exists', () => {
     const row = remountRow(baseEntry)
     const [dateCell, pilotCell, takeoffCell, durationCell, distanceCell, trackCell] = within(row).getAllByRole('cell')
 
-    expect(dateCell.textContent).toBe('May 1, 2026')
+    expect(dateCell.textContent).toBe('1 May 2026')
 
     const pilotLink = within(pilotCell).getByRole('link', { name: 'Ada Lovelace' })
     expect(pilotLink.getAttribute('href')).toBe('/pilots/42')
@@ -92,6 +111,25 @@ describe('FeedEntryRow', () => {
       remountRow({ ...baseEntry, hasTrack: false, newness: 'new', trackedAt: null }),
     ).getAllByRole('cell')
     expect(within(untrackedNewDateCell).queryByText('New')).not.toBeNull()
+  })
+
+  it('styles the "New" badge as a form label with a rule border, without capitals or emerald colours', () => {
+    const [dateCell] = within(remountRow({ ...baseEntry, newness: 'new' })).getAllByRole('cell')
+    const badge = within(dateCell).getByText('New')
+
+    expect(badge.className).toContain('form-label')
+    expect(badge.className).toContain('border-rule')
+    expect(badge.className).not.toMatch(/uppercase|emerald|dark:/)
+    expect(dateCell.parentElement?.querySelector('a')?.className ?? '').not.toMatch(/underline/)
+  })
+
+  it('uses rule tokens for the row border and hover, and a muted "none" for an untracked flight', () => {
+    const row = remountRow({ ...baseEntry, hasTrack: false })
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    expect(within(row).getByText('none').className).toContain('text-muted')
   })
 
   // #217, porting #213/#214's row-navigation pattern: the whole row is the click target now,

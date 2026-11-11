@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 const mockGetCurrentUserId = vi.fn()
 const mockFollowPilot = vi.fn()
 const mockUnfollowPilot = vi.fn()
+const mockFollowTakeoff = vi.fn()
+const mockUnfollowTakeoff = vi.fn()
 
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
@@ -20,13 +22,21 @@ vi.mock('@/lib/follows/unfollow-pilot', () => ({
   unfollowPilot: (...args: unknown[]) => mockUnfollowPilot(...args),
 }))
 
-import { followPilotAction, unfollowPilotAction } from './actions'
+vi.mock('@/lib/follows/follow-takeoff', () => ({
+  followTakeoff: (...args: unknown[]) => mockFollowTakeoff(...args),
+}))
+
+vi.mock('@/lib/follows/unfollow-takeoff', () => ({
+  unfollowTakeoff: (...args: unknown[]) => mockUnfollowTakeoff(...args),
+}))
+
+import { followPilotAction, followTakeoffAction, unfollowPilotAction, unfollowTakeoffAction } from './actions'
 
 describe('followPilotAction', () => {
   it('rejects with a sign-in prompt, never reaching followPilot, when there is no session', async () => {
     mockGetCurrentUserId.mockResolvedValue(null)
 
-    const result = await followPilotAction(4549)
+    const result = await followPilotAction(900024)
 
     expect(result).toEqual({ status: 'error', message: 'Sign in to follow pilots.' })
     expect(mockFollowPilot).not.toHaveBeenCalled()
@@ -36,16 +46,16 @@ describe('followPilotAction', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'followed' })
 
-    await followPilotAction(4549)
+    await followPilotAction(900024)
 
-    expect(mockFollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 4549 })
+    expect(mockFollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 900024 })
   })
 
   it('reports success when followPilot succeeds', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'followed' })
 
-    const result = await followPilotAction(4549)
+    const result = await followPilotAction(900024)
 
     expect(result).toEqual({ status: 'success' })
   })
@@ -54,7 +64,7 @@ describe('followPilotAction', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockFollowPilot.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
 
-    const result = await followPilotAction(4549)
+    const result = await followPilotAction(900024)
 
     expect(result).toEqual({ status: 'error', message: 'Something went wrong following this pilot. Try again.' })
   })
@@ -65,7 +75,7 @@ describe('unfollowPilotAction', () => {
   it('rejects with a sign-in prompt, never reaching unfollowPilot, when there is no session', async () => {
     mockGetCurrentUserId.mockResolvedValue(null)
 
-    const result = await unfollowPilotAction(4549)
+    const result = await unfollowPilotAction(900024)
 
     expect(result).toEqual({ status: 'error', message: 'Sign in to follow pilots.' })
     expect(mockUnfollowPilot).not.toHaveBeenCalled()
@@ -75,16 +85,16 @@ describe('unfollowPilotAction', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'unfollowed' })
 
-    await unfollowPilotAction(4549)
+    await unfollowPilotAction(900024)
 
-    expect(mockUnfollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 4549 })
+    expect(mockUnfollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 900024 })
   })
 
   it('reports success when unfollowPilot succeeds', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'unfollowed' })
 
-    const result = await unfollowPilotAction(4549)
+    const result = await unfollowPilotAction(900024)
 
     expect(result).toEqual({ status: 'success' })
   })
@@ -93,9 +103,42 @@ describe('unfollowPilotAction', () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockUnfollowPilot.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
 
-    const result = await unfollowPilotAction(4549)
+    const result = await unfollowPilotAction(900024)
 
     expect(result).toEqual({ status: 'error', message: 'Something went wrong unfollowing this pilot. Try again.' })
   })
 
+})
+
+const TAKEOFF = { countryId: 160, takeoffId: 133 }
+
+describe.each([
+  ['followTakeoffAction', followTakeoffAction, mockFollowTakeoff, { kind: 'followed' }, 'following'],
+  ['unfollowTakeoffAction', unfollowTakeoffAction, mockUnfollowTakeoff, { kind: 'unfollowed' }, 'unfollowing'],
+])('%s', (_name, action, mockLib, okResult, verb) => {
+  it('rejects with a sign-in prompt and writes nothing when there is no session', async () => {
+    mockGetCurrentUserId.mockResolvedValue(null)
+    mockLib.mockClear()
+
+    expect(await action(TAKEOFF)).toEqual({ status: 'error', message: 'Sign in to follow takeoffs.' })
+    expect(mockLib).not.toHaveBeenCalled()
+  })
+
+  it('passes the authenticated userId and the takeoff ref to the lib, never a client-supplied identity', async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
+    mockLib.mockResolvedValue(okResult)
+
+    expect(await action(TAKEOFF)).toEqual({ status: 'success' })
+    expect(mockLib).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', countryId: 160, takeoffId: 133 })
+  })
+
+  it('surfaces a generic error on a db error', async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
+    mockLib.mockResolvedValue({ kind: 'db-error', message: 'raw db detail' })
+
+    expect(await action(TAKEOFF)).toEqual({
+      status: 'error',
+      message: `Something went wrong ${verb} this takeoff. Try again.`,
+    })
+  })
 })

@@ -21,7 +21,7 @@ export { breakdownBySite, flyingDaysByDate, parseDurationMinutes, totalDurationM
 
 // Named for what it returns, not what the component does with it — every caller renamed the
 // old `hoursByYear` result to `minutesByYear` before using it, because the value was always
-// minutes; formatting to hours is the component's job (see formatMinutesAsHours in index.tsx).
+// minutes; formatting to hours is the component's job (see formatHours in format-flight.ts).
 export function minutesByYear(flights: Flight[]): Map<number, number> {
   const totals = new Map<number, number>()
   for (const flight of flights) {

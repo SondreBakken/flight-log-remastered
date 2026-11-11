@@ -1081,8 +1081,17 @@ describe('parseTrack stats block', () => {
     expect(track.stats.maxAltitude).toBe(804)
     expect(track.stats.minAltitude).toBe(800)
     expect(track.stats.maxSpeed).toBe('10 / 10 km/h')
+    expect(track.stats.maxSpeedKind).toBe('mean/top')
     expect(track.stats.maxClimb).toBe('2.25 m/s over 60s')
     expect(track.stats.minClimb).toBe('-2.68 m/s over 60s')
+  })
+
+  it('records the current-format 10s/60s speed label as the maxSpeedKind', () => {
+    const track = parseTrack(kmlDocument(FIVE_POINT_PLACEMARK), 1)
+
+    assertStats(track.stats)
+    expect(track.stats.maxSpeed).toBe('10 / 10 km/h')
+    expect(track.stats.maxSpeedKind).toBe('10s/60s')
   })
 
   it('a blank value column resolves to null, not the next line\'s label read across the newline as this field\'s value', () => {
@@ -1092,6 +1101,7 @@ describe('parseTrack stats block', () => {
 
     assertStats(track.stats)
     expect(track.stats.maxSpeed).toBeNull()
+    expect(track.stats.maxSpeedKind).toBeNull()
     // The sibling field on the very next line is untouched by the blank value above it.
     expect(track.stats.maxClimb).toBe('0.1 / 0.1 m/s')
   })

@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { FlightFeedView } from './index'
+
+vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({ resolveViewerFollowState: vi.fn() }))
+vi.mock('./signed-out-home', () => ({ SignedOutHome: vi.fn(() => null) }))
+
+import FlightFeed, { FlightFeedView } from './index'
+import { SignedOutHome } from './signed-out-home'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import type { ViewerFollowState } from '@/lib/follows/viewer-follow-state'
 import { getSeenTripIds, recordSeenTripIds } from '@/lib/seen-trip-store/storage'
 
 describe('FlightFeedView empty state', () => {
   it('links to /countries, the actual browse-countries route, not a typo of it', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={4549} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(
       screen.getByRole('link', { name: /browse clubs by country/i }).getAttribute('href'),
@@ -15,23 +22,50 @@ describe('FlightFeedView empty state', () => {
 
 describe('FlightFeedView follows-unavailable state', () => {
   it('renders a visible error notice, not the "follows nobody" empty state, when the follow list failed to load', () => {
-    render(<FlightFeedView follows={{ status: 'follows-unavailable' }} defaultPilotId={4549} />)
+    render(<FlightFeedView follows={{ status: 'follows-unavailable' }} defaultPilotId={900024} />)
 
     expect(screen.getByText("Couldn't load the pilots you follow right now.")).toBeTruthy()
     expect(screen.queryByText('Flights from pilots you follow show up here.')).toBeNull()
   })
 
   it('renders the ordinary content for a resolved, genuinely empty follow list', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={4549} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(screen.queryByText("Couldn't load the pilots you follow right now.")).toBeNull()
   })
+})
 
-  it('renders the ordinary empty state for a signed-out visitor too, same as a resolved empty list', () => {
-    render(<FlightFeedView follows={{ status: 'signed-out' }} defaultPilotId={4549} />)
+describe('FlightFeed branching on the viewer follow state', () => {
+  const DEFAULT_PILOT_ID = 900024
 
-    expect(screen.queryByText("Couldn't load the pilots you follow right now.")).toBeNull()
-    expect(screen.getByText('Flights from pilots you follow show up here.')).toBeTruthy()
+  async function feedFor(follows: ViewerFollowState) {
+    vi.mocked(resolveViewerFollowState).mockResolvedValue(follows)
+    return FlightFeed({ defaultPilotId: DEFAULT_PILOT_ID })
+  }
+
+  it('renders SignedOutHome, not FlightFeedView, for a signed-out visitor', async () => {
+    const element = await feedFor({ status: 'signed-out' })
+
+    expect(element.type).toBe(SignedOutHome)
+    expect(element.props).toEqual({ defaultPilotId: DEFAULT_PILOT_ID })
+  })
+
+  it.each<ViewerFollowState>([
+    { status: 'resolved', followedPilotIds: [], followedTakeoffs: [] },
+    { status: 'resolved', followedPilotIds: [11, 12], followedTakeoffs: [] },
+    { status: 'resolved', followedPilotIds: [], followedTakeoffs: [{ countryId: 160, takeoffId: 133 }] },
+    { status: 'follows-unavailable' },
+  ])('renders FlightFeedView with the unchanged follows prop for %o', async (follows) => {
+    const element = await feedFor(follows)
+
+    expect(element.type).toBe(FlightFeedView)
+    expect(element.props).toEqual({ follows, defaultPilotId: DEFAULT_PILOT_ID })
+  })
+
+  it('asks the resolver for every followed pilot and the followed takeoffs, which the feed renders', async () => {
+    await feedFor({ status: 'signed-out' })
+
+    expect(resolveViewerFollowState).toHaveBeenCalledWith(undefined, { includeTakeoffs: true })
   })
 })
 
@@ -50,13 +84,13 @@ describe('FlightFeedView seen-trip prune (#155 follow-up)', () => {
   })
 
   it('leaves the pruned pilot untouched when follows are unavailable, rather than pruning against an empty stand-in', () => {
-    render(<FlightFeedView follows={{ status: 'follows-unavailable' }} defaultPilotId={4549} />)
+    render(<FlightFeedView follows={{ status: 'follows-unavailable' }} defaultPilotId={900024} />)
 
     expect(getSeenTripIds(PRUNE_TEST_PILOT_ID)).not.toBeNull()
   })
 
   it('prunes a pilot who has fallen out of the resolved follow list once follows do resolve', () => {
-    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [] }} defaultPilotId={4549} />)
+    render(<FlightFeedView follows={{ status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }} defaultPilotId={900024} />)
 
     expect(getSeenTripIds(PRUNE_TEST_PILOT_ID)).toBeNull()
   })

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Pencil } from 'lucide-react'
+import { EditableValueRow } from '@/components/editable-value-row'
 import { saveCertificateLevelAction } from './actions'
 import { CERTIFICATE_LEVELS, type CertificateLevel } from '@/lib/certificates/types'
 
@@ -47,54 +47,44 @@ export function CertificateLevelForm({ currentLevel }: CertificateLevelFormProps
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-sm">
-        {!isEditing && (
-          <>
-            <span className="opacity-70">Current certificate level:</span>
-            <span className="font-medium">{currentLevel ?? 'Not set'}</span>
-          </>
-        )}
-        <button
-          aria-label={isEditing ? 'Close certificate level editor' : 'Edit certificate level'}
-          className="rounded p-1 opacity-70 hover:opacity-100"
-          onClick={toggleEditing}
-          type="button"
-        >
-          <Pencil size={14} />
-        </button>
-      </div>
-      {isEditing && (
-        <form className="flex max-w-sm flex-col gap-2" onSubmit={handleSubmit}>
-          <label className="flex flex-col gap-1 text-sm" htmlFor="certificate-level">
-            Current certificate level
-            <select
-              className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
-              id="certificate-level"
-              onChange={(event) => setSelected(event.target.value)}
-              value={selected}
-            >
-              <option value="">Not set</option>
-              {CERTIFICATE_LEVELS.map((level) => (
-                <option key={level} value={level}>
-                  {level}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
-            disabled={isPending || selected === ''}
-            type="submit"
+    <EditableValueRow
+      closeLabel="Close certificate level editor"
+      editLabel="Edit certificate level"
+      isEditing={isEditing}
+      label="Current certificate level:"
+      note={isEditing && <p className="text-sm opacity-70">Self-declared, unverified.</p>}
+      onEdit={toggleEditing}
+      toggle
+      value={currentLevel ?? 'Not set'}
+    >
+      <form className="flex max-w-sm flex-col gap-2" onSubmit={handleSubmit}>
+        <label className="flex flex-col gap-1 text-sm" htmlFor="certificate-level">
+          Current certificate level
+          <select
+            className="rounded border border-frame px-3 py-1.5 text-sm"
+            id="certificate-level"
+            onChange={(event) => setSelected(event.target.value)}
+            value={selected}
           >
-            {isPending ? 'Saving…' : 'Save'}
-          </button>
-          <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
-            {status.kind === 'error' && status.message}
-          </p>
-          <p className="text-sm opacity-70">Self-declared, unverified.</p>
-        </form>
-      )}
-    </div>
+            <option value="">Not set</option>
+            {CERTIFICATE_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
+          disabled={isPending || selected === ''}
+          type="submit"
+        >
+          {isPending ? 'Saving…' : 'Save'}
+        </button>
+        <p aria-live="polite" className="text-sm text-red-600 dark:text-red-400">
+          {status.kind === 'error' && status.message}
+        </p>
+      </form>
+    </EditableValueRow>
   )
 }

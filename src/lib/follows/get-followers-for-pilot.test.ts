@@ -74,10 +74,10 @@ describe('getFollowersForPilot', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const unmigrated = createUnmigratedTestDatabase()
 
-    const error = await getFollowersForPilot(unmigrated.db, 'user-abc', 4549).catch((thrown: unknown) => thrown)
+    const error = await getFollowersForPilot(unmigrated.db, 'user-abc', 900024).catch((thrown: unknown) => thrown)
 
     expect(error).toBeInstanceOf(FollowsQueryError)
-    expect((error as FollowsQueryError).message).toMatch(/4549/)
+    expect((error as FollowsQueryError).message).toMatch(/900024/)
     expect((error as FollowsQueryError).cause).toBeInstanceOf(Error)
     await unmigrated.client.close()
   })

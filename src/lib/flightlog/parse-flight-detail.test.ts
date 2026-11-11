@@ -102,6 +102,62 @@ const WRONG_LABELS_HTML = `<html><body>
 </div>
 </body></html>`
 
+// Synthetic breadcrumb (#308: no real pilot names or ids), same shape as the live tracked page:
+// the pilot anchor follows `Pilots/Clubs` directly, outside the content div.
+const BREADCRUMB = `<span><a href='/fl.html?l=1&a=3'>Pilots/Clubs</a></span> -> <span><a href='/fl.html?l=1&a=28&user_id=900001'>Pilot One</a></span> -> Flights`
+const HONEYPOT = `<a class='hp-nav' data-trap='1' rel='nofollow' href='/fl.html?l=1&a=28&user_id=900666'>Pilot Trap</a>`
+const withBreadcrumb = (html: string, breadcrumb: string) => html.replace('<body>', `<body>\n${breadcrumb}`)
+
+describe('parseFlightDetail pilot', () => {
+  it('reads the pilot from the anchor after Pilots/Clubs', () => {
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, BREADCRUMB), 803981)?.pilot).toEqual({
+      name: 'Pilot One',
+      userId: 900001,
+    })
+  })
+
+  it('ignores a honeypot a=28 link placed before the breadcrumb', () => {
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, HONEYPOT + BREADCRUMB), 803981)?.pilot).toEqual({
+      name: 'Pilot One',
+      userId: 900001,
+    })
+  })
+
+  it('ignores a honeypot anchor between Pilots/Clubs and the pilot anchor', () => {
+    const between = BREADCRUMB.replace(' -> <span><a href=', `${HONEYPOT} -> <span><a href=`)
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, between), 803981)?.pilot?.userId).toBe(900001)
+  })
+
+  it('ignores an unmarked a=28 anchor nested in an hp-nav ancestor, between Pilots/Clubs and the pilot', () => {
+    const nested = `<div class='hp-nav'><a href='/fl.html?l=1&a=28&user_id=900666'>Pilot Trap</a></div>`
+    const between = BREADCRUMB.replace(' -> <span><a href=', `${nested} -> <span><a href=`)
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, between), 803981)?.pilot?.userId).toBe(900001)
+  })
+
+  it('ignores a nested trap whose text is Pilots/Clubs placed before the breadcrumb', () => {
+    const trap = `<div class='hp-nav'><a href='/fl.html?l=1&a=3'>Pilots/Clubs</a></div><a href='/fl.html?l=1&a=28&user_id=900666'>Pilot Trap</a>`
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, trap + BREADCRUMB), 803981)?.pilot?.userId).toBe(900001)
+  })
+
+  it('is null when only a honeypot a=28 link exists and no real breadcrumb', () => {
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, HONEYPOT), 803981)?.pilot).toBeNull()
+  })
+
+  it.each([
+    ['no Pilots/Clubs anchor', `<a href='/fl.html?l=1&a=28&user_id=900001'>Pilot One</a>`],
+    ['next anchor is not a=28', `<a>Pilots/Clubs</a> <a href='/fl.html?l=1&a=22&user_id=900001'>Pilot One</a>`],
+    ['next anchor has no user_id', `<a>Pilots/Clubs</a> <a href='/fl.html?l=1&a=28'>Pilot One</a>`],
+    ['user_id is non-numeric', `<a>Pilots/Clubs</a> <a href='/fl.html?l=1&a=28&user_id=abc'>Pilot One</a>`],
+    ['name is empty', `<a>Pilots/Clubs</a> <a href='/fl.html?l=1&a=28&user_id=900001'>  </a>`],
+  ])('is null, without throwing, when %s', (_case, breadcrumb) => {
+    expect(parseFlightDetail(withBreadcrumb(POPULATED_HTML, breadcrumb), 803981)?.pilot).toBeNull()
+  })
+
+  it('is null for a page with no breadcrumb', () => {
+    expect(parseFlightDetail(POPULATED_HTML, 803981)?.pilot).toBeNull()
+  })
+})
+
 describe('parseFlightDetail', () => {
   it('parses a fully populated (tracked) flight, ignoring the interleaved scoring rows', () => {
     const detail = parseFlightDetail(POPULATED_HTML, 803981)
@@ -137,6 +193,7 @@ describe('parseFlightDetail', () => {
       maxAltitude: null,
       description: 'Min første høydetur',
       takeoffType: 'mountain',
+      pilot: null,
     })
   })
 

@@ -9,8 +9,9 @@ import { waitForCondition } from './lib/verify-settle'
 // (src/features/browse-flight-feed/index.tsx) resolves the viewer's followed pilots from the
 // `follows` table, keyed on the signed-in user's id. This script signs in a stable test user for
 // real, then writes/clears that user's rows directly in the app database's `follows` table between
-// scenarios. Scenario 1 (empty state) runs BEFORE the sign-in step below it, specifically so it
-// stays a genuine signed-out visitor rather than a signed-in user who happens to follow nobody.
+// scenarios. Scenario 1 (signed-out home content) runs BEFORE the sign-in step below it,
+// specifically so it stays a genuine signed-out visitor. The empty state (a signed-in user who
+// follows nobody) is checked right after sign-in, as scenario 1b.
 //
 // Signing in goes through Better Auth's own magic-link verify endpoint, the same URL a real email
 // carries: the script writes the test user and a single-use magic-link token straight into the
@@ -197,21 +198,67 @@ function reportNoUnexpectedFailures(scenarioLabel: string): void {
   report(pageErrors.length === 0, `${scenarioLabel}: no uncaught page errors (saw: ${pageErrors.length ? pageErrors.join('; ') : 'none'})`)
 }
 
-// --- 1. Empty state: nothing followed, no seed at all ---
+// --- 1. Signed-out home: intro, recent tracked flights, discovery links, no follow prompt ---
 
 await page.goto(url, { waitUntil: 'domcontentloaded' })
-await page.waitForTimeout(500) // client store hydration + effect scheduling
-
-const emptyStateText = await page.evaluate(() =>
-  document.body.textContent?.includes('You are not following any pilots yet') ?? false,
+// SignedOutHome is a server component that fetches live flightlog.org data: wait for its table
+// rows (the content under test) or its "unavailable" fallback rather than a fixed delay, and fail
+// if neither ever renders. The fallback is a legitimate state when the upstream is down, so it is
+// reported on its own line; only the two row-link assertions are skipped (no rows to inspect), the heading,
+// prompt and link assertions still run, and none of it fails.
+const SIGNED_OUT_FALLBACK_TEXT = 'Recent flights are unavailable right now.'
+function isSignedOutHomeSettled(): boolean {
+  const hasRows = document.querySelectorAll('table tbody tr').length > 0
+  const hasFallback = document.body.textContent?.includes('Recent flights are unavailable right now.') ?? false
+  return hasRows || hasFallback
+}
+const signedOutSettled = await waitForOrReport(
+  page,
+  isSignedOutHomeSettled,
+  `signed-out home: recent flight rows or the "${SIGNED_OUT_FALLBACK_TEXT}" fallback render within the timeout`,
 )
-const emptyStateHasRealLink = await page.evaluate(() => {
-  const link = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes("Browse a pilot's logbook"))
-  return link?.getAttribute('href')?.startsWith('/pilots/') ?? false
-})
-report(emptyStateText, 'empty state renders explaining text when nothing is followed')
-report(emptyStateHasRealLink, 'empty state links to a real /pilots/[userId] route, not a dead link')
-reportNoUnexpectedFailures('empty state')
+const signedOutShowsFallback =
+  signedOutSettled && (await page.evaluate(() => document.querySelectorAll('table tbody tr').length === 0))
+if (signedOutShowsFallback) {
+  console.log(`signed-out home: showing the "${SIGNED_OUT_FALLBACK_TEXT}" fallback (upstream unavailable), row-link assertions skipped`)
+}
+if (signedOutSettled) {
+  const signedOut = await page.evaluate(() => {
+    // Content links only: SiteNav (outside main) carries /pilots/search and /countries on every page.
+    const hrefs = [...document.querySelectorAll('main a')].map((a) => a.getAttribute('href') ?? '')
+    const rowLinks = [...document.querySelectorAll('table tbody tr a')].map((a) => ({
+      text: a.textContent?.trim() ?? '',
+      href: a.getAttribute('href') ?? '',
+    }))
+    return {
+      heading: document.querySelector('h1')?.textContent?.trim() ?? '',
+      bodyText: document.body.textContent ?? '',
+      hrefs,
+      rowLinks,
+      logbookHref: [...document.querySelectorAll('a')].find((a) => a.textContent?.includes("Browse a pilot's logbook"))?.getAttribute('href') ?? null,
+    }
+  })
+  report(signedOut.heading === 'Recent flights', `signed-out home: h1 reads "Recent flights" (saw: ${signedOut.heading})`)
+  if (!signedOutShowsFallback) {
+    report(
+      signedOut.rowLinks.some((l) => l.text === 'View track' && /^\/flights\/\d+$/.test(l.href)),
+      'signed-out home: a row links to /flights/[tripId] labelled "View track"',
+    )
+    report(
+      signedOut.rowLinks.some((l) => /^\/pilots\/\d+$/.test(l.href)),
+      'signed-out home: a row links to /pilots/[userId]',
+    )
+  }
+  report(
+    !signedOut.bodyText.includes('You are not following any pilots yet'),
+    'signed-out home: does not show the not-following prompt',
+  )
+  for (const href of ['/pilots/search', '/countries']) {
+    report(signedOut.hrefs.includes(href), `signed-out home: links to ${href}`)
+  }
+  report(signedOut.logbookHref?.startsWith('/pilots/') ?? false, 'signed-out home: the "Browse a pilot\'s logbook" link points at a /pilots/[userId] route')
+}
+reportNoUnexpectedFailures('signed-out home')
 
 // --- Sign in for real, on the SAME page/context, only now that scenario 1 (which needs a
 // genuinely signed-out visitor) is done. See signInAsTestUser's own doc comment for the
@@ -220,6 +267,29 @@ reportNoUnexpectedFailures('empty state')
 resetCapture()
 await signInAsTestUser(page, TEST_USER_EMAIL)
 reportNoUnexpectedFailures('sign-in')
+
+// --- 1b. Empty state: signed in, following nobody ---
+
+resetCapture()
+await clearFollows(testUserId)
+await page.goto(url, { waitUntil: 'domcontentloaded' })
+const emptyStateReady = await waitForOrReport(
+  page,
+  () => document.body.textContent?.includes('You are not following any pilots yet') ?? false,
+  'empty state: a signed-in user who follows nobody sees the not-following prompt within the timeout',
+)
+if (emptyStateReady) {
+  const emptyStateHasRealLink = await page.evaluate(() => {
+    const link = [...document.querySelectorAll('a')].find((a) => a.textContent?.includes("Browse a pilot's logbook"))
+    return link?.getAttribute('href')?.startsWith('/pilots/') ?? false
+  })
+  const emptyStateHasSearchLink = await page.evaluate(
+    () => document.querySelector('main a[href="/pilots/search"]') !== null,
+  )
+  report(emptyStateHasRealLink, 'empty state links to a real /pilots/[userId] route, not a dead link')
+  report(emptyStateHasSearchLink, 'empty state links to /pilots/search')
+}
+reportNoUnexpectedFailures('empty state')
 
 // --- 2. Following ONLY the pilot with a known GPS track ---
 

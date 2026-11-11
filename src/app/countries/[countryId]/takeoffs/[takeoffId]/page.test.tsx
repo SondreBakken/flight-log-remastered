@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 // Same reasoning as the sibling directory's page.test.tsx: mocking the whole module (hoisted
 // above these imports by Vitest) means the real 'server-only' fetchers never run, so this test
 // never touches the network.
-vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+vi.mock('@/lib/flightlog/countries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/flightlog/countries')>()),
+  getCountries: vi.fn(),
+}))
 vi.mock('@/lib/flightlog/takeoff-detail', () => ({ getTakeoffDetail: vi.fn() }))
 vi.mock('@/lib/flightlog/takeoff-flights', () => ({ getTakeoffFlights: vi.fn() }))
 vi.mock('@/lib/flightlog/takeoffs', () => ({ getTakeoffs: vi.fn() }))
@@ -15,14 +18,15 @@ vi.mock('@/lib/flightlog/config', () => ({ flightlogTakeoffUrl: vi.fn(() => 'htt
 
 // The real resolver reads the session from request headers, which do not exist outside a request.
 vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
-  resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),
+  resolveViewerFollowState: vi.fn(async () => ({ status: 'signed-out' })),
 }))
 
 import { getCountries } from '@/lib/flightlog/countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
-import { TakeoffDetail } from './page'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { TakeoffDetail, generateMetadata } from './page'
 
 const mockedGetCountries = vi.mocked(getCountries)
 const mockedGetTakeoffDetail = vi.mocked(getTakeoffDetail)
@@ -130,6 +134,23 @@ describe('TakeoffDetail route guard', () => {
     expect(element.props.mapEntry).toEqual(KNOWN_LOCATION_TAKEOFF)
   })
 
+  it.each([
+    [[{ countryId: 160, takeoffId: 179 }], true],
+    [[{ countryId: 203, takeoffId: 179 }], false],
+  ])('passes isFollowed from the resolved follow state for this exact (country, takeoff): %j -> %s', async (followedTakeoffs, expected) => {
+    vi.mocked(resolveViewerFollowState).mockResolvedValueOnce({ status: 'resolved', followedPilotIds: [], followedTakeoffs })
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
+    mockedGetTakeoffFlights.mockResolvedValue([])
+    mockedGetTakeoffs.mockResolvedValue([])
+
+    const element = await TakeoffDetail({ params: Promise.resolve({ countryId: '160', takeoffId: '179' }) })
+
+    expect(element.props.isSignedIn).toBe(true)
+    expect(element.props.isFollowed).toBe(expected)
+    expect(resolveViewerFollowState).toHaveBeenLastCalledWith(expect.any(Array), { includeTakeoffs: true })
+  })
+
   it('falls back to a generic country label when the resolved country id is absent from getCountries', async () => {
     mockedGetCountries.mockResolvedValue([{ countryId: 203, name: 'Sweden' }])
     mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
@@ -168,5 +189,38 @@ describe('TakeoffDetail route guard', () => {
     const element = await TakeoffDetail({ params: Promise.resolve({ countryId: '160', takeoffId: '179' }) })
 
     expect(element.props.mapEntry).toBeNull()
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (countryId: string, takeoffId: string) =>
+    generateMetadata({ params: Promise.resolve({ countryId, takeoffId }) })
+
+  it('titles with the takeoff name and country name, fetching detail by the parsed ids', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
+
+    expect(await metadataFor('160', '179')).toEqual({ title: 'Drammen, Solbergåsen, Norway' })
+    expect(mockedGetTakeoffDetail).toHaveBeenCalledWith(160, 179)
+    expect(mockedGetTakeoffFlights).not.toHaveBeenCalled()
+  })
+
+  it('renders notFound when detail is null', async () => {
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(null)
+
+    await expect(metadataFor('160', '999999')).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+  })
+
+  it.each([
+    ['999', '179'],
+    ['abc', '179'],
+    ['160', 'abc'],
+    ['160', '0'],
+    ['160', '-3'],
+    ['160', '1.5'],
+  ])('renders notFound for countryId %j and takeoffId %j without fetching', async (countryId, takeoffId) => {
+    await expect(metadataFor(countryId, takeoffId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetTakeoffDetail).not.toHaveBeenCalled()
   })
 })

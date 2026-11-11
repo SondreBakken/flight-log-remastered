@@ -17,7 +17,7 @@ const BREADCRUMB = (name: string | null) =>
 const POPULATED_HTML = `<html><body>
 <table><tr><td>${BREADCRUMB('Drammen, Solbergåsen')}</td></tr></table>
 <div style='padding:0px 10px'>
-<div align='left'><table cellspacing='1' cellpadding='3' bgcolor='black'><tr><td bgcolor='white'>region</td><td bgcolor='white'>Buskerud</td></tr><tr><td bgcolor='white'>Altitude</td><td bgcolor='white'>401 meters asl Top to bottom 398 meters</td></tr><tr><td bgcolor='white'>Link to more info</td><td bgcolor='white'><a href='http://goo.gl/maps/eiVlQ'>http://goo.gl/maps/eiVlQ</a></td></tr><tr><td bgcolor='white' colspan='2'><a href='https://holfuy.com/en/map/wind'>Map with Holfuy weather stations in the area</a></td></tr><tr><td bgcolor='white'>Description</td><td bgcolor='white'><img src='/fl.html?rqtid=17' alt=' E SE' align='right'><a href='/fl.html?rqtid=3'><img src='/fl.html?rqtid=3' alt='photo of start'></a><br/>Pilottrinn PP3/SP3<br />Veibeskrivelse:<br />Følg stien.<br /></td></tr><tr><td bgcolor='white'>Coordinates</td><td bgcolor='white'>DMS: N 59&deg; 46' 8''<br>UTM: 32V</td></tr><tr><td bgcolor='white'>weather</td><td bgcolor='white'><a href='http://ready.arl.noaa.gov/x'>http://ready.arl.noaa.gov/x<a/></td></tr><tr><td bgcolor='white'>Siterecord</td><td bgcolor='white'>PG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=803981'>Mikael Benjamin Ulstrup, 196.9 Km</a>&nbsp;&nbsp;HG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=594778'>Frederic Bakken, 37.4 Km</a>&nbsp;&nbsp;HG2: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=167461'>Werner Johannessen, 5.5 Km</a>&nbsp;&nbsp;PPG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=219127'>Milan Lindauer, 8.8 Km</a>&nbsp;&nbsp;PHG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=569931'>Reidar Berntsen, 11.3 Km</a>&nbsp;&nbsp;</td></tr><tr><td bgcolor='white'>created</td><td bgcolor='white'>0000-00-00 00:00:00 </td></tr><tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2023-04-09 18:21:29 Espen Åshammer</td></tr></table>
+<div align='left'><table cellspacing='1' cellpadding='3' bgcolor='black'><tr><td bgcolor='white'>region</td><td bgcolor='white'>Buskerud</td></tr><tr><td bgcolor='white'>Altitude</td><td bgcolor='white'>401 meters asl Top to bottom 398 meters</td></tr><tr><td bgcolor='white'>Link to more info</td><td bgcolor='white'><a href='http://goo.gl/maps/eiVlQ'>http://goo.gl/maps/eiVlQ</a></td></tr><tr><td bgcolor='white' colspan='2'><a href='https://holfuy.com/en/map/wind'>Map with Holfuy weather stations in the area</a></td></tr><tr><td bgcolor='white'>Description</td><td bgcolor='white'><img src='/fl.html?rqtid=17' alt=' E SE' align='right'><a href='/fl.html?rqtid=3'><img src='/fl.html?rqtid=3' alt='photo of start'></a><br/>Pilottrinn PP3/SP3<br />Veibeskrivelse:<br />Følg stien.<br /></td></tr><tr><td bgcolor='white'>Coordinates</td><td bgcolor='white'>DMS: N 59&deg; 46' 8''<br>UTM: 32V</td></tr><tr><td bgcolor='white'>weather</td><td bgcolor='white'><a href='http://ready.arl.noaa.gov/x'>http://ready.arl.noaa.gov/x<a/></td></tr><tr><td bgcolor='white'>Siterecord</td><td bgcolor='white'>PG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=9000005'>Pilot Seventeen, 196.9 Km</a>&nbsp;&nbsp;HG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=9000001'>Pilot Eight, 37.4 Km</a>&nbsp;&nbsp;HG2: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=9000002'>Pilot Nine, 5.5 Km</a>&nbsp;&nbsp;PPG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=9000003'>Pilot Ten, 8.8 Km</a>&nbsp;&nbsp;PHG: <a href='https://flightlog.org/fl.html?l=1&a=34&trip_id=9000004'>Pilot Eleven, 11.3 Km</a>&nbsp;&nbsp;</td></tr><tr><td bgcolor='white'>created</td><td bgcolor='white'>0000-00-00 00:00:00 </td></tr><tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2023-04-09 18:21:29 Pilot Seven</td></tr></table>
 </div>
 </div></body></html>`
 
@@ -66,13 +66,13 @@ describe('parseTakeoffDetail', () => {
       description: 'Pilottrinn PP3/SP3\nVeibeskrivelse:\nFølg stien.',
       linkUrl: 'http://goo.gl/maps/eiVlQ',
       createdAt: null,
-      updatedAt: '2023-04-09 18:21:29 Espen Åshammer',
+      updatedAt: '2023-04-09 18:21:29 Pilot Seven',
       siteRecords: [
-        { recordClass: 'PG', pilotName: 'Mikael Benjamin Ulstrup', distanceKm: 196.9, tripId: 803981 },
-        { recordClass: 'HG', pilotName: 'Frederic Bakken', distanceKm: 37.4, tripId: 594778 },
-        { recordClass: 'HG2', pilotName: 'Werner Johannessen', distanceKm: 5.5, tripId: 167461 },
-        { recordClass: 'PPG', pilotName: 'Milan Lindauer', distanceKm: 8.8, tripId: 219127 },
-        { recordClass: 'PHG', pilotName: 'Reidar Berntsen', distanceKm: 11.3, tripId: 569931 },
+        { recordClass: 'PG', pilotName: 'Pilot Seventeen', distanceKm: 196.9, tripId: 9000005 },
+        { recordClass: 'HG', pilotName: 'Pilot Eight', distanceKm: 37.4, tripId: 9000001 },
+        { recordClass: 'HG2', pilotName: 'Pilot Nine', distanceKm: 5.5, tripId: 9000002 },
+        { recordClass: 'PPG', pilotName: 'Pilot Ten', distanceKm: 8.8, tripId: 9000003 },
+        { recordClass: 'PHG', pilotName: 'Pilot Eleven', distanceKm: 11.3, tripId: 9000004 },
       ],
     })
   })

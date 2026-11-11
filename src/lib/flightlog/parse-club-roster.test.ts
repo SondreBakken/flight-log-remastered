@@ -17,9 +17,9 @@ const ROSTER_HTML = `<html><body>
 <tr><td><a href="https://flightlog.org/fl.html?l=1&amp;a=28&amp;user_id=9000&amp;xc=xc"><img src="yi.html" alt="pilot details"></a></td></tr>
 </table>
 <table cellspacing='1' cellpadding='3' bgcolor='black'>
-<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Ada Sofie Thrane Bjoroy</a></td></tr>
-<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=2>Cato Wiese-Hansen</a></td></tr>
-<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=3>Cato Wiese-Hansen</a></td></tr>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Pilot Five</a></td></tr>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=2>Pilot Four</a></td></tr>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=3>Pilot Four</a></td></tr>
 <tr><td bgcolor='white'><a href='/fl.html?a=28&user_id=999' class='hp-nav' style='position:absolute;left:-9999px;top:-9999px;' rel='nofollow' data-trap='1'>Resources</a></td></tr>
 </table>
 </body></html>`
@@ -33,9 +33,9 @@ describe('parseClubRoster', () => {
     const roster = parseClubRoster(ROSTER_HTML, 51)
 
     expect(roster).toEqual([
-      { userId: 1, name: 'Ada Sofie Thrane Bjoroy' },
-      { userId: 2, name: 'Cato Wiese-Hansen' },
-      { userId: 3, name: 'Cato Wiese-Hansen' },
+      { userId: 1, name: 'Pilot Five' },
+      { userId: 2, name: 'Pilot Four' },
+      { userId: 3, name: 'Pilot Four' },
     ])
   })
 
@@ -62,10 +62,10 @@ describe('parseClubRoster', () => {
 
   it('dedupes an exact repeated user_id, but keeps two distinct ids that share a name', () => {
     const dupeHtml = `<html><body><table cellspacing='1' cellpadding='3' bgcolor='black'>
-    <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Ada Sofie Thrane Bjoroy</a></td></tr>
-    <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Ada Sofie Thrane Bjoroy</a></td></tr>
+    <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Pilot Five</a></td></tr>
+    <tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=1>Pilot Five</a></td></tr>
     </table></body></html>`
 
-    expect(parseClubRoster(dupeHtml, 51)).toEqual([{ userId: 1, name: 'Ada Sofie Thrane Bjoroy' }])
+    expect(parseClubRoster(dupeHtml, 51)).toEqual([{ userId: 1, name: 'Pilot Five' }])
   })
 })

@@ -55,6 +55,20 @@ export const follows = pgTable(
   ],
 )
 
+export const followedTakeoffs = pgTable(
+  'followed_takeoffs',
+  {
+    userId: ownerUserId(),
+    countryId: integer('country_id').notNull(),
+    takeoffId: integer('takeoff_id').notNull(),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: 'followed_takeoffs_pkey', columns: [table.userId, table.countryId, table.takeoffId] }),
+    index('followed_takeoffs_user_id_idx').on(table.userId),
+  ],
+)
+
 export const profiles = pgTable(
   'profiles',
   {

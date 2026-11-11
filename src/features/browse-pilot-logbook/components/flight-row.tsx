@@ -1,9 +1,11 @@
 'use client'
 
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, MouseEvent } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Flight } from '@/lib/flightlog/types'
 import { CalendarDate } from '@/components/calendar-date'
+import { STACKED_CELL } from '../stacked-cell'
 import { formatFlightDistance, formatFlightDuration } from '@/lib/flightlog/format-flight'
 
 type FlightRowProps = {
@@ -14,8 +16,9 @@ type FlightRowProps = {
 // The whole row is the navigation target (#213), not just the Track cell — most flights have
 // no track, so a link confined to that cell left most rows with no way to reach their flight
 // page (and its comments) at all. A `<tr>` can't be an `<a>`, so this is onClick + a keyboard
-// handler rather than a real link; no cell below carries its own link/button, which is what
-// keeps this from becoming an interactive element nested inside a clickable row.
+// handler rather than a real link. A tracked row's Track cell also holds a real anchor (a
+// crawlable, ctrl-clickable link); the row handlers ignore events from inside it so the anchor's
+// own navigation is never doubled by router.push.
 //
 // No role="button" here (#233, same fix as #221/#231 on the feed-entry-row and
 // browse-takeoff-detail flight-row siblings): ARIA prohibits role="button" on a <tr>, since it
@@ -29,7 +32,13 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
     router.push(href)
   }
 
+  function handleClick(event: MouseEvent<HTMLTableRowElement>) {
+    if (isFromAnchor(event.target)) return
+    navigateToFlight()
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
+    if (event.target !== event.currentTarget) return
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
     navigateToFlight()
@@ -38,29 +47,33 @@ export function FlightRow({ flight, hasTrack }: FlightRowProps) {
   return (
     <tr
       aria-label="View flight details"
-      className="cursor-pointer border-b border-black/5 hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.03]"
-      onClick={navigateToFlight}
+      className="cursor-pointer max-sm:block max-sm:py-2 border-b border-rule hover:bg-rule/30"
+      onClick={handleClick}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <td className="py-2 pr-4 whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Date">
         <CalendarDate value={flight.date} />
       </td>
       {/* data-testid: scripts/verify-flown-sites.mts (F5) cross-checks the flown-sites
           section's own matched+unmatched count against the DISTINCT takeoff names this table
           renders independently — an under-reporting bug in the join would show up here as a
           disagreement between the two. */}
-      <td className="py-2 pr-4" data-testid="flight-takeoff">{flight.takeoff ?? '—'}</td>
-      <td className="py-2 pr-4 opacity-70">{flight.glider ?? '—'}</td>
-      <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Takeoff" data-testid="flight-takeoff">{flight.takeoff ?? '—'}</td>
+      <td className={`py-2 pr-4 text-muted ${STACKED_CELL}`} data-label="Glider">{flight.glider ?? '—'}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Time">
         {formatFlightDuration(flight)}
       </td>
-      <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
+      <td className={`py-2 pr-4 text-right whitespace-nowrap tabular-nums ${STACKED_CELL}`} data-label="Distance">
         {formatFlightDistance(flight)}
       </td>
-      <td className="py-2">
-        {hasTrack ? <span>View track</span> : <span className="opacity-40">none</span>}
+      <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Track">
+        {hasTrack && <Link href={href}>View track</Link>}
       </td>
     </tr>
   )
+}
+
+function isFromAnchor(target: EventTarget): boolean {
+  return target instanceof Element && target.closest('a') !== null
 }

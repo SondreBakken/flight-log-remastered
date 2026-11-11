@@ -7,6 +7,8 @@ import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
 import type { ResolvedClubStats } from './resolve-stats-pilots'
 import { sortResolvedStats, type ClubStatsSortKey, type SortDirection } from './sort-resolved-stats'
+import { STACKED_CELL } from '@/features/browse-pilot-logbook/stacked-cell'
+import { MISSING_VALUE } from '@/lib/flightlog/format-flight'
 import type { PilotId } from '@/lib/flightlog/types'
 
 type StatsLeaderboardProps = {
@@ -56,20 +58,21 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Pilot</th>
+      <table className="w-full border-collapse text-sm max-sm:block">
+        {/* Stays visible below sm: as a flex row of the sort buttons, since the column headers are the only sort control. */}
+        <thead className="max-sm:block">
+          <tr className="border-b border-rule text-left max-sm:flex max-sm:flex-wrap max-sm:gap-x-4">
+            <th className="py-2 pr-4 max-sm:hidden form-label">Pilot</th>
             {COLUMNS.map((column) => (
               <th
                 key={column.key}
-                className="py-2 pr-4 text-right font-medium"
+                className="py-2 pr-4 text-right form-label max-sm:pr-0"
                 aria-sort={sort.key === column.key ? (sort.direction === 'desc' ? 'descending' : 'ascending') : 'none'}
               >
                 <button
                   type="button"
                   onClick={() => setSort((current) => nextSort(current, column.key))}
-                  className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+                  className="inline-flex items-center gap-1"
                 >
                   {column.label}
                   {sort.key === column.key &&
@@ -77,10 +80,10 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
                 </button>
               </th>
             ))}
-            <th className="py-2 font-medium">Follow</th>
+            {isSignedIn && <th className="py-2 max-sm:hidden form-label">Follow</th>}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-sm:block">
           {rows.map((row) => (
             <StatsRow
               key={row.userId ?? `${row.name}-${row.flights}-${row.distanceKm}-${row.hours}`}
@@ -95,6 +98,12 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
   )
 }
 
+// rqtid=1 reports a pilot without distance as 0.0000, so 0 cannot be told apart from "no tracks"
+// and renders as missing (#290). Hours is not treated this way and still shows 0.0.
+function formatDistanceKm(distanceKm: number): string {
+  return distanceKm === 0 ? MISSING_VALUE : distanceKm.toFixed(1)
+}
+
 // A stats row's own `userId` is `null` whenever its name resolved to zero OR more than one
 // roster member (see resolve-stats-pilots.ts) — two different causes with one shared
 // consequence, "no link available", not as a name that merely looks like every other row.
@@ -107,27 +116,27 @@ export function StatsLeaderboard({ stats, isSignedIn, followedPilotIds }: StatsL
 // screen reader — so the same explanation is repeated as visible text via `sr-only`.
 function StatsRow({ row, isFollowed, isSignedIn }: { row: ResolvedClubStats; isFollowed: boolean; isSignedIn: boolean }) {
   return (
-    <tr className="border-b border-black/5 dark:border-white/10">
-      <td className="py-2 pr-4">
+    <tr className="border-b border-rule max-sm:block max-sm:py-2">
+      <td className={`py-2 pr-4 ${STACKED_CELL}`} data-label="Pilot">
         {row.userId === null ? (
           <span title="No pilot profile link available for this name">
             <span>{row.name}</span>
             <span className="sr-only"> (no pilot profile link available for this name)</span>
           </span>
         ) : (
-          <Link className="underline underline-offset-2" href={`/pilots/${row.userId}`}>
+          <Link href={`/pilots/${row.userId}`}>
             {row.name}
           </Link>
         )}
       </td>
-      <td className="py-2 pr-4 text-right">{row.flights}</td>
-      <td className="py-2 pr-4 text-right">{row.distanceKm.toFixed(1)}</td>
-      <td className="py-2 pr-4 text-right">{row.hours.toFixed(1)}</td>
-      <td className="py-2">
-        {row.userId !== null && (
-          <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={row.userId} variant="compact" />
-        )}
-      </td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Flights">{row.flights}</td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Distance (km)">{formatDistanceKm(row.distanceKm)}</td>
+      <td className={`py-2 pr-4 text-right tabular-nums ${STACKED_CELL}`} data-label="Hours">{row.hours.toFixed(1)}</td>
+      {isSignedIn && (
+        <td className={`py-2 max-sm:empty:hidden! ${STACKED_CELL}`} data-label="Follow">
+          {row.userId !== null && <FollowButton isFollowed={isFollowed} isSignedIn pilotId={row.userId} variant="compact" />}
+        </td>
+      )}
     </tr>
   )
 }

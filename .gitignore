@@ -33,9 +33,6 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# vercel
-.vercel
-
 # screenshots from scripts/shot.mts and scripts/verify-*.mts
 /*.png
 
@@ -56,3 +53,6 @@ next-env.d.ts
 
 # autopilot run state
 .autopilot/
+
+# vitest junit reporter output
+/test-results/

@@ -1,10 +1,16 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { BadgeCheck } from 'lucide-react'
 import type { Flight, Pilot } from '@/lib/flightlog/types'
 import { totalFlightCount } from '@/lib/flightlog/flight-count'
+import { formatHours } from '@/lib/flightlog/format-flight'
+import { pluralize } from '@/lib/text/pluralize'
 import { FollowButton } from '@/components/follow-button'
 import { EmptyState } from '@/components/empty-state'
+import { VerificationStamp } from '@/components/verification-stamp'
 import { FlightRow } from './components/flight-row'
+import { LogbookSummary } from './components/logbook-summary'
+import { STACKED_CELL } from './stacked-cell'
+import { groupFlightsByYear, type LogbookTotals, type YearGroup } from './year-groups'
 
 type PilotLogbookProps = {
   pilot: Pilot
@@ -15,9 +21,12 @@ type PilotLogbookProps = {
   isFollowed: boolean
   isSignedIn: boolean
   isVerified: boolean
+  // Rendered between the summary and the table: the page owns the flown-sites map's own
+  // Suspense boundary, the logbook only owns where it sits.
+  mapSlot: ReactNode
 }
 
-export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn, isVerified }: PilotLogbookProps) {
+export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowed, isSignedIn, isVerified, mapSlot }: PilotLogbookProps) {
   return (
     <section className="flex flex-col gap-6">
       <PilotHeader
@@ -29,7 +38,11 @@ export default function PilotLogbook({ pilot, flights, trackedTripIds, isFollowe
         isVerified={isVerified}
       />
       {flights.length === 0 ? <EmptyLogbook /> : (
-        <FlightTable flights={flights} trackedTripIds={trackedTripIds} />
+        <>
+          <LogbookSummary flights={flights} />
+          {mapSlot}
+          <YearTables flights={flights} trackedTripIds={trackedTripIds} />
+        </>
       )}
     </section>
   )
@@ -72,7 +85,7 @@ function PilotHeader({
     <header className="flex flex-col gap-1">
       <div className="flex items-center gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">{pilot.name}</h1>
-        {isVerified && <VerifiedAccountIcon />}
+        {isVerified && <VerificationStamp label={VERIFIED_ACCOUNT_LABEL} size={20} />}
         <span className="shrink-0 whitespace-nowrap">
           <FollowButton isFollowed={isFollowed} isSignedIn={isSignedIn} pilotId={pilot.userId} variant="prominent" />
         </span>
@@ -89,15 +102,7 @@ function PilotHeader({
 
 const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flight Log Remastered'
 
-function VerifiedAccountIcon() {
-  return (
-    <span className="shrink-0 text-sky-600 dark:text-sky-400" role="img" aria-label={VERIFIED_ACCOUNT_LABEL} title={VERIFIED_ACCOUNT_LABEL}>
-      <BadgeCheck aria-hidden="true" size={20} />
-    </span>
-  )
-}
-
-function FlightTable({
+function YearTables({
   flights,
   trackedTripIds,
 }: {
@@ -105,29 +110,70 @@ function FlightTable({
   trackedTripIds: Set<number>
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Takeoff</th>
-            <th className="py-2 pr-4 font-medium">Glider</th>
-            <th className="py-2 pr-4 text-right font-medium">Time</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 font-medium">Track</th>
-          </tr>
-        </thead>
-        <tbody>
-          {flights.map((flight) => (
-            <FlightRow
-              key={flight.tripId}
-              flight={flight}
-              hasTrack={trackedTripIds.has(flight.tripId)}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-4">
+      {groupFlightsByYear(flights).map((group, index) => (
+        <YearSection key={group.year} group={group} isNewest={index === 0} trackedTripIds={trackedTripIds} />
+      ))}
     </div>
+  )
+}
+
+function YearSection({
+  group,
+  isNewest,
+  trackedTripIds,
+}: {
+  group: YearGroup
+  isNewest: boolean
+  trackedTripIds: Set<number>
+}) {
+  return (
+    <details open={isNewest}>
+      <summary className="cursor-pointer py-2 font-medium">
+        {group.year} · {pluralize(group.thisYear.flightCount, 'flight')}
+      </summary>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm max-sm:block">
+          <thead className="max-sm:sr-only">
+            <tr className="border-b border-rule text-left">
+              <th className="py-2 pr-4 form-label">Date</th>
+              <th className="py-2 pr-4 form-label">Takeoff</th>
+              <th className="py-2 pr-4 form-label">Glider</th>
+              <th className="py-2 pr-4 text-right form-label">Time</th>
+              <th className="py-2 pr-4 text-right form-label">Distance</th>
+              <th className="py-2 form-label">Track</th>
+            </tr>
+          </thead>
+          <tbody className="max-sm:block">
+            {group.flights.map((flight) => (
+              <FlightRow
+                key={flight.tripId}
+                flight={flight}
+                hasTrack={trackedTripIds.has(flight.tripId)}
+              />
+            ))}
+          </tbody>
+          <tfoot className="max-sm:block">
+            <TotalsRow label="This year" totals={group.thisYear} />
+            <TotalsRow label="Brought forward" totals={group.broughtForward} />
+            <TotalsRow label="Cumulative total" totals={group.cumulative} />
+          </tfoot>
+        </table>
+      </div>
+    </details>
+  )
+}
+
+// Below sm: the three value cells stack under the label row, so the colSpan={3} label cell
+// becomes a block of its own instead of spanning columns that no longer exist.
+function TotalsRow({ label, totals }: { label: string; totals: LogbookTotals }) {
+  return (
+    <tr className="border-t border-rule max-sm:block max-sm:py-2 tabular-nums text-muted">
+      <th className="py-2 pr-4 text-left max-sm:block max-sm:py-0.5 max-sm:pr-0" colSpan={3} scope="row">{label}</th>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Flights">{pluralize(totals.flightCount, 'flight')}</td>
+      <td className={`py-2 pr-4 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Time">{formatHours(totals.minutes)}</td>
+      <td className={`py-2 text-right whitespace-nowrap ${STACKED_CELL}`} data-label="Distance">{totals.distanceKm.toFixed(1)} km</td>
+    </tr>
   )
 }
 
@@ -135,7 +181,7 @@ function EmptyLogbook() {
   return (
     <EmptyState>
       No flights found for this pilot.{' '}
-      <Link className="underline" href="/">
+      <Link href="/">
         Back to your feed
       </Link>
     </EmptyState>

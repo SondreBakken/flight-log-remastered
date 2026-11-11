@@ -274,11 +274,11 @@ capture of both endpoints, full and empty alike) — just one `<table border=1>`
 ### rqtid=21 (the sync endpoint)
 
 ```
-GET /fl.html?rqtid=21&user_id=4549&year=2026&ts=0
+GET /fl.html?rqtid=21&user_id=900003&year=2026&ts=0
 {"description":"Returns id and ts (timestamp) for all tracklogs by a user in a given year
   that been created/updated after given ts. Use query string ?rqtid=19&trip_id={trip_id}
   to fetch tracklog in kml format.",
- "query_string_parameters":{"rqtid":21,"user_id":4549,"year":2026,"ts":0},
+ "query_string_parameters":{"rqtid":21,"user_id":900003,"year":2026,"ts":0},
  "data_item_count":7,
  "data_fields":"trip_id, ts",
  "data_items":[[991729,"20260523164423"],[1001428,"20260720135025"], …]}
@@ -312,7 +312,7 @@ resolved with an **anonymous** session (below) — pilot search needs no auth. R
 |---|---|---|---|
 | 1 | Home | — | — |
 | 2 | Takeoffs, country index | — | `gm`, `last_days` |
-| 3 | Pilots/Clubs, country index | — | — |
+| 3 | Pilots/Clubs, country index (per-country counts, see below) | — | — |
 | 4 | Newsgroups | — | — |
 | 5 | Help | — | — |
 | 20 | Takeoffs, variant listing | — | — |
@@ -354,18 +354,17 @@ a decorative pager (unlike `a=42`'s own `offset=1000`, which appears identically
 more rows exist — see below): requesting a known total with `offset=N` returns exactly
 `total - N` rows, and an `offset` at or past the total returns zero rows.
 
-- **Gary Fisher (`user_id=4549`, Lier Hanggliderklubb), 134 rows, 2008-2026.** No `offset`:
+- **A Lier Hanggliderklubb pilot, 134 rows, 2008-2026.** No `offset`:
   134 rows (`totalFlightCount` sum also 134 — every row is `flightCount=1` for this pilot).
   `offset=100`: 34 rows (134 - 100). `offset=1000`: 0 rows.
-- **Eskil Sætren (`user_id=12242`, Voss Hang- og Paragliderklubb), a much higher-volume
-  pilot** (`rqtid=1&club_id=51`'s current-year leaderboard has him at 356 flights for 2026
-  alone — the single busiest row of 291 that club's stats table returned). No `offset`:
+- **A much higher-volume Voss Hang- og Paragliderklubb pilot** (`rqtid=1&club_id=51`'s current-year
+  leaderboard has him at 356 flights for 2026 alone — the single busiest row of 291 that club's stats table returned). No `offset`:
   172 rows, `totalFlightCount` sum 919, spanning 2024-2026. `offset=100`: 72 rows
   (172 - 100). `offset=200`: 0 rows.
 - **Cross-check against `rqtid=1`'s own "Flights" column**, which is a CURRENT-YEAR total,
   not all-time (measured, not documented anywhere on the site): both pilots' `a=28` rows
   filtered down to 2026-dated flights alone sum to exactly their `rqtid=1` Flights figure
-  (Gary Fisher: 9 flights / 85.7 km, matching `rqtid=1&club_id=16` exactly; Eskil Sætren:
+  (the Lier pilot: 9 flights / 85.7 km, matching `rqtid=1&club_id=16` exactly; the Voss pilot:
   356 flights, matching `rqtid=1&club_id=51` exactly). This confirms `a=28`'s per-row data is
   accurate at the row level; it is the `offset` arithmetic above (not this cross-check alone)
   that establishes completeness, since `rqtid=1` has no all-time figure to compare a no-offset
@@ -424,8 +423,8 @@ the same div that holds the search form itself, with `<br>` as the only separato
       <input name='form' type='hidden' value='find_user'> Find pilot (wildcards: % _): <input name='user_fullname' type='text' size='15' style='font-size:9px' value='nde'>
       <input name='go' type='submit' value='Go' style='font-size:9px'>
       </form>
-      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=6924'>JHON ALEXANDER QUINTERO GUTIERREZ</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=8167'>Anders Steffensen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11048'>Lars Funder</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=10258'>Sofie K. H. Andersen</a><br>France:<br>...
-      ...&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=3140'>Anders Lindmarker</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=11512'>Matt Sanders</a><br><hr>
+      Colombia:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900015'>Pilot Fifteen</a><br>Denmark:<br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900013'>Pilot Thirteen</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900012'>Pilot Twelve</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900014'>Pilot Fourteen</a><br>France:<br>...
+      ...&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900022'>Pilot Twenty-Two</a><br>&nbsp;&nbsp;&nbsp;<a href='https://flightlog.org/fl.html?l=1&a=28&user_id=900023'>Pilot Twenty-Three</a><br><hr>
 </div>
 ```
 
@@ -446,20 +445,19 @@ the same div that holds the search form itself, with `<br>` as the only separato
   the same way an empty text node does — nothing special to special-case there.
 - The whole result set is closed by a bare `<hr>` before the div closes; there is no other
   terminator.
-- Non-ASCII names appear undecorated (`Samúel Alexandersson`, `ú`) and decode normally as HTML
+- Non-ASCII names appear undecorated (`Pílot Twenty-One`, `ú`) and decode normally as HTML
   text content.
 
-**Matching semantics**, resolved with two queries against the known-good `Henden` set (Børge 2831,
-Nils Aage 754, Patrick 11072, all Norway):
+**Matching semantics**, resolved with two queries against the known three-pilot surname set (all Norway):
 
-- `user_fullname=nde` — an interior substring of "Henden" (not a token, not a prefix or suffix, not
-  the surname itself) returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
+- `user_fullname=nde`: the surname shown above is a placeholder; the real surname contained `nde` as an
+  interior substring (not a token, not a prefix or suffix, not the surname itself). It returned 407 pilots across ~10 countries (Colombia, Denmark, France, Iceland,
   India, Netherlands, Northern Mariana Islands, Norway, Sweden, United Kingdom in the fixture on
-  hand), including the 3 known Hendens and many whose *first* name alone contains "nde" (e.g.
+  hand), including the 3 known pilots and many whose *first* name alone contains "nde" (e.g.
   "Anders...", "Aleksander..."). This confirms **case-insensitive substring match against the full
   display name** (first + last, not a surname-only column) — it rules out token match,
   surname-prefix match, and exact-surname-column match in the one query.
-- `user_fullname=H_nden` (literal underscore) returned exactly the same 3 Hendens. This confirms
+- `user_fullname=S_rname` (literal underscore) returned exactly the same 3 pilots. This confirms
   the advertised `_` wildcard is a real SQL `LIKE` single-char wildcard layered on top of the
   implicit substring wrap, not a literal character requiring escaping — the wildcard claim is
   accurate, and it is not made redundant by the implicit substring behavior since it lets a caller
@@ -502,7 +500,7 @@ honeypot copy, same as every other page) around one results block:
   happens to sit only in the shared nav chrome above the results table, never inside it, so
   immunity today is incidental to where the trap happens to be, not to what the selector checks.
   A trap constructed with a `club_id=` and an `a=26` href, placed inside the results table, is
-  indistinguishable from a real row by href alone. The parser (`parse-clubs.ts`) therefore
+  indistinguishable from a real row by href alone. The parsers (`parse-clubs.ts`, `parse-pilot-search.ts`, `parse-flight-detail.ts`, via the shared `HONEYPOT_SELECTOR` in `honeypot.ts`) therefore
   excludes anchors carrying `class="hp-nav"`, `data-trap`, or `rel="nofollow"` explicitly,
   regardless of where in the document they sit or what their href contains — a structural check,
   not a positional one.
@@ -577,7 +575,7 @@ separate ones for takeoff detail vs. flights.
 <tr><td bgcolor='white'>Updated</td><td bgcolor='white'>2026-02-14 13:52:15 Martin Krossøy</td></tr>
 </table>
 <table><tr><td><h4>Club members</h4><table cellspacing='1' cellpadding='3' bgcolor='black'>
-<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=8711>Ada Sofie Thrane Bjorøy</a></td></tr>
+<tr><td bgcolor="white"><a href=https://flightlog.org/fl.html?l=1&a=28&user_id=900005>Pilot Five</a></td></tr>
 …
 </table></td><td>&nbsp;&nbsp;</td></tr><table>
 </div>
@@ -633,15 +631,16 @@ separate ones for takeoff detail vs. flights.
   on the document, the same scoping discipline `parse-clubs.ts` already uses for its own anchor
   search.
 - **A name can legitimately belong to two different members.** Voss's 1271-row roster has 7 name
-  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. "Cato Wiese-Hansen" as
-  `user_id` 5286 and 11085; the 7th is the 5 phantom blank-name icon anchors above, which never
-  reach the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
+  collisions once scoped correctly (6 real pairs of distinct pilots, e.g. one name shared by two
+  distinct `user_id`s; the 7th is the 5 phantom blank-name icon anchors above, which never reach
+  the parser at all once scoped). None of these collapse — `parseClubRoster` dedupes by
   `user_id` only, never by name, so two members sharing a name are two rows, not one.
 - **HTML entities decode to identical text across the roster and `rqtid=1`'s stats table** —
-  the roster spells one Voss pilot `Luis &#039;&#039;Mickey&#039;&#039; Fonseca`, `rqtid=1`'s
-  own stats table spells the same pilot `Luis ''Mickey'' Fonseca` verbatim. Both parse through
-  cheerio's own `.text()`, which decodes entities during HTML parsing — confirmed live, not
-  assumed: the two strings compare equal with no extra decode step in `resolve-stats-pilots.ts`.
+  a roster name containing `&#039;&#039;` and `rqtid=1`'s own stats table spelling of the same
+  pilot parse to the identical string. Both parse through cheerio's own `.text()`, which
+  decodes entities during HTML parsing. Confirmed live against the fixtures, not assumed: the
+  two strings compare equal with no extra decode step in `resolve-stats-pilots.ts`. For
+  example, a roster `Ola &#039;&#039;Kari&#039;&#039; Nordmann` and a stats `Ola ''Kari'' Nordmann`.
   See "THE JOIN" below for why this matters.
 
 ### THE JOIN — resolving `rqtid=1`'s name-only stats to a roster `user_id` — #7
@@ -650,8 +649,8 @@ separate ones for takeoff detail vs. flights.
 to have no reliable per-pilot key for this table, only a name. Cross-referencing it against
 `a=26`'s roster is therefore a genuine best-effort join, not a lookup with a guaranteed answer,
 and the ambiguity is real: Voss's 290-row stats table resolves 289 rows to exactly one roster
-`user_id` and leaves exactly 1 — "Cato Wiese-Hansen" — unresolved, because that name belongs to
-two distinct roster members (5286, 11085) and there is nothing in either response to say which
+`user_id` and leaves exactly 1, one shared name, unresolved, because that name belongs to
+two distinct roster members (two user_ids) and there is nothing in either response to say which
 one actually flew.
 
 This app's own join (`src/features/browse-club/resolve-stats-pilots.ts`) is built FROM the
@@ -662,7 +661,7 @@ button is therefore unconditional (the roster always has their `user_id`, indepe
 whether they show up in `rqtid=1` at all); a stats-leaderboard row's follow button/link is
 conditional, resolved only where its name indexes to exactly one roster `user_id` — zero
 matches (a name in `rqtid=1` that isn't in the current roster at all) and more-than-one match
-(the Cato Wiese-Hansen case) both resolve to no link, never a guess. This repo has shipped the
+(the shared-name case) both resolve to no link, never a guess. This repo has shipped the
 "parser answers confidently with the wrong thing" failure five times before this issue (#25,
 #6, #32, #8, #59) — silently picking one of two ambiguous `user_id`s here would be a sixth.
 
@@ -700,7 +699,7 @@ the ambiguous 302), just not a detail page — this app never fetches it.
   of these labels. A parser fed either by mistake sees the identical table selector but none of
   the expected labels, and throws rather than returning an empty-looking detail object.
 - **`Siterecord`** — the best PG, HG and HG2 distance ever flown from this takeoff, e.g. `PG:
-  <a href='…a=34&trip_id=803981'>Mikael Benjamin Ulstrup, 196.9 Km</a>&nbsp;&nbsp;HG: …`. The
+  <a href='…a=34&trip_id=9000005'>Pilot Seventeen, 196.9 Km</a>&nbsp;&nbsp;HG: …`. The
   class label (`PG`/`HG`/`HG2`) is a bare text node immediately before its anchor, not an
   attribute. Each anchor's `href` carries a `trip_id` but **no `user_id`** — unlike `a=42`'s own
   flight rows (below), a site record's pilot name cannot be a follow target from this response
@@ -744,10 +743,32 @@ the ambiguous 302), just not a detail page — this app never fetches it.
 - **`a=93`** (a flight-stats tab both `a=22` and `a=42`'s breadcrumbs link to) — not
   investigated.
 
+### Country counts (`a=3`) — #319
+
+```
+GET /fl.html?l=1&a=3
+```
+
+> Taken from the repo owner's 2026-11-11 description of the page (an anonymous fetch showed 82
+> distinct `country_id`s). **Unverified by a saved fixture**: the parser test uses an inline sample
+> written from that description. Save a real response as a fixture when one can be fetched.
+
+Two lists, each opened by a heading line:
+
+| Heading | Entry link action | Meaning |
+|---|---|---|
+| `No of registered users per country:` | `a=48` | registered pilots per country |
+| `No of clubs per country:` | `a=25` | clubs per country |
+
+Entry shape: `<a href='…country_id=N'>Name</a> (count)<br>`, count a bare integer (e.g. `(1293)`). A
+country absent from the clubs list has no clubs. Join key against `rqtid=9` is `country_id`; names
+may differ, so the app shows the `rqtid=9` name. `parseCountryCounts` skips honeypot anchors and
+entries whose count is not digits, and keeps the first entry on a duplicate id.
+
 ### Flight detail (`a=34`) — #215
 
 ```
-GET /fl.html?l=1&a=34&trip_id=803981
+GET /fl.html?l=1&a=34&trip_id=9000005
 ```
 
 - **Results table.** `a=34`'s own label/value fields live in `table[cellspacing='1'
@@ -760,9 +781,9 @@ GET /fl.html?l=1&a=34&trip_id=803981
   `2608 meters above sea-level`, not a bare number — same convention as `a=22`'s own `Altitude`
   row), `Description` (free HTML, `<br>`-separated, no leading wind-compass image the way
   `a=22`'s own Description cell has one), `Takeoff type` (e.g. `mountain`).
-- **Tracked-only extras, interleaved between `Description` and `Takeoff type` — not
-  requested by this app's own scraper, which only ever runs for a trip `hasTrack` already
-  reported false for.** A tracked flight's `Description` cell has flightlog.org's own
+- **Tracked-only extras, interleaved between `Description` and `Takeoff type`.** This app
+  requests `a=34` for tracked trips too (#303: pilot and distance for the page heading and
+  summary row). A tracked flight's `Description` cell has flightlog.org's own
   auto-generated `Flight statistics` block appended (`<pre>…</pre>`) after the pilot's own free
   text, and a `View trip`, `Open distance` and `Best distance over 5 points` row each appear
   between `Description` and `Takeoff type`. The `Open distance` row is genuinely malformed live
@@ -772,6 +793,12 @@ GET /fl.html?l=1&a=34&trip_id=803981
   ordinary HTML parser still recovers a normal 2-`<td>` row from it, but only label-keyed
   extraction (not a fixed row index) survives this reliably, since these extra rows' PRESENCE,
   COUNT and POSITION all vary with the flight's own track/scoring data.
+- **Breadcrumb pilot (#303).** Outside the content div, the breadcrumb reads `Home ->
+  Pilots/Clubs -> <pilot> -> Flights -> …`; the pilot is an anchor `…a=28&user_id=<id>` right
+  after the `Pilots/Clubs` anchor (confirmed live on a tracked trip). The per-request `hp-nav`
+  honeypot anchor (`data-trap='1'`) can sit anywhere in the page, including with an `a=28&user_id=`
+  href, so anchors inside `.hp-nav` or `[data-trap]` are ignored before the breadcrumb is walked.
+  Missing or malformed breadcrumb gives a null pilot, not a parse error.
 - **Untracked flight (`fixtures/a34-1001964-detail.html`, this app's own pilot account, which
   has no GPS tracks at all — see #215's own background).** Every row above is still present,
   but `Distance (km)` and `Max altitude` render with a BLANK value, not an absent row — the same
@@ -798,32 +825,49 @@ Hand-rolled server-side HTML, no JS, no client-side rendering. Fixed-position ta
 consistent `bgcolor='white'` / `bgcolor='#22aa00'` striping, predictable `a=NN&param=X` link shapes
 across every page type. A row-based parser is sufficient; no headless browser needed.
 
-Flight row from `a=47&country_id=14`, trimmed:
+### a=47 (flights in a country)
+
+Fetched by `getCountryFlights` (`src/lib/flightlog/country-flights.ts`) for the signed-out home
+page, parsed by `parseCountryFlights`. Fixtures: `src/lib/flightlog/fixtures/a47-country-160.html`
+(bare page) and `a47-country-160-2026-11-09.html` (a day page), both trimmed from live GETs of
+`country_id=160` on 2026-11-10 (session minted at `/`, browser UA, `a=48` referer).
+
+- Anonymous GET works: HTTP 200, `<h3>Flights - Norway</h3>` heading, the same
+  `table[cellspacing=1][cellpadding=2][bgcolor=#22aa00]` results table as `a=42`.
+- The bare page lists only the newest day (one flight on 2026-11-10), above an index of
+  `YYYY-MM-DD : <a ...&year=YYYY&tripdate=YYYY-MM-DD>N flights</a>` lines (newest first, plus a
+  `tripdate=YYYY-00-00` whole-year entry). `&year=<y>&tripdate=<d>` returns that day's flights
+  (71 on 2026-11-08, 10 on 2026-11-09), grouped under per-takeoff rows.
+- Row layout inside the table: a date row (`<td colspan='6'><b>date</b></td>`), then per takeoff a
+  2-cell row (empty cell, `colspan='5'` cell with an `a=42` takeoff link), then that takeoff's
+  6-cell flight rows. The 2-cell rows are not 6-cell rows, so the `a=42` row walker skips them.
+
+Flight row, trimmed:
 
 ```html
-<tr><td bgcolor='white' colspan='6'><b>2026-07-25</b></td></tr>
+<tr><td bgcolor='white' colspan='6'><b>2026-11-09</b></td></tr>
 <tr><td bgcolor='white'></td><td bgcolor='white' colspan='5'>
-  <b><a href='?l=1&a=42&country_id=14&start_id=9006'>Emberger Alm</a></b>
+  <b><a href='?l=1&a=42&country_id=160&start_id=26'>Hemsedal, Totten (2)</a></b>
 </td></tr>
 <tr>
-  <td width='35' bgcolor='white'><img src='yi.html?h7=n6d' alt='Added in the last 24 hours'></td>
+  <td width='35' bgcolor='white'>12:50<br><img src='yi.html?h7=n6d' alt='Added in the last 24 hours'></td>
   <td width='45' bgcolor='white' align='right'>
-    <a href='?l=1&a=34&user_id=754&trip_id=1002691'><img src='yi.html?h7=tgf' alt='View trip'></a>
+    <a href='?l=1&a=34&user_id=11405&trip_id=1017579'><img src='yi.html?h7=e3u' alt='View trip'></a>
   </td>
   <td width='450' bgcolor='white'>
-    <a href='?l=1&a=28&user_id=754'>Nils Aage Henden</a> -
-    <a href='?l=1&a=43&country_id=160&club_id=32'>Jetta Luftsportsklubb</a> -
+    <a href='?l=1&a=28&user_id=11405'>Thomas Lone</a> -
+    <a href='?l=1&a=43&country_id=160&club_id=193'>Hallingdal Paragliderklubb</a> -
     <a href='?l=1&a=48&country_id=160'>Norway</a><br>
-    Moyes Litespeed RX 3,5
+    Ozone Zeolite 2
   </td>
-  <td width='35' bgcolor='white' align='right'>01:55</td>
-  <td width='50' bgcolor='white' align='right'></td>
-  <td width='100' bgcolor='white' style='font-size:9px'>V/NV flisette etter en runde vestover</td>
+  <td width='35' bgcolor='white' align='right'>00:07</td>
+  <td width='50' bgcolor='white' align='right'>2.9 km</td>
+  <td width='100' bgcolor='white' style='font-size:9px'></td>
 </tr>
 ```
 
-Columns: recency icon, trip-view icon link, pilot/club/country + glider, duration, distance
-(blank when 0), free-text note.
+Columns: recency icon (with the time of day when known), trip-view icon link, pilot/club/country
++ glider, duration, distance (blank when 0), free-text note.
 
 Filter out `class='hp-nav'` / `data-trap` links before following anything.
 

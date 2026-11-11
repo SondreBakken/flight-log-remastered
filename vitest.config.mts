@@ -19,5 +19,14 @@ export default defineConfig({
     // before any test called the mock with a valid case — inserting a valid-case test
     // above them turned all four red.
     clearMocks: true,
+    // Each DB test file boots PGlite (WASM) and runs every drizzle/ migration in beforeAll: about
+    // 1.5 s idle, and over the 10 s default hookTimeout when `pnpm test` shares the CPU with
+    // another load (12 busy loops on 12 cores failed 20 files). The test timeout is raised for
+    // the same contention, which also pushed jsdom + userEvent tests past 5 s.
+    hookTimeout: 60_000,
+    testTimeout: 30_000,
+    // #297, #302: keep the failure message and stack of a flaky test on disk after the run.
+    reporters: ['default', 'junit'],
+    outputFile: { junit: './test-results/junit.xml' },
   },
 })

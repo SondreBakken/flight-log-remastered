@@ -1,5 +1,8 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import SignIn from '@/features/sign-in'
+
+export const metadata: Metadata = { title: 'Sign in' }
 
 // No server-side "redirect if already signed in" guard here: AuthStatus already hides the
 // sign-in link once signed in (see components/site-nav/auth-status.tsx), so this route is

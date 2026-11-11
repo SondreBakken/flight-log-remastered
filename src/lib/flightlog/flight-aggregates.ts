@@ -48,3 +48,9 @@ export function flyingDaysByDate(flights: Flight[]): Map<string, number> {
 export function flightDistanceKm(flight: Flight): number | null {
   return flight.distanceKm ?? flight.openDistanceKm
 }
+
+// Summed as published, like longestFlightByDistance: an aggregated row's distance may be a group
+// total. A row with no distance counts 0.
+export function totalDistanceKm(flights: Flight[]): number {
+  return flights.reduce((total, flight) => total + (flightDistanceKm(flight) ?? 0), 0)
+}

@@ -1,7 +1,10 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import Link from 'next/link'
 import AccountSettings from '@/features/account'
 import { WHO_FOLLOWS_AND_COMMENTED } from '@/features/account-activity/copy'
+
+export const metadata: Metadata = { title: 'Account' }
 
 // AccountSettings reads the session, so it sits behind a Suspense boundary and the rest of the
 // page stays a prerendered shell. The activity link is static: /account/activity handles every
@@ -16,7 +19,7 @@ export default function AccountPage() {
       <Suspense fallback={<AccountSettingsSkeleton />}>
         <AccountSettings />
       </Suspense>
-      <Link className="text-sm underline underline-offset-2" href="/account/activity">
+      <Link className="text-sm" href="/account/activity">
         See {WHO_FOLLOWS_AND_COMMENTED}
       </Link>
     </section>

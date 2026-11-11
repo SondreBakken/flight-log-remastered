@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { classes } from '@/lib/classes'
 import {
   LngLatBounds,
   MapLibreMap,
@@ -9,6 +10,7 @@ import {
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { ScoringGeometry, TrackPoint } from '@/lib/flightlog/types'
+import { MapFrame } from '@/components/map-frame'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { altitudeColorRampCss, buildAltitudeGradient, type GradientStop } from './altitude-color'
@@ -113,10 +115,6 @@ function toLineGradientExpression(stops: GradientStop[]): ExpressionSpecificatio
     ['line-progress'],
     ...stops.flatMap((stop) => [stop.fraction, stop.color]),
   ] as ExpressionSpecification
-}
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, className }: TrackMapProps) {
@@ -356,7 +354,7 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
       <div
         className={classes(
           DEFAULT_SIZE_CLASSES,
-          'flex items-center justify-center rounded-md border border-dashed border-black/15 text-sm opacity-60 dark:border-white/20',
+          'flex items-center justify-center rounded-md border border-dashed border-rule text-sm opacity-60',
           className,
         )}
       >
@@ -367,10 +365,12 @@ export function TrackMap({ points, hoveredIndex, onHoverIndex, scoringGeometry, 
 
   return (
     <div className={classes('flex flex-col gap-2', className)}>
-      <div
-        ref={containerRef}
-        className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')}
-      />
+      <MapFrame>
+        <div
+          ref={containerRef}
+          className={classes(DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')}
+        />
+      </MapFrame>
       <AltitudeLegend minAltitude={gradient.minAltitude} maxAltitude={gradient.maxAltitude} />
     </div>
   )

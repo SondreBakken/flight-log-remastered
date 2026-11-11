@@ -29,27 +29,27 @@ async function createUserFollowing(pilotIds: number[]): Promise<string> {
 
 describe('getFollowedPilotIds', () => {
   it('returns every pilot the user follows when no candidates are given', async () => {
-    const userId = await createUserFollowing([4549, 12677])
+    const userId = await createUserFollowing([900024, 12677])
 
-    expect(await getFollowedPilotIds(testDatabase.db, userId)).toEqual(new Set([4549, 12677]))
+    expect(await getFollowedPilotIds(testDatabase.db, userId)).toEqual(new Set([900024, 12677]))
   })
 
   it("never returns another user's follows", async () => {
-    await createUserFollowing([4549, 777])
+    await createUserFollowing([900024, 777])
     const userId = await createUserFollowing([12677])
 
     expect(await getFollowedPilotIds(testDatabase.db, userId)).toEqual(new Set([12677]))
-    expect(await getFollowedPilotIds(testDatabase.db, userId, [4549, 777, 12677])).toEqual(new Set([12677]))
+    expect(await getFollowedPilotIds(testDatabase.db, userId, [900024, 777, 12677])).toEqual(new Set([12677]))
   })
 
   it('narrows the result to the candidate pilot ids', async () => {
-    const userId = await createUserFollowing([4549, 12677, 888])
+    const userId = await createUserFollowing([900024, 12677, 888])
 
-    expect(await getFollowedPilotIds(testDatabase.db, userId, [4549, 999])).toEqual(new Set([4549]))
+    expect(await getFollowedPilotIds(testDatabase.db, userId, [900024, 999])).toEqual(new Set([900024]))
   })
 
   it('returns an empty Set for an empty candidate list', async () => {
-    const userId = await createUserFollowing([4549])
+    const userId = await createUserFollowing([900024])
 
     expect(await getFollowedPilotIds(testDatabase.db, userId, [])).toEqual(new Set())
   })

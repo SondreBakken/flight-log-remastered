@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import FlownSitesSection from '@/features/browse-flown-sites-map'
@@ -21,9 +22,7 @@ function yearsCovered(flights: Flight[]): number[] {
 
 // Shared by Logbook and FlownSites below, so the pilot-id parse/notFound guard exists in exactly
 // one place rather than drifting into two copies. Pure `params` reads (await + parse, no I/O),
-// so calling it once per sibling Suspense boundary costs nothing worth avoiding — the point of
-// splitting Logbook and FlownSites into siblings is precisely so EACH branch can start its own
-// real fetch without waiting on the other's.
+// so calling it once per Suspense boundary costs nothing worth avoiding.
 async function parsePilotId(params: PilotParams): Promise<number> {
   const { userId } = await params
   const pilotId = Number(userId)
@@ -31,19 +30,24 @@ async function parsePilotId(params: PilotParams): Promise<number> {
   return pilotId
 }
 
-// Two sibling Suspense boundaries, not one covering both — Logbook's own fetch chain
-// (getPilotLogbook, then getTrackedTripIds) has nothing FlownSites needs (it only needs
-// pilotId), so nesting FlownSites inside Logbook's tree would serialize its own fetch
-// (getTakeoffs(160)) behind both of Logbook's fetches for no reason. As siblings, both branches'
-// fetches start concurrently the moment pilotId resolves.
+// Same loader and id parse as Logbook, so the 'use cache' entry is shared (no second fetch); the
+// same isFallbackPilot guard keeps a 404 from ever being titled with the synthetic `Pilot <id>`.
+export async function generateMetadata({ params }: { params: PilotParams }): Promise<Metadata> {
+  const pilotId = await parsePilotId(params)
+  const { pilot } = await getPilotLogbook(pilotId)
+  if (isFallbackPilot(pilotId, pilot)) notFound()
+  return { title: pilot.name }
+}
+
+// The flown-sites map sits between the logbook's summary and its table, so it is rendered
+// inside Logbook (as PilotLogbook's map slot) rather than as a sibling. Its fetch therefore
+// starts after Logbook's own fetches finish — accepted, since the requested order puts the map
+// above the table; the map keeps its own Suspense boundary and skeleton.
 export default function PilotPage({ params }: { params: PilotParams }) {
   return (
     <div className="flex flex-col gap-10">
       <Suspense fallback={<LogbookSkeleton />}>
         <Logbook params={params} />
-      </Suspense>
-      <Suspense fallback={<FlownSitesSkeleton />}>
-        <FlownSites params={params} />
       </Suspense>
     </div>
   )
@@ -76,6 +80,11 @@ export async function Logbook({ params }: { params: PilotParams }) {
         isFollowed={followedPilotIds.includes(pilotId)}
         isSignedIn={isSignedIn}
         isVerified={isVerified}
+        mapSlot={
+          <Suspense fallback={<FlownSitesSkeleton />}>
+            <FlownSites params={params} />
+          </Suspense>
+        }
       />
       <PilotStatistics flights={flights} />
       <PilotCertificateProgress
@@ -94,12 +103,10 @@ async function FlownSites({ params }: { params: PilotParams }) {
   return <FlownSitesSection userId={pilotId} />
 }
 
-// #76's fallback for the FlownSites Suspense boundary above — a sibling of Logbook's own, not
-// nested inside it (see PilotPage's own doc comment for why: the two branches' fetches must
-// start concurrently, not serialize one behind the other).
+// #76's fallback for the FlownSites Suspense boundary, nested in Logbook's map slot.
 function FlownSitesSkeleton() {
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-testid="flown-sites-skeleton">
       <div className="h-6 w-32 animate-pulse rounded bg-black/10 dark:bg-white/10" />
       <div className="h-4 w-56 animate-pulse rounded bg-black/10 dark:bg-white/10" />
       <div className="h-48 animate-pulse rounded bg-black/5 dark:bg-white/5" />

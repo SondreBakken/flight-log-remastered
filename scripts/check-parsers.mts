@@ -293,15 +293,19 @@ assert(
   `rqtid1-missing-country-id.html: omitting country_id (with club_id present) parses identically to the full request (got ${missingCountryIdStats.length} vs ${vossStats.length})`,
 )
 
-// THE JOIN (see resolve-stats-pilots.ts and docs/flightlog-api.md): Voss's roster carries two
-// distinct user_ids both named "Cato Wiese-Hansen" against a single rqtid=1 stats row — this
-// must resolve to userId: null, never a guess at which of the two flew.
+// THE JOIN (see resolve-stats-pilots.ts and docs/flightlog-api.md): a roster name shared by two
+// or more distinct user_ids must resolve to userId: null against its stats row, never a guess at
+// which member flew. The duplicated names come from the roster alone, not from the join output.
 const vossResolved = resolveStatsPilots(vossRoster, vossStats)
-const catoRow = vossResolved.find((row) => row.name === 'Cato Wiese-Hansen')
+const rosterNameCounts = new Map<string, number>()
+for (const member of vossRoster) rosterNameCounts.set(member.name, (rosterNameCounts.get(member.name) ?? 0) + 1)
+const duplicatedNames = new Set([...rosterNameCounts].filter(([, count]) => count >= 2).map(([name]) => name))
+const duplicatedRows = vossResolved.filter((row) => duplicatedNames.has(row.name))
+const guessedDuplicateCount = duplicatedRows.filter((row) => row.userId !== null).length
 const resolvedCount = vossResolved.filter((row) => row.userId !== null).length
-console.log(`Voss join: resolved=${resolvedCount}/${vossResolved.length}, Cato Wiese-Hansen userId=${catoRow?.userId ?? 'null'}`)
-assert(catoRow !== undefined, 'Voss join: the ambiguous "Cato Wiese-Hansen" stats row is present in the resolved output')
-assert(catoRow?.userId === null, `Voss join: "Cato Wiese-Hansen" resolves to userId null, not a guessed id (got ${catoRow?.userId})`)
+console.log(`Voss join: resolved=${resolvedCount}/${vossResolved.length}, duplicated-name stats rows=${duplicatedRows.length}, guessed=${guessedDuplicateCount}`)
+assert(duplicatedRows.length > 0, 'Voss join: at least one duplicated roster name has a stats row in the resolved output (got 0)')
+assert(guessedDuplicateCount === 0, `Voss join: duplicated-name stats rows resolve to userId null, not a guessed id (${guessedDuplicateCount} of ${duplicatedRows.length} got an id)`)
 assert(resolvedCount > 0 && resolvedCount < vossResolved.length, `Voss join: some stats rows resolve unambiguously and at least one does not (got ${resolvedCount}/${vossResolved.length})`)
 
 // pilot-search-form.html is a=114's bare GET form: no query submitted, so it has zero candidate

@@ -12,7 +12,7 @@ const DETAIL: ClubDetail = {
   description: 'Lokalisert på Voss',
   linkUrl: 'https://www.vosshpk.no',
   createdAt: null,
-  updatedAt: '2026-02-14 13:52:15 Martin Krossoy',
+  updatedAt: '2026-02-14 13:52:15 Pilot Two',
 }
 
 describe('BrowseClub', () => {
@@ -53,6 +53,33 @@ describe('BrowseClub', () => {
     expect(screen.queryByText('Link')).toBeNull()
   })
 
+  it('lays every club detail field out label-above-value with form-label dts and no opacity classes', () => {
+    const { container } = render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={{ ...DETAIL, createdAt: '2025-01-02 10:00:00 Pilot One' }}
+        roster={[]}
+        stats={[]}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    const dl = container.querySelector('dl') as HTMLElement
+    expect(dl.className).not.toMatch(/grid-cols|opacity-/)
+    const dts = Array.from(dl.querySelectorAll('dt'))
+    expect(dts.map((dt) => dt.textContent)).toEqual(['Members', 'Description', 'Coordinates', 'Link', 'Created', 'Updated'])
+    for (const dt of dts) {
+      expect(dt.className).toBe('form-label')
+      expect(dt.parentElement?.tagName).toBe('DIV')
+      expect(dt.nextElementSibling?.tagName).toBe('DD')
+    }
+    for (const a of Array.from(container.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/underline|opacity-/)
+    }
+  })
+
   // Must go RED if the roster-rendering path is ever built by joining stats onto the roster
   // instead of rendering the roster directly: a member with no stats row would silently
   // disappear.
@@ -76,10 +103,10 @@ describe('BrowseClub', () => {
 
   it('gives every roster row a follow button unconditionally, regardless of the stats leaderboard', () => {
     const roster: ClubMember[] = [
-      { userId: 1, name: 'Ade Hawkins' },
+      { userId: 1, name: 'Pilot One' },
       { userId: 2, name: 'Never Flew' },
     ]
-    const stats: ClubPilotStats[] = [{ name: 'Ade Hawkins', flights: 14, distanceKm: 0, hours: 1.1 }]
+    const stats: ClubPilotStats[] = [{ name: 'Pilot One', flights: 14, distanceKm: 0, hours: 1.1 }]
 
     render(
       <BrowseClub
@@ -93,7 +120,7 @@ describe('BrowseClub', () => {
       />,
     )
 
-    // Two roster follow buttons plus one leaderboard follow button (Ade Hawkins resolves
+    // Two roster follow buttons plus one leaderboard follow button (Pilot One resolves
     // unambiguously) — three total, not two.
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(3)
   })
@@ -115,22 +142,61 @@ describe('BrowseClub', () => {
     expect(screen.getByRole('button', { name: 'Following' })).toBeTruthy()
   })
 
-  it('renders a sign-in prompt instead of a follow button when signed out', () => {
-    const roster: ClubMember[] = [{ userId: 1, name: 'Never Flew' }]
+  it('renders exactly one sign-in prompt, not a link per row in either list, when signed out', () => {
+    const roster: ClubMember[] = [
+      { userId: 1, name: 'Never Flew' },
+      { userId: 2, name: 'Pilot Two' },
+    ]
+    const stats: ClubPilotStats[] = [{ name: 'Pilot Two', flights: 4, distanceKm: 12, hours: 3 }]
     render(
       <BrowseClub
         countryId={160}
         countryName="Norway"
         detail={DETAIL}
         roster={roster}
-        stats={[]}
+        stats={stats}
         isSignedIn={false}
         followedPilotIds={[]}
       />,
     )
 
     expect(screen.queryByRole('button', { name: /follow/i })).toBeNull()
-    screen.getByRole('link', { name: /sign in to follow/i })
+    const prompts = screen.getAllByRole('link', { name: /sign in to follow/i })
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0].getAttribute('href')).toBe('/sign-in')
+  })
+
+  it('renders no sign-in prompt for an empty roster when signed out', () => {
+    render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        roster={[]}
+        stats={[]}
+        isSignedIn={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: /sign in/i })).toBeNull()
+    screen.getByText(/no members recorded/i)
+  })
+
+  it('never renders the sign-in prompt when signed in', () => {
+    render(
+      <BrowseClub
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        roster={[{ userId: 1, name: 'Never Flew' }]}
+        stats={[]}
+        isSignedIn
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('link', { name: /sign in/i })).toBeNull()
   })
 
   it('renders the empty-roster state, not an empty list, for a real club with zero members', () => {

@@ -328,7 +328,7 @@ function StartVerificationTrigger({
     <div className="flex flex-col gap-2">
       {warning && <p className="text-sm opacity-70">{warning}</p>}
       <button
-        className="flex items-center gap-1.5 self-start rounded border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-white/25"
+        className="flex items-center gap-1.5 self-start rounded border border-frame px-3 py-1.5 text-sm disabled:opacity-50"
         disabled={phase !== 'idle'}
         onClick={handleClick}
         type="button"

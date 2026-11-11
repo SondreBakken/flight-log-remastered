@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ConfirmPilotVerificationForm } from './confirm-pilot-verification-form'
 
 const mockConfirmPilotVerificationAction = vi.fn()
@@ -40,7 +40,11 @@ describe('ConfirmPilotVerificationForm', () => {
     render(<ConfirmPilotVerificationForm onConfirmed={onConfirmed} />)
     fillAndSubmit('123456')
 
+    // 'Verified.' resolves on the DOM commit, before the passive effect has called onConfirmed.
     await screen.findByText('Verified.')
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1))
+    // Settle pending effects so a late second call would be caught.
+    await act(async () => {})
     expect(onConfirmed).toHaveBeenCalledTimes(1)
   })
 

@@ -49,11 +49,11 @@ function SearchForm({ query }: { query: string }) {
         defaultValue={query}
         placeholder="Pilot name"
         aria-label="Pilot name"
-        className="flex-1 rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+        className="flex-1 rounded border border-frame px-3 py-1.5 text-sm"
       />
       <button
         type="submit"
-        className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+        className="rounded border border-frame px-3 py-1.5 text-sm"
       >
         Search
       </button>
@@ -109,15 +109,15 @@ function ResultsTable({
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Pilot</th>
-            <th className="py-2 pr-4 font-medium">Country</th>
-            <th className="py-2 font-medium">Follow</th>
+          <tr className="border-b border-rule text-left">
+            <th className="py-2 pr-4 form-label">Pilot</th>
+            <th className="py-2 pr-4 form-label">Country</th>
+            <th className="py-2 form-label">Follow</th>
           </tr>
         </thead>
         <tbody>
           {results.map((result) => (
-            <tr key={result.userId} className="border-b border-black/5 dark:border-white/10">
+            <tr key={result.userId} className="border-b border-rule">
               <td className="py-2 pr-4">
                 <Link className="underline underline-offset-2" href={`/pilots/${result.userId}`}>
                   {result.name}

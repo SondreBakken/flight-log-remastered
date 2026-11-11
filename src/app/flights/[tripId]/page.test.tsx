@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { SCORING_KINDS } from '@/lib/flightlog/types'
-import type { ScoringGeometryKind, ScoringGeometryResult, Track } from '@/lib/flightlog/types'
+import type { ScoringGeometryKind, ScoringGeometryResult, Track, FlightDetail } from '@/lib/flightlog/types'
 
 // Mocking the whole module (hoisted above these imports by Vitest) means the real 'server-only'
 // fetchers never run, same reasoning as the sibling takeoffs/[takeoffId]/page.test.tsx.
@@ -12,7 +12,11 @@ vi.mock('@/lib/flightlog/config', () => ({ flightlogFlightUrl: vi.fn(() => 'http
 // component's own test suite for why it's stubbed there too) — this suite only cares about
 // whether Flight decides to render it at all, not its internals.
 vi.mock('@/features/show-flight-track', () => ({
-  default: ({ track }: { track: Track }) => <div data-testid="flight-track">track {track.tripId}</div>,
+  default: ({ track, distanceKm }: { track: Track; distanceKm?: number | null }) => (
+    <div data-testid="flight-track" data-distance-km={String(distanceKm)}>
+      track {track.tripId}
+    </div>
+  ),
 }))
 // CommentsOnFlight is an async server component that talks to the database — irrelevant to what
 // Flight decides to render around it, so it's replaced with a synchronous marker.
@@ -22,7 +26,7 @@ vi.mock('@/features/comment-on-flight', () => ({
 
 import { getTrack, hasTrack } from '@/lib/flightlog/tracks'
 import { getFlightDetail } from '@/lib/flightlog/flight-detail'
-import { Flight } from './page'
+import { Flight, generateMetadata } from './page'
 
 const mockedGetTrack = vi.mocked(getTrack)
 const mockedHasTrack = vi.mocked(hasTrack)
@@ -40,6 +44,7 @@ const STUB_DETAIL = {
   maxAltitude: null,
   description: 'Min første høydetur',
   takeoffType: 'mountain',
+  pilot: { name: 'Pilot One', userId: 900001 },
 }
 
 const EMPTY_SCORING = Object.fromEntries(SCORING_KINDS.map((kind) => [kind, null])) as Record<
@@ -71,16 +76,99 @@ describe('Flight', () => {
     expect(screen.queryByTestId('flight-track')).toBeNull()
   })
 
-  it('fetches and renders the track when hasTrack is true, without ever calling getFlightDetail', async () => {
+  it('fetches the track and the a=34 detail when hasTrack is true, passing distanceKm to FlightTrack', async () => {
     mockedHasTrack.mockResolvedValue(true)
     mockedGetTrack.mockResolvedValue(stubTrack(123))
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, distanceKm: 212 })
 
     const element = await Flight({ params: Promise.resolve({ tripId: '123' }) })
     render(element)
 
     expect(mockedGetTrack).toHaveBeenCalledWith(123)
-    expect(mockedGetFlightDetail).not.toHaveBeenCalled()
-    screen.getByTestId('flight-track')
+    expect(mockedGetFlightDetail).toHaveBeenCalledWith(123)
+    expect(screen.getByTestId('flight-track').getAttribute('data-distance-km')).toBe('212')
+  })
+
+  describe('tracked flight heading', () => {
+    async function renderTracked(detail: FlightDetail | null) {
+      mockedHasTrack.mockResolvedValue(true)
+      mockedGetTrack.mockResolvedValue(stubTrack(123))
+      mockedGetFlightDetail.mockResolvedValue(detail)
+      render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+      return screen.getByRole('heading', { level: 1 })
+    }
+
+    it('renders pilot, takeoff and date, in that order, with the pilot and takeoff linked', async () => {
+      const h1 = await renderTracked({ ...STUB_DETAIL, date: '2022-07-29 11:36' })
+
+      const links = within(h1).getAllByRole('link')
+      expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+        ['Pilot One', '/pilots/900001'],
+        ['Voss, Hjelle/Gjelle', '/countries/160/takeoffs/133'],
+      ])
+      const text = h1.textContent!
+      expect(text.indexOf('Pilot One')).toBeLessThan(text.indexOf('Voss, Hjelle/Gjelle'))
+      expect(text.indexOf('Voss, Hjelle/Gjelle')).toBeLessThan(text.indexOf('2022'))
+      expect(within(h1).queryByText(/Flight 123/)).toBeNull()
+    })
+
+    it.each(['2022-07-29 11:36', '2022-07-29'])('renders the date %s', async (date) => {
+      const h1 = await renderTracked({ ...STUB_DETAIL, date })
+      expect(h1.textContent).toMatch(/2022/)
+    })
+
+    it('renders the takeoff as plain text when takeoffRef is null', async () => {
+      const h1 = await renderTracked({ ...STUB_DETAIL, takeoffRef: null })
+      expect(within(h1).getAllByRole('link').map((link) => link.textContent)).toEqual(['Pilot One'])
+      expect(h1.textContent).toContain('Voss, Hjelle/Gjelle')
+    })
+
+    it.each([
+      ['pilot', { pilot: null }, 'Pilot One'],
+      ['takeoff', { takeoff: null, takeoffRef: null }, 'Voss'],
+      ['date', { date: null }, '2026'],
+    ])('omits a null %s', async (_part, override, absentText) => {
+      const h1 = await renderTracked({ ...STUB_DETAIL, ...override })
+      expect(h1.textContent).not.toContain(absentText)
+      expect(h1.textContent).not.toMatch(/Flight 123/)
+    })
+
+    it('falls back to "Flight {id}" when pilot, takeoff and date are all null', async () => {
+      const h1 = await renderTracked({ ...STUB_DETAIL, pilot: null, takeoff: null, takeoffRef: null, date: null })
+      expect(h1.textContent).toBe('Flight 123')
+    })
+
+    it('keeps the flightlog.org link in the header', async () => {
+      await renderTracked(STUB_DETAIL)
+      expect(screen.getByRole('link', { name: /View on flightlog.org/ }).getAttribute('href')).toBe('https://flightlog.org/stub')
+    })
+  })
+
+  describe('tracked flight when the a=34 detail is unavailable', () => {
+    it.each([
+      ['rejects', () => mockedGetFlightDetail.mockRejectedValue(new Error('parse failure'))],
+      ['returns null', () => mockedGetFlightDetail.mockResolvedValue(null)],
+    ])('still renders the track with the bare heading when getFlightDetail %s', async (_case, arrange) => {
+      mockedHasTrack.mockResolvedValue(true)
+      mockedGetTrack.mockResolvedValue(stubTrack(123))
+      arrange()
+
+      render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Flight 123')
+      expect(screen.getByTestId('flight-track').getAttribute('data-distance-km')).toBe('undefined')
+      screen.getByRole('link', { name: /View on flightlog.org/ })
+    })
+  })
+
+  it('keeps the bare "Flight {id}" heading for an untracked flight, with no pilot', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Flight 123')
+    expect(screen.queryByText('Pilot One')).toBeNull()
   })
 
   // #215's own feature: flightlog.org's own a=34 detail table rendered in place of the old bare
@@ -110,6 +198,39 @@ describe('Flight', () => {
     render(element)
 
     expect(screen.getByRole('link', { name: 'Voss, Hjelle/Gjelle' }).getAttribute('href')).toBe('/countries/160/takeoffs/133')
+  })
+
+  it('lays every detail field out label-above-value, with form-label dts and no underline classes on links', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, distanceKm: 12, maxAltitude: '2100 m' })
+
+    const { container } = render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+    const dl = container.querySelector('dl') as HTMLElement
+    expect(dl.className).not.toMatch(/grid-cols|opacity-/)
+    const dts = Array.from(dl.querySelectorAll('dt'))
+    expect(dts.map((dt) => dt.textContent)).toEqual([
+      'Date', 'Country', 'Takeoff', 'Glider', 'Duration', 'Distance', 'Max altitude', 'Description', 'Takeoff type',
+    ])
+    for (const dt of dts) {
+      expect(dt.className).toBe('form-label')
+      expect(dt.parentElement?.tagName).toBe('DIV')
+      expect(dt.nextElementSibling?.tagName).toBe('DD')
+    }
+    for (const a of Array.from(container.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/underline|opacity-/)
+    }
+  })
+
+  it('renders no wrapper for a null detail field', async () => {
+    mockedHasTrack.mockResolvedValue(false)
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    const { container } = render(await Flight({ params: Promise.resolve({ tripId: '123' }) }))
+
+    // STUB_DETAIL has null distanceKm and maxAltitude: 7 of 9 fields remain.
+    expect(container.querySelectorAll('dl > div')).toHaveLength(7)
+    expect(screen.queryByText('Distance')).toBeNull()
   })
 
   // A trip with neither a GPS track nor an a=34 record does not exist — see parseFlightDetail's
@@ -146,5 +267,45 @@ describe('Flight', () => {
     const { container } = render(element)
 
     expect(container.querySelector('a svg')).toBeTruthy()
+  })
+})
+
+describe('generateMetadata', () => {
+  const metadataFor = (tripId: string) => generateMetadata({ params: Promise.resolve({ tripId }) })
+
+  it.each(['abc', '0', '-1', '1.5'])('renders notFound for the malformed id %j without fetching detail', async (tripId) => {
+    await expect(metadataFor(tripId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetFlightDetail).not.toHaveBeenCalled()
+  })
+
+  it('titles with pilot and takeoff, fetching detail by the parsed numeric id', async () => {
+    mockedGetFlightDetail.mockResolvedValue(STUB_DETAIL)
+
+    expect(await metadataFor('123')).toEqual({ title: 'Pilot One, Voss, Hjelle/Gjelle' })
+    expect(mockedGetFlightDetail).toHaveBeenCalledWith(123)
+  })
+
+  it('omits the pilot when the detail has none', async () => {
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, pilot: null })
+
+    expect(await metadataFor('123')).toEqual({ title: 'Voss, Hjelle/Gjelle' })
+  })
+
+  it('falls back to `Flight <id>` when the detail is null, never notFound', async () => {
+    mockedGetFlightDetail.mockResolvedValue(null)
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
+  })
+
+  it('falls back to `Flight <id>` when the detail has neither pilot nor takeoff', async () => {
+    mockedGetFlightDetail.mockResolvedValue({ ...STUB_DETAIL, pilot: null, takeoff: null })
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
+  })
+
+  it('falls back to `Flight <id>` when the detail fetch throws, so a tracked flight is never 404ed', async () => {
+    mockedGetFlightDetail.mockRejectedValue(new Error('scrape failed'))
+
+    expect(await metadataFor('123')).toEqual({ title: 'Flight 123' })
   })
 })

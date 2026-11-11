@@ -12,7 +12,7 @@ import type { GeoPoint } from '@/lib/geo/distance'
 // of Norway's 6012 takeoffs (32.4%) carry this placeholder.
 //
 // The full 0,0 placeholder isn't the only shape of coordinate corruption in the real
-// dataset, though (confirmed against fixtures/takeoffs-160.html). Two more, both still
+// dataset, though (confirmed against fixtures/takeoffs-160.html, a local, untracked fixture). Two more, both still
 // inside the rows that pass the 0,0 check alone:
 //   - exactly ONE axis reset to 0 while the other still holds a real-looking value, e.g.
 //     takeoff 8478 "Veines (Kongsfjord)" carries lat=0, lon=70.73 — its real latitude

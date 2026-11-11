@@ -2,10 +2,9 @@ import * as cheerio from 'cheerio'
 import type { Nodes } from './parse-flightlog-table'
 import type { TakeoffFlight } from './types'
 
-// a=42's own flights table — see docs/flightlog-api.md's "a=47 (flight row)" section for why
-// this exact selector is very likely (not fixture-confirmed) shared with a=47, a page this app
-// never fetches.
-const RESULTS_TABLE_SELECTOR = 'table[cellspacing="1"][cellpadding="2"][bgcolor="#22aa00"]'
+// The flights results table, shared by a=42 and a=47 (fixture-confirmed for both: see
+// fixtures/a47-country-160.html and docs/flightlog-api.md).
+export const RESULTS_TABLE_SELECTOR = 'table[cellspacing="1"][cellpadding="2"][bgcolor="#22aa00"]'
 const FLIGHT_ROW_CELL_COUNT = 6
 const DATE_ROW_COLSPAN = '6'
 const PILOT_LINK_ACTION = 28
@@ -99,6 +98,21 @@ function collectFlightRowCandidates(rows: Nodes[]): { cells: Nodes; date: string
   return candidates
 }
 
+// The shared a=42/a=47 row walk: every 6-cell row under its date-group header, strictly
+// extracted. `label` names the page in the error messages.
+export function parseFlightRows($: ReturnType<typeof cheerio.load>, table: Nodes, label: string): TakeoffFlight[] {
+  const rows = table.find('tr').toArray().map((row) => $(row))
+  const candidates = collectFlightRowCandidates(rows)
+  const flights = candidates.map(({ cells, date }) => toFlight(cells, date)).filter((flight): flight is TakeoffFlight => flight !== null)
+
+  // Same floor check every other parser in this file family uses: a row that looked like a
+  // flight but failed strict extraction is a defect, not a smaller flight count.
+  if (flights.length !== candidates.length) {
+    throw new Error(`Flights partially unparsed for ${label}: ${flights.length}/${candidates.length} rows recognised`)
+  }
+  return flights
+}
+
 // Returns null when this response's own `<h3>` heading carries no takeoff name — the identity
 // gate for the identical empty results table a genuine zero-flights-this-year takeoff AND a
 // nonexistent start_id both render (see docs/flightlog-api.md). A caller with independent
@@ -118,15 +132,7 @@ export function parseTakeoffFlights(html: string, takeoffId: number): TakeoffFli
   }
   const name = textOrNull(heading.replace(FLIGHTS_HEADING_PREFIX, ''))
 
-  const rows = table.find('tr').toArray().map((row) => $(row))
-  const candidates = collectFlightRowCandidates(rows)
-  const flights = candidates.map(({ cells, date }) => toFlight(cells, date)).filter((flight): flight is TakeoffFlight => flight !== null)
-
-  // Same floor check every other parser in this file family uses: a row that looked like a
-  // flight but failed strict extraction is a defect, not a smaller flight count.
-  if (flights.length !== candidates.length) {
-    throw new Error(`Takeoff flights partially unparsed for takeoff ${takeoffId}: ${flights.length}/${candidates.length} rows recognised`)
-  }
+  const flights = parseFlightRows($, table, `takeoff ${takeoffId}`)
 
   return name === null ? null : flights
 }

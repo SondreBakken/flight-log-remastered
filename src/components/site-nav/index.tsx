@@ -1,6 +1,7 @@
 import Link from 'next/link'
-import { Globe, Plane, Search } from 'lucide-react'
+import { Globe, Route, Search } from 'lucide-react'
 import AuthStatus from './auth-status'
+import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 
 // The intended loop is search a pilot, follow them, search again for the next one — but until
 // this existed, the only in-app link to /pilots/search lived in the flight feed's empty state
@@ -9,21 +10,21 @@ import AuthStatus from './auth-status'
 // reachable, not another conditional link buried in a state that disappears exactly when it's
 // no longer needed.
 const NAV_LINKS = [
-  { href: '/', label: 'Flights', Icon: Plane },
+  { href: '/', label: 'Flights', Icon: Route },
   { href: '/pilots/search', label: 'Find a pilot', Icon: Search },
   { href: '/countries', label: 'Countries', Icon: Globe },
 ] as const
 
 export default function SiteNav() {
   return (
-    <nav aria-label="Main" className="border-b border-black/10 dark:border-white/15">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-3 text-sm">
-        <ul className="flex gap-4">
+    <nav aria-label="Main" className="border-b border-rule">
+      <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 text-sm">
+        <ul className="flex min-w-0 gap-3 sm:gap-4">
           {NAV_LINKS.map(({ href, label, Icon }) => (
             <li key={href}>
-              <Link className="flex items-center gap-1.5 underline-offset-2 hover:underline" href={href}>
+              <Link className={NAV_ICON_ROW_CLASSES} href={href}>
                 <Icon aria-hidden="true" size={14} />
-                {label}
+                <span className={NAV_LABEL_CLASSES}>{label}</span>
               </Link>
             </li>
           ))}

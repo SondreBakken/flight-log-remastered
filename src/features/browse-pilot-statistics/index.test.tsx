@@ -64,7 +64,25 @@ describe('PilotStatistics', () => {
   // the dashboard's totals summary must report flights, not rows. Also pins two fixes
   // together: "1 flying day" (not "1 flying days"), and 51 minutes rendering as "0.9 h", not
   // the old "0.8 h" — (0.85).toFixed(1) truncates under IEEE754 (0.85 has no exact double
-  // representation), so formatMinutesAsHours pre-rounds to whole tenths of an hour first.
+  // representation), so formatHours pre-rounds to whole tenths of an hour first.
+  it('styles the hours-by-year table with the form layer: rule borders, form-label headers, no border on the last row', () => {
+    const flights: Flight[] = [flight({ date: '2024-06-01' }), flight({ date: '2026-01-01' })]
+
+    const { container } = render(<PilotStatistics flights={flights} />)
+    const table = within(container).getByRole('table')
+
+    expect(table.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...table.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...table.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(2)
+    for (const tr of rows) {
+      expect(tr.className).toContain('border-rule')
+      expect(tr.className).toContain('last:border-0')
+    }
+  })
+
   it('sums flightCount for the totals summary, not row count, on a mix of single and aggregated rows', () => {
     const flights: Flight[] = [
       flight({ duration: '00:05', flightCount: 1 }),
@@ -143,7 +161,7 @@ describe('PilotStatistics', () => {
 
     render(<PilotStatistics flights={flights} />)
 
-    screen.getByText(/By duration \(single-flight rows only\): 00:45 \(May 2, 2026 at Single Site\)/)
+    screen.getByText(/By duration \(single-flight rows only\): 00:45 \(2 May 2026 at Single Site\)/)
   })
 
   it('shows the longest flight by distance using the openDistanceKm fallback', () => {
@@ -154,7 +172,7 @@ describe('PilotStatistics', () => {
 
     render(<PilotStatistics flights={flights} />)
 
-    screen.getByText(/By distance: 40\.0 km \(May 1, 2026 at Open Site\)/)
+    screen.getByText(/By distance: 40\.0 km \(1 May 2026 at Open Site\)/)
   })
 
   it('renders the flying-days count in the heading', () => {
@@ -179,7 +197,7 @@ describe('PilotStatistics', () => {
     const { container } = render(<PilotStatistics flights={flights} />)
 
     screen.getByRole('img', { name: '2026: 2 flying days, 2 flights' })
-    const flownDay = container.querySelector('[title="May 1, 2026: 1 flight"]')
+    const flownDay = container.querySelector('[title="1 May 2026: 1 flight"]')
     const gapDayIndex = [...container.querySelectorAll('.h-3.w-3')].findIndex(
       (cell) => !cell.hasAttribute('title'),
     )
@@ -200,7 +218,7 @@ describe('PilotStatistics', () => {
     const { container } = render(<PilotStatistics flights={flights} />)
 
     const yearRow = screen.getByRole('img', { name: '2026: 1 flying day, 2 flights' })
-    const presentCell = container.querySelector('[title="May 1, 2026: 2 flights"]') as HTMLElement
+    const presentCell = container.querySelector('[title="1 May 2026: 2 flights"]') as HTMLElement
     // Jan 2 never had a flight, so it's an ordinary absent cell to check the "no title at all"
     // half of the fix.
     const absentCell = yearRow.children[1] as HTMLElement
@@ -251,7 +269,7 @@ describe('PilotStatistics', () => {
 
     const { container } = render(<PilotStatistics flights={flights} />)
 
-    const flownCell = container.querySelector('[title="May 1, 2026: 1 flight"]') as HTMLElement
+    const flownCell = container.querySelector('[title="1 May 2026: 1 flight"]') as HTMLElement
     const [, absentCell] = [...screen.getByRole('img', { name: /^2026:/ }).children] as HTMLElement[]
     const darkestCellCount = container.querySelectorAll('.bg-black\\/70').length
 
@@ -271,8 +289,8 @@ describe('PilotStatistics', () => {
 
     const { container } = render(<PilotStatistics flights={flights} />)
 
-    const lightDay = container.querySelector('[title="May 1, 2026: 1 flight"]') as HTMLElement
-    const busyDay = container.querySelector('[title="May 2, 2026: 3 flights"]') as HTMLElement
+    const lightDay = container.querySelector('[title="1 May 2026: 1 flight"]') as HTMLElement
+    const busyDay = container.querySelector('[title="2 May 2026: 3 flights"]') as HTMLElement
 
     expect(lightDay.className).toContain('bg-black/20')
     expect(busyDay.className).toContain('bg-black/70')

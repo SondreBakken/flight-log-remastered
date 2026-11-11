@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 // react-server bundling context — mocking the whole module (hoisted above these imports
 // by Vitest) means that code never runs, so this test never touches the network.
 vi.mock('@/lib/flightlog/clubs', () => ({ getClubs: vi.fn() }))
-vi.mock('@/lib/flightlog/countries', () => ({ getCountries: vi.fn() }))
+vi.mock('@/lib/flightlog/countries', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/flightlog/countries')>()),
+  getCountries: vi.fn(),
+}))
 
 // Mocked to a two-id set local to this file (not the real production list, currently just
 // [160]) and — deliberately — exporting ONLY CURATED_CLUB_COUNTRY_IDS, not
@@ -23,7 +26,7 @@ vi.mock('@/lib/flightlog/curated-countries', () => ({
 import { getClubs } from '@/lib/flightlog/clubs'
 import { getCountries } from '@/lib/flightlog/countries'
 import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
-import { Clubs, generateStaticParams } from './page'
+import { Clubs, generateMetadata, generateStaticParams } from './page'
 
 const mockedGetClubs = vi.mocked(getClubs)
 const mockedGetCountries = vi.mocked(getCountries)
@@ -83,4 +86,29 @@ describe('Clubs route guard', () => {
       expect(element.props.clubs).toEqual([{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }])
     },
   )
+})
+
+describe('generateMetadata', () => {
+  const COUNTRIES = [
+    { countryId: 160, name: 'Norway' },
+    { countryId: 203, name: 'Sweden' },
+  ]
+  const metadataFor = (countryId: string) => generateMetadata({ params: Promise.resolve({ countryId }) })
+
+  it('titles with the country name from the list, matching by id rather than position', async () => {
+    mockedGetCountries.mockResolvedValue(COUNTRIES)
+
+    expect(await metadataFor('203')).toEqual({ title: 'Sweden' })
+  })
+
+  it('falls back to `Country <id>` for a well-formed id missing from the list, without notFound', async () => {
+    mockedGetCountries.mockResolvedValue(COUNTRIES)
+
+    expect(await metadataFor('999')).toEqual({ title: 'Country 999' })
+  })
+
+  it.each(['160.0', '0xA0', '0', 'abc'])('renders notFound for the malformed id %j without fetching', async (countryId) => {
+    await expect(metadataFor(countryId)).rejects.toMatchObject({ digest: 'NEXT_HTTP_ERROR_FALLBACK;404' })
+    expect(mockedGetCountries).not.toHaveBeenCalled()
+  })
 })

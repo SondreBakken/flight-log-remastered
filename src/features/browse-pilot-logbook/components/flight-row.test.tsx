@@ -103,4 +103,68 @@ describe('FlightRow', () => {
     expect(row.getAttribute('role')).toBeNull()
     expect(row.getAttribute('aria-label')).toBe('View flight details')
   })
+
+  it('renders a real anchor to the flight page in a tracked row\'s Track cell', () => {
+    const row = renderRow(true)
+
+    const link = row.querySelector('a') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/flights/1002674')
+    expect(link.textContent).toBe('View track')
+  })
+
+  it('leaves an untracked row\'s Track cell empty, with no anchor and no "none" text', () => {
+    const row = renderRow(false)
+
+    const trackCell = row.querySelectorAll('td')[5]
+    expect(trackCell.textContent).toBe('')
+    expect(row.querySelector('a')).toBeNull()
+  })
+
+  it('does not also call router.push when the anchor is ctrl- or cmd-clicked', () => {
+    const row = renderRow(true)
+    const link = row.querySelector('a') as HTMLAnchorElement
+
+    fireEvent.click(link, { ctrlKey: true })
+    fireEvent.click(link, { metaKey: true })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('does not trigger the row handler when Enter is pressed on the focused anchor', () => {
+    const row = renderRow(true)
+    const link = row.querySelector('a') as HTMLAnchorElement
+
+    fireEvent.keyDown(link, { key: 'Enter' })
+
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('labels every cell for the stacked layout below sm: and keeps the takeoff test id', () => {
+    const row = renderRow(true)
+
+    const cells = [...row.querySelectorAll('td')]
+    expect(cells.map((cell) => cell.getAttribute('data-label'))).toEqual(['Date', 'Takeoff', 'Glider', 'Time', 'Distance', 'Track'])
+    expect(row.querySelector('[data-testid="flight-takeoff"]')?.getAttribute('data-label')).toBe('Takeoff')
+    expect(row.className).toContain('max-sm:block')
+    for (const cell of cells) expect(cell.className).toContain('max-sm:flex')
+  })
+
+  it('uses rule tokens and a muted Glider cell, with no raw-colour border or hover classes', () => {
+    const row = renderRow(true)
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    const glider = row.querySelector('td[data-label="Glider"]') as HTMLElement
+    expect(glider.className).toContain('text-muted')
+    expect(glider.className).not.toContain('opacity-')
+  })
+
+  it('leaves the Track cell empty, and hidden below sm:, for a flight with no track', () => {
+    const cell = renderRow(false).querySelectorAll('td')[5]
+
+    expect(cell.childElementCount).toBe(0)
+    expect(cell.textContent).toBe('')
+    expect(cell.className).toContain('max-sm:empty:hidden!')
+  })
 })

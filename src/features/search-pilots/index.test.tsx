@@ -40,30 +40,50 @@ describe('SearchPilots', () => {
   it('renders one row per result, linking to the pilot profile and a follow button carrying the pilot id', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
         results={[
-          { userId: 754, name: 'Nils Aage Henden', country: 'Norway' },
-          { userId: 2831, name: 'Børge Henden', country: 'Norway' },
+          { userId: 900019, name: 'Pilot Nineteen', country: 'Norway' },
+          { userId: 900016, name: 'Pilot Sixteen', country: 'Norway' },
         ]}
         isSignedIn
         followedPilotIds={[]}
       />,
     )
 
-    expect(screen.getByRole('link', { name: 'Nils Aage Henden' }).getAttribute('href')).toBe('/pilots/754')
-    expect(screen.getByRole('link', { name: 'Børge Henden' }).getAttribute('href')).toBe('/pilots/2831')
+    expect(screen.getByRole('link', { name: 'Pilot Nineteen' }).getAttribute('href')).toBe('/pilots/900019')
+    expect(screen.getByRole('link', { name: 'Pilot Sixteen' }).getAttribute('href')).toBe('/pilots/900016')
     expect(screen.getAllByRole('button', { name: /follow/i })).toHaveLength(2)
+  })
+
+  it('styles the results table with the form layer: rule borders and form-label headers', () => {
+    const { container } = render(
+      <SearchPilots
+        query="Surname"
+        minLength={3}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
+        isSignedIn
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('thead tr')?.className).toContain('border-rule')
+    const headers = [...container.querySelectorAll('thead th')]
+    expect(headers.length).toBeGreaterThan(0)
+    for (const th of headers) expect(th.className).toContain('form-label')
+    const rows = [...container.querySelectorAll('tbody tr')]
+    expect(rows).toHaveLength(1)
+    for (const tr of rows) expect(tr.className).toContain('border-rule')
   })
 
   it('marks a result row as already-followed when its pilot id is in followedPilotIds', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
-        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn
-        followedPilotIds={[754]}
+        followedPilotIds={[900019]}
       />,
     )
 
@@ -73,9 +93,9 @@ describe('SearchPilots', () => {
   it('renders a sign-in prompt instead of follow buttons when signed out', () => {
     render(
       <SearchPilots
-        query="Henden"
+        query="Surname"
         minLength={3}
-        results={[{ userId: 754, name: 'Nils Aage Henden', country: 'Norway' }]}
+        results={[{ userId: 900019, name: 'Pilot Nineteen', country: 'Norway' }]}
         isSignedIn={false}
         followedPilotIds={[]}
       />,
@@ -86,10 +106,10 @@ describe('SearchPilots', () => {
   })
 
   it('submits the search as a plain GET to /pilots/search with the query pre-filled', () => {
-    render(<SearchPilots query="Henden" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
+    render(<SearchPilots query="Surname" minLength={3} results={[]} isSignedIn={false} followedPilotIds={[]} />)
 
     const input = screen.getByRole('textbox', { name: /pilot name/i }) as HTMLInputElement
-    expect(input.value).toBe('Henden')
+    expect(input.value).toBe('Surname')
     // getByRole throws if not found, so its return alone is the assertion.
     screen.getByRole('button', { name: 'Search' })
 

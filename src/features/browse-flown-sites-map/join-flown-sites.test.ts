@@ -9,7 +9,7 @@ let nextTripId = 1
 function flight(overrides: Partial<Flight> = {}): Flight {
   return {
     tripId: nextTripId++,
-    userId: 4549,
+    userId: 900024,
     date: '2026-07-20',
     country: 'Norway',
     takeoff: 'Voss, Hjelle/Gjelle',

@@ -9,9 +9,13 @@ vi.mock('@/lib/flightlog/tracks', () => ({ getTrackedTripIds: vi.fn() }))
 vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({ resolveFollowButtonState: vi.fn() }))
 vi.mock('@/lib/profiles/resolve-certificate-progress-state', () => ({ resolveCertificateProgressState: vi.fn() }))
 vi.mock('@/lib/profiles/resolve-pilot-verified', () => ({ resolvePilotVerified: vi.fn() }))
-// page.tsx imports this at module scope for the FlownSites sibling boundary, which Logbook
-// itself never renders — its own fetch-flown-sites.ts carries 'server-only' too, so it must be
-// stubbed here regardless.
+// FlightRow (a client component) calls useRouter, which throws outside a mounted app router.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn() }),
+}))
+// Logbook passes this to PilotLogbook as the map slot; its own fetch-flown-sites.ts carries
+// 'server-only', so it must be stubbed.
 vi.mock('@/features/browse-flown-sites-map', () => ({ default: () => null }))
 
 import { getPilotLogbook } from '@/lib/flightlog/flights'
@@ -19,7 +23,7 @@ import { getTrackedTripIds } from '@/lib/flightlog/tracks'
 import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
 import { resolveCertificateProgressState } from '@/lib/profiles/resolve-certificate-progress-state'
 import { resolvePilotVerified } from '@/lib/profiles/resolve-pilot-verified'
-import { Logbook } from './page'
+import { Logbook, generateMetadata } from './page'
 
 const mockedGetPilotLogbook = vi.mocked(getPilotLogbook)
 const mockedResolvePilotVerified = vi.mocked(resolvePilotVerified)
@@ -98,5 +102,63 @@ describe('Logbook', () => {
     render(element)
 
     expect(screen.queryByRole('img', { name: VERIFIED_LABEL })).toBeNull()
+  })
+
+  it('renders the summary above the flown-sites map, and the map above the first logbook table', async () => {
+    stubDependencies(REAL_PILOT)
+    mockedGetPilotLogbook.mockResolvedValue({
+      pilot: REAL_PILOT,
+      flights: [
+        {
+          tripId: 1,
+          userId: 12677,
+          date: '2026-07-23',
+          country: 'Norway',
+          takeoff: 'Voss, Hjelle/Gjelle',
+          takeoffRef: null,
+          glider: 'skywalk Mescal 6',
+          duration: '00:10',
+          flightCount: 1,
+          distanceKm: null,
+          openDistanceKm: null,
+          note: null,
+        },
+      ],
+    })
+
+    const element = await Logbook({ params: Promise.resolve({ userId: '12677' }) })
+    const { container } = render(element)
+
+    const summary = screen.getByRole('region', { name: 'Summary' })
+    // FlownSites is an async server component that never resolves in a client render, so the
+    // map slot shows its Suspense fallback here; its position is what this test pins.
+    const map = screen.getByTestId('flown-sites-skeleton')
+    const table = container.querySelector('details') as Element
+    expect(summary.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(map.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('generateMetadata', () => {
+  it('titles the page with the pilot name, loading the logbook by the parsed numeric id', async () => {
+    mockedGetPilotLogbook.mockResolvedValue({ pilot: REAL_PILOT, flights: NO_FLIGHTS })
+
+    expect(await generateMetadata({ params: Promise.resolve({ userId: '12677' }) })).toEqual({ title: 'Sondre Bakken' })
+    expect(mockedGetPilotLogbook).toHaveBeenCalledWith(12677)
+  })
+
+  it('renders notFound for the fallback-pilot shape rather than titling `Pilot <id>`', async () => {
+    mockedGetPilotLogbook.mockResolvedValue({ pilot: FALLBACK_PILOT, flights: NO_FLIGHTS })
+
+    await expect(generateMetadata({ params: Promise.resolve({ userId: '999999999' }) })).rejects.toMatchObject({
+      digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+    })
+  })
+
+  it.each(['abc', '0', '-1', '1.5'])('renders notFound for the malformed id %j without loading the logbook', async (userId) => {
+    await expect(generateMetadata({ params: Promise.resolve({ userId }) })).rejects.toMatchObject({
+      digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+    })
+    expect(mockedGetPilotLogbook).not.toHaveBeenCalled()
   })
 })

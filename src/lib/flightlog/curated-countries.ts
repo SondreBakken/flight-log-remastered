@@ -19,7 +19,7 @@ import { parseCanonicalCountryId } from './country-id'
 // `readonly number[]`, not a `readonly [160]` tuple: every caller either maps over this or
 // checks membership with `.includes`, neither of which benefits from literal-type narrowing,
 // and the tuple form fights `.includes(id: number)` for no real gain.
-export const CURATED_TAKEOFF_COUNTRY_IDS: readonly number[] = [160] // Norway, ~970 KB upstream (fixtures/takeoffs-160.html)
+export const CURATED_TAKEOFF_COUNTRY_IDS: readonly number[] = [160] // Norway, ~970 KB upstream (local, untracked fixture fixtures/takeoffs-160.html)
 
 // The id-format guard itself (`parseCanonicalCountryId`) lives in `./country-id` — it has no
 // curation opinion, so curation depends on format here, not the other way round. Only the

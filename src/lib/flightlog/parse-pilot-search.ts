@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { HONEYPOT_SELECTOR } from './honeypot'
 import type { Nodes } from './parse-flightlog-table'
 import type { PilotSearchResult } from './types'
 
@@ -22,9 +23,7 @@ const SEARCH_FORM_ACTION_PATTERN = /(?:\?|&)a=114(?:&|$)/
 const PROFILE_LINK_ACTION_PATTERN = new RegExp(`(?:\\?|&)a=${PROFILE_LINK_ACTION}(?:&|$)`)
 // Every page on the site carries an `hp-nav` honeypot link (see docs/flightlog-api.md) — never
 // observed inside a=114's own results in practice, but that is incidental to where the trap
-// happens to render today, not a defence (same reasoning as parse-clubs.ts, which this
-// selector is copied from verbatim).
-const HONEYPOT_SELECTOR = '.hp-nav, [data-trap], [rel="nofollow"]'
+// happens to render today, not a defence (same reasoning as honeypot.ts).
 // The banner flightlog.org renders above (not inside) the results div on a genuine zero-match
 // response — see docs/flightlog-api.md. Its presence is what tells a real "nobody matched" apart
 // from markup drift that happens to also yield zero candidates (a renamed `user_id=` param, an

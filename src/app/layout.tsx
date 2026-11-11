@@ -1,21 +1,18 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Archivo } from 'next/font/google'
 import SiteNav from '@/components/site-nav'
 import './globals.css'
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-})
-
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
+const archivo = Archivo({
+  variable: '--font-archivo',
+  subsets: ['latin', 'latin-ext'],
+  weight: 'variable',
+  axes: ['wdth'],
 })
 
 export const metadata: Metadata = {
-  title: 'Flight Log Remastered',
-  description: 'A modern frontend over flightlog.org',
+  title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' },
+  description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.',
 }
 
 export default function RootLayout({
@@ -24,11 +21,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="flex min-h-full flex-col bg-white text-black dark:bg-zinc-950 dark:text-zinc-100">
+    <html lang="en" className={`${archivo.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col">
         <SiteNav />
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">{children}</main>
       </body>

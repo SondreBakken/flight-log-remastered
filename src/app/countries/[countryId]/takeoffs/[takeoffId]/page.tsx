@@ -1,15 +1,43 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import TakeoffDetailView from '@/features/browse-takeoff-detail'
 import { hasKnownLocation } from '@/lib/flightlog/has-known-location'
-import { getCountries } from '@/lib/flightlog/countries'
+import { countryNameFor, getCountries } from '@/lib/flightlog/countries'
 import { parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
-import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { toFollowButtonState, toTakeoffFollowButtonState } from '@/lib/follows/viewer-follow-state'
 
 type TakeoffDetailParams = Promise<{ countryId: string; takeoffId: string }>
+
+// Same ids, parses and loaders as TakeoffDetail (shared 'use cache' entries), so a 404 here matches the page.
+export async function generateMetadata({ params }: { params: TakeoffDetailParams }): Promise<Metadata> {
+  const { countryId, takeoffId } = await parseTakeoffDetailParams(params)
+
+  const [countries, detail] = await Promise.all([getCountries(), getTakeoffDetail(countryId, takeoffId)])
+  if (detail === null) notFound()
+  return { title: `${detail.name}, ${countryNameFor(countries, countryId)}` }
+}
+
+// Shared by generateMetadata and TakeoffDetail so the title and the 404 can never parse the ids differently.
+//
+// The takeoffId guard is the one /flights/[tripId] uses for its own dynamic id segment: no
+// canonical-spelling rejection the way countryId gets (see parseCuratedCountryId's own doc
+// comment), since this route is never statically generated, so there is no prerendered
+// artifact for an alias spelling to collide with.
+async function parseTakeoffDetailParams(
+  params: TakeoffDetailParams,
+): Promise<{ countryId: number; takeoffId: number }> {
+  const { countryId: countryIdParam, takeoffId: takeoffIdParam } = await params
+  const countryId = parseCuratedCountryId(countryIdParam)
+  if (countryId === null) notFound()
+  const takeoffId = Number(takeoffIdParam)
+  if (!Number.isInteger(takeoffId) || takeoffId <= 0) notFound()
+  return { countryId, takeoffId }
+}
 
 export default function TakeoffDetailPage({ params }: { params: TakeoffDetailParams }) {
   return (
@@ -33,16 +61,7 @@ export default function TakeoffDetailPage({ params }: { params: TakeoffDetailPar
 // Exported (like Clubs/TakeoffsPage's own inner component) so the notFound() guards are
 // exercised directly in page.test.tsx without a request context.
 export async function TakeoffDetail({ params }: { params: TakeoffDetailParams }) {
-  const { countryId: countryIdParam, takeoffId: takeoffIdParam } = await params
-  const countryId = parseCuratedCountryId(countryIdParam)
-  if (countryId === null) notFound()
-
-  // Same guard /flights/[tripId] uses for its own dynamic id segment — no canonical-spelling
-  // rejection the way countryId gets (see parseCuratedCountryId's own doc comment): this
-  // route is never statically generated, so there is no prerendered artifact for an alias
-  // spelling to collide with.
-  const takeoffId = Number(takeoffIdParam)
-  if (!Number.isInteger(takeoffId) || takeoffId <= 0) notFound()
+  const { countryId, takeoffId } = await parseTakeoffDetailParams(params)
 
   // All four run in parallel: detail/flights/takeoffs are independent fetches (getTakeoffs is
   // 'days'-cached already, so this is effectively free after the first hit for the country),
@@ -75,7 +94,7 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
     )
   }
 
-  const countryName = countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
+  const countryName = countryNameFor(countries, countryId)
 
   // #11's explicit rule: no a=22 coordinate fallback (confirmed absent, not merely empty, for
   // a corrupt-coordinate takeoff — see the issue's own measurement). The ONLY coordinate
@@ -86,7 +105,9 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
   const mapEntry = locationEntry && hasKnownLocation(locationEntry) ? locationEntry : null
 
   const candidatePilotIds = [...new Set(flights.map((flight) => flight.userId))]
-  const { isSignedIn, followedPilotIds } = await resolveFollowButtonState(candidatePilotIds)
+  const followState = await resolveViewerFollowState(candidatePilotIds, { includeTakeoffs: true })
+  const { isSignedIn, followedPilotIds } = toFollowButtonState(followState)
+  const { isFollowed } = toTakeoffFollowButtonState(followState, { countryId, takeoffId })
 
   return (
     <TakeoffDetailView
@@ -98,6 +119,7 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
       currentYear={new Date().getFullYear()}
       isSignedIn={isSignedIn}
       followedPilotIds={followedPilotIds}
+      isFollowed={isFollowed}
     />
   )
 }

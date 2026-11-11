@@ -1,11 +1,13 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import Link from 'next/link'
-import { List as ListIcon, LocateFixed, Map as MapIcon, Search } from 'lucide-react'
+import { List as ListIcon, LocateFixed, Map as MapIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
+import { NameFilterInput } from '@/components/name-filter-input'
 import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
 import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-geojson'
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
@@ -211,7 +213,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
 // a different renderer.
 function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange: (view: DirectoryView) => void }) {
   return (
-    <div role="group" aria-label="Directory view" className="flex gap-1 rounded border border-black/20 p-0.5 text-sm dark:border-white/25">
+    <div role="group" aria-label="Directory view" className="flex gap-1 rounded border border-frame p-0.5 text-sm">
       <button
         type="button"
         aria-pressed={view === 'list'}
@@ -232,10 +234,6 @@ function ViewToggle({ view, onViewChange }: { view: DirectoryView; onViewChange:
       </button>
     </div>
   )
-}
-
-function classes(...values: Array<string | false | undefined>): string {
-  return values.filter(Boolean).join(' ')
 }
 
 // TakeoffsMap no longer renders its own legend (see that component's own doc comment on why —
@@ -315,22 +313,12 @@ function SearchControls({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
-        <div className="relative flex-1">
-          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 opacity-50" size={14} />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Filter by name"
-            aria-label="Takeoff name"
-            className="w-full rounded border border-black/20 py-1.5 pr-3 pl-8 text-sm dark:border-white/25"
-          />
-        </div>
+        <NameFilterInput label="Takeoff name" className="relative flex-1" value={query} onChange={onQueryChange} />
         <select
           value={regionFilter}
           onChange={(event) => onRegionFilterChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}
           aria-label="Region"
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
         >
           <option value="all">All regions</option>
           {sortedRegions.map((region) => (
@@ -344,7 +332,7 @@ function SearchControls({
           value={windFilter}
           onChange={(event) => onWindFilterChange(parseWindFilterParam(event.target.value))}
           aria-label="Wind direction"
-          className="rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+          className="rounded border border-frame px-3 py-1.5 text-sm"
         >
           <option value="all">Any wind</option>
           {OCTANTS_CLOCKWISE.map((octant) => (
@@ -457,7 +445,7 @@ function TakeoffResults({
       )}
       {/* #11's detail route now exists — the name links there, replacing the plain text #4/#6
           left in place while it didn't. */}
-      <ul className="flex flex-col divide-y divide-black/5 dark:divide-white/10">
+      <ul className="flex flex-col divide-y divide-rule">
         {matches.map((takeoff) => (
           <TakeoffRow
             key={takeoff.takeoffId}

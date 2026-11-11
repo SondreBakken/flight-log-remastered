@@ -42,7 +42,7 @@ describe('getClub', () => {
   it('requests a=26 for the given country/club with the clubs-in-country referer, caches for hours under a per-club tag, and returns the parsed detail plus roster', async () => {
     mockedFetch.mockResolvedValue('<html>voss stub</html>')
     mockedParseClubDetail.mockReturnValue(DETAIL)
-    mockedParseClubRoster.mockReturnValue([{ userId: 1, name: 'Ade Hawkins' }])
+    mockedParseClubRoster.mockReturnValue([{ userId: 1, name: 'Pilot One' }])
 
     const club = await getClub(160, 51)
 
@@ -51,7 +51,7 @@ describe('getClub', () => {
     })
     expect(mockedParseClubDetail).toHaveBeenCalledWith('<html>voss stub</html>', 51)
     expect(mockedParseClubRoster).toHaveBeenCalledWith('<html>voss stub</html>', 51)
-    expect(club).toEqual({ detail: DETAIL, roster: [{ userId: 1, name: 'Ade Hawkins' }] })
+    expect(club).toEqual({ detail: DETAIL, roster: [{ userId: 1, name: 'Pilot One' }] })
     expect(mockedCacheLife).toHaveBeenCalledWith('hours')
     expect(mockedCacheTag).toHaveBeenCalledWith('club-160-51')
   })
@@ -86,7 +86,7 @@ describe('getClub', () => {
   it('throws when the roster is shorter than the info block declares, rather than rendering a partial roster as a complete club', async () => {
     mockedFetch.mockResolvedValue('<html>truncated stub</html>')
     mockedParseClubDetail.mockReturnValue({ ...DETAIL, memberCount: 1271 })
-    mockedParseClubRoster.mockReturnValue([{ userId: 1, name: 'Ade Hawkins' }]) // 1 of 1271
+    mockedParseClubRoster.mockReturnValue([{ userId: 1, name: 'Pilot One' }]) // 1 of 1271
 
     await expect(getClub(160, 51)).rejects.toThrow(/roster carries 1 member/)
   })

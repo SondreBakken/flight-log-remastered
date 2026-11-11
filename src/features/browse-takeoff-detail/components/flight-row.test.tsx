@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { TakeoffFlightRow } from '@/features/browse-takeoff-detail/components/flight-row'
+import { STACKED_CELL } from '@/features/browse-pilot-logbook/stacked-cell'
 import type { TakeoffFlight } from '@/lib/flightlog/types'
 
 const mockPush = vi.fn()
@@ -26,9 +27,9 @@ function remountRow(flight: TakeoffFlight, isFollowed = false, isSignedIn = true
 }
 
 const BASE_FLIGHT: TakeoffFlight = {
-  tripId: 1000946,
-  userId: 3365,
-  pilotName: 'Jarl Christian Kind',
+  tripId: 9000006,
+  userId: 900018,
+  pilotName: 'Pilot Eighteen',
   club: 'Pyongyang Freedom Fighters',
   glider: 'Gin Camino M',
   duration: '02:41',
@@ -48,7 +49,7 @@ describe('TakeoffFlightRow', () => {
 
     fireEvent.click(row)
 
-    expect(mockPush).toHaveBeenCalledWith('/flights/1000946')
+    expect(mockPush).toHaveBeenCalledWith('/flights/9000006')
   })
 
   it('navigates on Enter and Space, for keyboard users who cannot click', () => {
@@ -58,7 +59,7 @@ describe('TakeoffFlightRow', () => {
     fireEvent.keyDown(row, { key: ' ' })
 
     expect(mockPush).toHaveBeenCalledTimes(2)
-    expect(mockPush).toHaveBeenCalledWith('/flights/1000946')
+    expect(mockPush).toHaveBeenCalledWith('/flights/9000006')
   })
 
   it('does not navigate on an unrelated keypress', () => {
@@ -74,7 +75,7 @@ describe('TakeoffFlightRow', () => {
   // the pilot name would ALSO push to the flight page.
   it('does not navigate to the flight page when the nested pilot link is clicked', () => {
     remountRow(BASE_FLIGHT)
-    const pilotLink = screen.getByRole('link', { name: 'Jarl Christian Kind' })
+    const pilotLink = screen.getByRole('link', { name: 'Pilot Eighteen' })
 
     fireEvent.click(pilotLink)
 
@@ -88,7 +89,7 @@ describe('TakeoffFlightRow', () => {
   // feed-entry-row.test.tsx's sibling assertion for the same gap, #217).
   it('does not navigate to the flight page when Enter or Space is pressed on the nested pilot link', () => {
     remountRow(BASE_FLIGHT)
-    const pilotLink = screen.getByRole('link', { name: 'Jarl Christian Kind' })
+    const pilotLink = screen.getByRole('link', { name: 'Pilot Eighteen' })
 
     const enterEvent = createEvent.keyDown(pilotLink, { key: 'Enter' })
     fireEvent(pilotLink, enterEvent)
@@ -139,5 +140,40 @@ describe('TakeoffFlightRow', () => {
 
     expect(row.getAttribute('role')).toBeNull()
     expect(row.getAttribute('aria-label')).toBe('View flight details')
+  })
+
+  it('labels every cell for the stacked layout below sm:, in column order', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    const cells = [...row.querySelectorAll('td')]
+    expect(cells.map((cell) => cell.getAttribute('data-label'))).toEqual(['Date', 'Time', 'Pilot', 'Club', 'Glider', 'Duration', 'Distance', 'Note', 'Track'])
+    expect(row.className).toContain('max-sm:block')
+    for (const cell of cells) expect(cell.className).toContain(STACKED_CELL)
+  })
+
+  it('wraps a long unbroken note anywhere and lets a long pilot name wrap beside Follow, below sm:', () => {
+    const row = remountRow({ ...BASE_FLIGHT, note: 'x'.repeat(200) })
+
+    const note = row.querySelector('td[data-label="Note"] > span')
+    expect(note?.className).toContain('max-sm:wrap-anywhere')
+    expect(note?.className).toContain('min-w-0')
+    const pilotWrapper = row.querySelector('td[data-label="Pilot"] > div')
+    expect(pilotWrapper?.className).toContain('max-sm:flex-wrap')
+    expect(pilotWrapper?.className).toContain('min-w-0')
+  })
+
+  it('uses rule tokens, a muted Club and Glider, and a right-aligned Time cell', () => {
+    const row = remountRow(BASE_FLIGHT)
+
+    expect(row.className).toContain('border-rule')
+    expect(row.className).toContain('hover:bg-rule/30')
+    expect(row.className).not.toMatch(/black\/|white\/|dark:/)
+    const cell = (label: string) => row.querySelector(`td[data-label="${label}"]`) as HTMLElement
+    expect(cell('Time').className).toContain('text-right')
+    expect(cell('Date').className).not.toContain('text-right')
+    for (const label of ['Club', 'Glider']) {
+      expect(cell(label).className).toContain('text-muted')
+      expect(cell(label).className).not.toContain('opacity-')
+    }
   })
 })

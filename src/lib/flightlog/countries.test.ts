@@ -13,7 +13,7 @@ vi.mock('./parse-countries', () => ({ parseCountries: vi.fn() }))
 import { cacheLife, cacheTag } from 'next/cache'
 import { fetchFlightlogText } from './http'
 import { parseCountries } from './parse-countries'
-import { getCountries } from './countries'
+import { countryNameFor, getCountries } from './countries'
 
 const mockedFetch = vi.mocked(fetchFlightlogText)
 const mockedParseCountries = vi.mocked(parseCountries)
@@ -38,5 +38,20 @@ describe('getCountries', () => {
     ])
     expect(mockedCacheLife).toHaveBeenCalledWith('days')
     expect(mockedCacheTag).toHaveBeenCalledWith('countries')
+  })
+})
+
+describe('countryNameFor', () => {
+  const countries = [
+    { countryId: 160, name: 'Norway' },
+    { countryId: 203, name: 'Sweden' },
+  ]
+
+  it('returns the name of the matching country', () => {
+    expect(countryNameFor(countries, 203)).toBe('Sweden')
+  })
+
+  it('falls back to "Country <id>" when the list lacks the id', () => {
+    expect(countryNameFor(countries, 999)).toBe('Country 999')
   })
 })

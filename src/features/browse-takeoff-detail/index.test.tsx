@@ -33,14 +33,14 @@ const DETAIL: TakeoffDetail = {
   description: 'A fine site.',
   linkUrl: 'http://goo.gl/maps/eiVlQ',
   createdAt: null,
-  updatedAt: '2023-04-09 18:21:29 Espen Åshammer',
-  siteRecords: [{ recordClass: 'PG', pilotName: 'Mikael Benjamin Ulstrup', distanceKm: 196.9, tripId: 803981 }],
+  updatedAt: '2023-04-09 18:21:29 Pilot Seven',
+  siteRecords: [{ recordClass: 'PG', pilotName: 'Pilot Seventeen', distanceKm: 196.9, tripId: 9000005 }],
 }
 
 const FLIGHT: TakeoffFlight = {
-  tripId: 1000946,
-  userId: 3365,
-  pilotName: 'Jarl Christian Kind',
+  tripId: 9000006,
+  userId: 900018,
+  pilotName: 'Pilot Eighteen',
   club: 'Pyongyang Freedom Fighters',
   glider: 'Gin Camino M',
   duration: '02:41',
@@ -73,7 +73,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -81,7 +81,24 @@ describe('TakeoffDetailView', () => {
     screen.getByRole('heading', { name: 'Drammen, Solbergåsen' })
     screen.getByText(/Buskerud.*401 meters asl/)
     screen.getByText('A fine site.')
-    screen.getByText(/Mikael Benjamin Ulstrup/)
+    screen.getByText(/Pilot Seventeen/)
+  })
+
+  it('lets a site record wrap below sm: so a long pilot name cannot widen the page', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false} isFollowed={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(screen.getByText(/Pilot Seventeen/).closest('li')?.className).toContain('max-sm:flex-wrap')
   })
 
   it('links every flight row\'s pilot with a follow button; the row itself (not a Track link) is now the /flights/[tripId] navigation target', () => {
@@ -94,11 +111,12 @@ describe('TakeoffDetailView', () => {
         mapEntry={null}
         currentYear={2026}
         isSignedIn
+        isFollowed
         followedPilotIds={[]}
       />,
     )
 
-    expect(screen.getByRole('link', { name: 'Jarl Christian Kind' }).getAttribute('href')).toBe('/pilots/3365')
+    expect(screen.getByRole('link', { name: 'Pilot Eighteen' }).getAttribute('href')).toBe('/pilots/900018')
     // getByRole throws if not found, so its return alone is the assertion. Exact name match, not
     // /follow/i — #219 gave the row itself role="button" too, and its own accessible name
     // includes "Follow" as part of the whole row's text, so a loose regex would match both.
@@ -107,8 +125,8 @@ describe('TakeoffDetailView', () => {
     // (see flight-row.test.tsx for the row-click/keydown coverage) — only the site record's
     // "View track" link remains a real link.
     const trackLinks = screen.getAllByRole('link', { name: 'View track' }).map((link) => link.getAttribute('href'))
-    expect(trackLinks).not.toContain('/flights/1000946')
-    expect(trackLinks).toContain('/flights/803981')
+    expect(trackLinks).not.toContain('/flights/9000006')
+    expect(trackLinks).toContain('/flights/9000005')
   })
 
   it('marks a flight row\'s follow button as already-followed when its pilot id is in followedPilotIds', () => {
@@ -121,7 +139,8 @@ describe('TakeoffDetailView', () => {
         mapEntry={null}
         currentYear={2026}
         isSignedIn
-        followedPilotIds={[3365]}
+        isFollowed={false}
+        followedPilotIds={[900018]}
       />,
     )
 
@@ -137,7 +156,7 @@ describe('TakeoffDetailView', () => {
         flights={[FLIGHT]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -145,7 +164,79 @@ describe('TakeoffDetailView', () => {
     // Exact name match, not /follow/i — the row itself also carries role="button" (#219), and
     // its own accessible name includes "Sign in to follow" as part of the whole row's text.
     expect(screen.queryByRole('button', { name: 'Follow' })).toBeNull()
-    screen.getByRole('link', { name: /sign in to follow/i })
+    // One sign-in link in the header for the takeoff itself, one in the flight row for its pilot.
+    expect(screen.getAllByRole('link', { name: /sign in to follow/i })).toHaveLength(2)
+  })
+
+  describe('takeoff follow button in the header', () => {
+    function renderHeader(props: { isSignedIn: boolean; isFollowed: boolean }) {
+      render(
+        <TakeoffDetailView
+          countryId={160}
+          countryName="Norway"
+          detail={DETAIL}
+          flights={[]}
+          mapEntry={null}
+          currentYear={2026}
+          followedPilotIds={[]}
+          {...props}
+        />,
+      )
+    }
+
+    it('renders Follow signed in and not following, Following when following', () => {
+      renderHeader({ isSignedIn: true, isFollowed: false })
+      expect(screen.getByRole('button', { name: 'Follow' }).getAttribute('aria-pressed')).toBe('false')
+    })
+
+    it('renders Following when the viewer follows this takeoff', () => {
+      renderHeader({ isSignedIn: true, isFollowed: true })
+      expect(screen.getByRole('button', { name: 'Following' }).getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('renders a sign-in link to /sign-in when signed out', () => {
+      renderHeader({ isSignedIn: false, isFollowed: false })
+      expect(screen.getByRole('link', { name: /sign in to follow/i }).getAttribute('href')).toBe('/sign-in')
+      expect(screen.queryByRole('button')).toBeNull()
+    })
+  })
+
+  it('stacks the flights table into labelled rows below sm:', () => {
+    const { container } = render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false} isFollowed={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    expect(container.querySelector('table')?.className).toContain('max-sm:block')
+    expect(container.querySelector('tbody')?.className).toContain('max-sm:block')
+    expect(container.querySelector('thead')?.className).toContain('max-sm:sr-only')
+  })
+
+  it('styles the header with form-label and right-aligns the Time column, leaving Date left-aligned', () => {
+    render(
+      <TakeoffDetailView
+        countryId={160}
+        countryName="Norway"
+        detail={DETAIL}
+        flights={[FLIGHT]}
+        mapEntry={null}
+        currentYear={2026}
+        isSignedIn={false} isFollowed={false}
+        followedPilotIds={[]}
+      />,
+    )
+
+    for (const th of screen.getAllByRole('columnheader')) expect(th.className).toContain('form-label')
+    expect(screen.getByRole('columnheader', { name: 'Time' }).className).toContain('text-right')
+    expect(screen.getByRole('columnheader', { name: 'Date' }).className).not.toContain('text-right')
   })
 
   it('renders the deliberate empty state, not an empty table, when there are no flights this year', () => {
@@ -157,7 +248,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -176,7 +267,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={MAP_ENTRY}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -197,7 +288,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -214,7 +305,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -231,7 +322,7 @@ describe('TakeoffDetailView', () => {
         flights={[]}
         mapEntry={null}
         currentYear={2026}
-        isSignedIn={false}
+        isSignedIn={false} isFollowed={false}
         followedPilotIds={[]}
       />,
     )
@@ -244,7 +335,7 @@ describe('TakeoffDetailView', () => {
 
   it('shows a leading icon on the back-to-takeoffs link', () => {
     const { container } = render(
-      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} followedPilotIds={[]} />,
+      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} isFollowed={false} followedPilotIds={[]} />,
     )
 
     expect(container.querySelector('svg')).toBeTruthy()
@@ -252,7 +343,7 @@ describe('TakeoffDetailView', () => {
 
   it('shows trailing icons on the external takeoff links', () => {
     const { container } = render(
-      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} followedPilotIds={[]} />,
+      <TakeoffDetailView countryId={160} countryName="Norway" detail={DETAIL} flights={[]} mapEntry={null} currentYear={2026} isSignedIn={false} isFollowed={false} followedPilotIds={[]} />,
     )
 
     expect(container.querySelectorAll('a svg').length).toBeGreaterThanOrEqual(2)

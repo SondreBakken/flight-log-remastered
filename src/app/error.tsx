@@ -14,7 +14,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
       <h2 className="text-lg font-semibold">Could not load this from flightlog.org</h2>
       <p className="text-sm opacity-80">{error.message}</p>
       <button
-        className="flex items-center gap-1.5 rounded border border-black/20 px-3 py-1.5 text-sm dark:border-white/25"
+        className="flex items-center gap-1.5 rounded border border-frame px-3 py-1.5 text-sm"
         onClick={reset}
         type="button"
       >

@@ -1,8 +1,9 @@
+import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import CountryClubs from '@/features/browse-country-clubs'
 import { getClubs } from '@/lib/flightlog/clubs'
-import { getCountries } from '@/lib/flightlog/countries'
+import { countryNameFor, getCountries } from '@/lib/flightlog/countries'
 import { parseCanonicalCountryId } from '@/lib/flightlog/country-id'
 import { CURATED_CLUB_COUNTRY_IDS } from '@/lib/flightlog/curated-countries'
 
@@ -11,12 +12,27 @@ type CountryParams = Promise<{ countryId: string }>
 // #40: prerenders the curated set (currently just Norway, the only club list this app has
 // measured — see CURATED_CLUB_COUNTRY_IDS's own doc comment) at build time, so `getClubs`'s
 // 'days' cacheLife actually gets to do its job for the country pilots hit most, rather than
-// re-running on every request the way it does on serverless when nothing ELSE keeps an
-// instance warm (see getClubs's own doc comment). Unlike the sibling takeoffs route/page,
+// re-running after every restart or redeploy, since `use cache` entries live in process
+// memory (see getClubs's own doc comment). Unlike the sibling takeoffs route/page,
 // this array does NOT gate which ids the page will serve — see Clubs below — only which ids
 // get prerendered; every other well-formed id still renders normally, on demand.
 export async function generateStaticParams(): Promise<{ countryId: string }[]> {
   return CURATED_CLUB_COUNTRY_IDS.map((countryId) => ({ countryId: String(countryId) }))
+}
+
+// Same id parse and getCountries call as Clubs (shared 'use cache' entry). An id missing from the
+// list is not a 404 here either, so it takes the page's own `Country <id>` fallback name.
+export async function generateMetadata({ params }: { params: CountryParams }): Promise<Metadata> {
+  const id = await parseCountryParams(params)
+  return { title: countryNameFor(await getCountries(), id) }
+}
+
+// Shared by generateMetadata and Clubs so the title and the 404 can never parse the id differently.
+async function parseCountryParams(params: CountryParams): Promise<number> {
+  const { countryId } = await params
+  const id = parseCanonicalCountryId(countryId)
+  if (id === null || id <= 0) notFound()
+  return id
 }
 
 export default function CountryPage({ params }: { params: CountryParams }) {
@@ -42,9 +58,7 @@ export default function CountryPage({ params }: { params: CountryParams }) {
 // `/countries/160`, the same duplicate-cache-key mistake #38's review caught on the takeoffs
 // route (see curated-countries.ts's own doc comment).
 export async function Clubs({ params }: { params: CountryParams }) {
-  const { countryId } = await params
-  const id = parseCanonicalCountryId(countryId)
-  if (id === null || id <= 0) notFound()
+  const id = await parseCountryParams(params)
 
   const [countries, clubs] = await Promise.all([getCountries(), getClubs(id)])
   // country_id values that are syntactically valid but do not exist (or exist but have
@@ -52,7 +66,7 @@ export async function Clubs({ params }: { params: CountryParams }) {
   // both return 200 with an empty results table (confirmed live against Bouvet Island).
   // Falling through to the same empty-clubs rendering, rather than a second notFound(),
   // is the deliberate choice for an out-of-range numeric id.
-  const countryName = countries.find((country) => country.countryId === id)?.name ?? `Country ${id}`
+  const countryName = countryNameFor(countries, id)
 
   return <CountryClubs countryId={id} countryName={countryName} clubs={clubs} />
 }

@@ -102,7 +102,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable pilot-not-found outcome when the linked pilot id no longer resolves on flightlog.org', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'not-found' })
 
     const state = await startPilotVerificationAction()
@@ -116,7 +116,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable no-email outcome when the pilot exists but has no scrapable email', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'no-email' })
 
     const state = await startPilotVerificationAction()
@@ -130,24 +130,24 @@ describe('startPilotVerificationAction', () => {
 
   it('scrapes, issues, and sends the code, passing the session-derived user id (never a client-supplied one) as target_user_id, on the happy path', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 900024 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
 
     const state = await startPilotVerificationAction()
 
     expect(state).toEqual({ status: 'success' })
-    expect(mockGetPilotEmail).toHaveBeenCalledWith(4549)
+    expect(mockGetPilotEmail).toHaveBeenCalledWith(900024)
     expect(mockIssuePilotVerification).toHaveBeenCalledWith('app-database', 'user-1', 'pilot@example.com')
     expect(mockSendVerificationEmail).toHaveBeenCalledWith('pilot@example.com', '123456')
   })
 
   it('surfaces a distinguishable "started-logged" outcome, not the generic success state, when sendVerificationEmail resolves \'logged\' (flag off, code only reached the server log)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 900024 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'logged' })
 
     const state = await startPilotVerificationAction()
@@ -160,25 +160,25 @@ describe('startPilotVerificationAction', () => {
 
   it("looks up the session user's own linked pilot id, and issues for the session user id", async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 900024 })
     mockSendVerificationEmail.mockResolvedValue({ status: 'sent' })
 
     await startPilotVerificationAction()
 
     expect(mockGetProfile).toHaveBeenCalledWith('app-database', 'user-1')
-    expect(mockGetPilotEmail).toHaveBeenCalledWith(4549)
+    expect(mockGetPilotEmail).toHaveBeenCalledWith(900024)
     expect(mockIssuePilotVerification.mock.calls[0]![1]).toBe('user-1')
   })
 
   it('bails without sending, surfacing a distinguishable pilot-id-changed outcome, when the RPC-bound pilot id no longer matches the one scraped for (the TOCTOU the RPC now closes)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     // The profile got relinked to a different pilot id mid-scrape: issue_pilot_verification
     // re-derives the pilot id from `profiles` at execution time, so it reports back 9999, not the
-    // 4549 this action scraped an email for.
+    // 900024 this action scraped an email for.
     mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 9999 })
 
     const state = await startPilotVerificationAction()
@@ -192,7 +192,7 @@ describe('startPilotVerificationAction', () => {
 
   it('falls back to the "link your pilot id first" outcome, without sending, when issuance hits the RPC\'s own no-linked-pilot-id rejection (a TOCTOU race)', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'no-linked-pilot-id' })
 
@@ -207,7 +207,7 @@ describe('startPilotVerificationAction', () => {
 
   it('surfaces a distinguishable rate-limited outcome, without sending, when issuance hits the RPC\'s own re-issuance cooldown', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockResolvedValue({ kind: 'rate-limited' })
 
@@ -223,7 +223,7 @@ describe('startPilotVerificationAction', () => {
   it('surfaces a generic error, without crashing or sending, when issuance throws a genuine ProfilesQueryError', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
     mockIssuePilotVerification.mockRejectedValue(new ProfilesQueryError('boom'))
 
@@ -239,7 +239,7 @@ describe('startPilotVerificationAction', () => {
   it('lets a non-ProfilesQueryError thrown earlier in the chain propagate instead of being folded into the generic result', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockRejectedValue(new Error('markup not recognised'))
 
     await expect(startPilotVerificationAction()).rejects.toThrow('markup not recognised')
@@ -248,9 +248,9 @@ describe('startPilotVerificationAction', () => {
   it('surfaces a distinguishable "code issued but not sent" outcome when sendVerificationEmail throws', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mockGetCurrentUserId.mockResolvedValue('user-1')
-    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 4549 })
+    mockGetProfile.mockResolvedValue({ displayName: null, flightlogPilotId: 900024 })
     mockGetPilotEmail.mockResolvedValue({ status: 'found', email: 'pilot@example.com' })
-    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 4549 })
+    mockIssuePilotVerification.mockResolvedValue({ kind: 'issued', code: '123456', boundPilotId: 900024 })
     mockSendVerificationEmail.mockRejectedValue(new Error('resend down'))
 
     const state = await startPilotVerificationAction()

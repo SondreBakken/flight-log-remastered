@@ -1,8 +1,10 @@
 'use client'
 
+import { classes } from '@/lib/classes'
 import { useEffect, useMemo, useRef } from 'react'
 import { LngLatBounds, MapLibreMap, NavigationControl, Popup, type MapGeoJSONFeature, type MapMouseEvent } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { MapFrame } from '@/components/map-frame'
 import { osmRasterStyle } from '@/lib/maplibre/osm-raster-style'
 import { isMapDebugEnabled } from '@/lib/maplibre/map-debug'
 import { buildFlownSitesGeoJSON, type FlownSiteMarker, type FlownSitesGeoJSON } from './build-flown-sites-geojson'
@@ -26,10 +28,6 @@ type FlownSitesMapProps = {
 }
 
 const DEFAULT_SIZE_CLASSES = 'h-[60vh] w-full'
-
-function classes(...values: Array<string | undefined>): string {
-  return values.filter(Boolean).join(' ')
-}
 
 function siteBounds(geojson: FlownSitesGeoJSON): LngLatBounds | null {
   if (geojson.features.length === 0) return null
@@ -149,5 +147,9 @@ export function FlownSitesMap({ sites, className }: FlownSitesMapProps) {
     }
   }, [geojson])
 
-  return <div ref={containerRef} className={classes(className ?? DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')} />
+  return (
+    <MapFrame>
+      <div ref={containerRef} className={classes(className ?? DEFAULT_SIZE_CLASSES, 'overflow-hidden rounded-md')} />
+    </MapFrame>
+  )
 }

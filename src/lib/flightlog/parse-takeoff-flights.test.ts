@@ -12,8 +12,8 @@ const POPULATED_HTML = `<html><body>
 <tr><td bgcolor='white' colspan='6'><b>2026-07-17</b></td></tr>
 <tr>
 <td width='35' bgcolor='white'>10:52<br></td>
-<td width='45' bgcolor='white' align='right'><a href='?l=1&a=34&user_id=3365&trip_id=1000946'><img src='yi.html?h7=p3t'></a></td>
-<td width='450' bgcolor='white'><a href='?l=1&a=28&user_id=3365'>Jarl Christian Kind</a> &nbsp; - &nbsp; <a href='?l=1&a=43&country_id=112&club_id=343'>Pyongyang Freedom Fighters</a> - <a href='?l=1&a=48&country_id=160'>Norway</a><br>Gin Camino M (white/red)</td>
+<td width='45' bgcolor='white' align='right'><a href='?l=1&a=34&user_id=900018&trip_id=9000006'><img src='yi.html?h7=p3t'></a></td>
+<td width='450' bgcolor='white'><a href='?l=1&a=28&user_id=900018'>Pilot Eighteen</a> &nbsp; - &nbsp; <a href='?l=1&a=43&country_id=112&club_id=343'>Pyongyang Freedom Fighters</a> - <a href='?l=1&a=48&country_id=160'>Norway</a><br>Gin Camino M (white/red)</td>
 <td width='35' bgcolor='white' align='right'>02:41</td>
 <td width='50' bgcolor='white' align='right'>28.0 km</td>
 <td width='100' bgcolor='white'>(SBÅ-Blåfarveverket/Åmot) Første timen var det ikk</td>
@@ -21,8 +21,8 @@ const POPULATED_HTML = `<html><body>
 <tr><td bgcolor='white' colspan='6'><b>2026-07-09</b></td></tr>
 <tr>
 <td width='35' bgcolor='white'>17:58<br></td>
-<td width='45' bgcolor='white' align='right'><a href='?l=1&a=34&user_id=3050&trip_id=998549'><img src='yi.html?h7=e3u'></a></td>
-<td width='450' bgcolor='white'><a href='?l=1&a=28&user_id=3050'>Espen Åshammer</a><br>Skywalk Cumeo 2 xxs</td>
+<td width='45' bgcolor='white' align='right'><a href='?l=1&a=34&user_id=900007&trip_id=9000007'><img src='yi.html?h7=e3u'></a></td>
+<td width='450' bgcolor='white'><a href='?l=1&a=28&user_id=900007'>Pilot Seven</a><br>Skywalk Cumeo 2 xxs</td>
 <td width='35' bgcolor='white' align='right'>00:41</td>
 <td width='50' bgcolor='white' align='right'></td>
 <td width='100' bgcolor='white'>DROP-397m</td>
@@ -72,9 +72,9 @@ describe('parseTakeoffFlights', () => {
 
     expect(flights).toEqual([
       {
-        tripId: 1000946,
-        userId: 3365,
-        pilotName: 'Jarl Christian Kind',
+        tripId: 9000006,
+        userId: 900018,
+        pilotName: 'Pilot Eighteen',
         club: 'Pyongyang Freedom Fighters',
         glider: 'Gin Camino M (white/red)',
         duration: '02:41',
@@ -84,9 +84,9 @@ describe('parseTakeoffFlights', () => {
         timeOfDay: '10:52',
       },
       {
-        tripId: 998549,
-        userId: 3050,
-        pilotName: 'Espen Åshammer',
+        tripId: 9000007,
+        userId: 900007,
+        pilotName: 'Pilot Seven',
         club: null,
         glider: 'Skywalk Cumeo 2 xxs',
         duration: '00:41',

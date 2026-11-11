@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio'
+import { HONEYPOT_SELECTOR } from './honeypot'
 import type { Nodes } from './parse-flightlog-table'
 import type { Club } from './types'
 
@@ -9,7 +10,6 @@ const CLUB_LINK_ACTION = 26
 // but that is incidental, not a defence: a page that placed a trap *inside* the results
 // table with a `club_id=` href would be indistinguishable from a real row without this
 // explicit exclusion. Match on the markers, not on where the trap happens to live.
-const HONEYPOT_SELECTOR = '.hp-nav, [data-trap], [rel="nofollow"]'
 // Anchors the results table itself (cellspacing/cellpadding/bgcolor are literal HTML
 // attributes cheerio parses off the tag, not a style string needing substring matching —
 // unlike the div wrapper this replaces, there is no whitespace-in-value edge case to

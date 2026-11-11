@@ -3,11 +3,19 @@
 import Link from 'next/link'
 import { useEffect, useMemo, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
-import { usePilotFeedResults, type FlightFeedResults } from './use-flight-feed'
+import { useFlightFeedResults, type FlightFeedResults } from './use-flight-feed'
+import { DiscoveryLinks } from './components/discovery-links'
 import { FeedEntryRow } from './components/feed-entry-row'
-import { countNewEntries, selectFeedPilotIds, type FeedEntry, type PilotFeedFailure } from './feed'
-import { followedPilotIdsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
-import type { PilotId } from '@/lib/flightlog/types'
+import {
+  countNewEntries,
+  selectFeedPilotIds,
+  selectFeedTakeoffs,
+  type FeedEntry,
+  type PilotFeedFailure,
+  type TakeoffFeedFailure,
+} from './feed'
+import { followedPilotIdsOf, followedTakeoffsOf, type ViewerFollowState } from '@/lib/follows/viewer-follow-state'
+import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 import { Callout } from '@/components/callout'
 import { EmptyState } from '@/components/empty-state'
 
@@ -34,7 +42,7 @@ export function FlightFeedView({
     return followedPilotIds === null ? null : new Set(followedPilotIds)
   }, [follows])
 
-  // The true, untruncated follow set — usePilotFeedResults only ever sees selectFeedPilotIds's
+  // The true, untruncated follow set — useFlightFeedResults only ever sees selectFeedPilotIds's
   // MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to safely prune
   // seen-trip-store's stored map (see pruneSeenTripIdsToFollowedPilots's own doc comment for the
   // accumulation bug this closes). Runs whenever the resolved follow set changes (a fresh page
@@ -58,20 +66,37 @@ export function FlightFeedView({
 
 // The three states FlightFeedView can render, named and matched explicitly rather than picked
 // between with nested ternaries in the render body above. Delegates the status → follow-list
-// mapping itself to followedPilotIdsOf (see its own doc comment) rather than re-deriving it with
-// a second switch here — a fourth ViewerFollowState variant fails to compile there (its own
-// declared, non-undefined return type leaves no case free to fall through), which is what makes
-// this function's own explicit return type below a real, checked guarantee rather than a comment.
+// mapping itself to followedPilotIdsOf and followedTakeoffsOf (see their doc comments) rather than
+// re-deriving it with a second switch here — a fourth ViewerFollowState variant fails to compile
+// there (their own declared, non-undefined return type leaves no case free to fall through),
+// which is what makes this function's own explicit return type below a real, checked guarantee
+// rather than a comment. Both return null for exactly the same status.
 function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }): ReactElement {
   const followedPilotIds = followedPilotIdsOf(follows)
-  if (followedPilotIds === null) return <FollowsUnavailableNotice />
-  return <FollowedPilotsFeed followedPilotIds={followedPilotIds} defaultPilotId={defaultPilotId} />
+  const followedTakeoffs = followedTakeoffsOf(follows)
+  if (followedPilotIds === null || followedTakeoffs === null) return <FollowsUnavailableNotice />
+  return (
+    <FollowedSourcesFeed
+      followedPilotIds={followedPilotIds}
+      followedTakeoffs={followedTakeoffs}
+      defaultPilotId={defaultPilotId}
+    />
+  )
 }
 
-function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilotIds: PilotId[]; defaultPilotId: number }) {
+function FollowedSourcesFeed({
+  followedPilotIds,
+  followedTakeoffs,
+  defaultPilotId,
+}: {
+  followedPilotIds: PilotId[]
+  followedTakeoffs: TakeoffRef[]
+  defaultPilotId: number
+}) {
   const { pilotIds, followedCount } = selectFeedPilotIds(new Set(followedPilotIds))
+  const { takeoffs, followedCount: followedTakeoffCount } = selectFeedTakeoffs(followedTakeoffs)
 
-  if (pilotIds.length === 0) {
+  if (pilotIds.length === 0 && takeoffs.length === 0) {
     return (
       <>
         <p className="text-sm opacity-70">Flights from pilots you follow show up here.</p>
@@ -80,10 +105,19 @@ function FollowedPilotsFeed({ followedPilotIds, defaultPilotId }: { followedPilo
     )
   }
 
-  // Keying by the id set itself gives every genuinely new set of followed pilots a fresh
-  // FeedForPilots instance (fresh loading state, fresh results), instead of an effect resetting
-  // old state to match the new props — see usePilotFeedResults.
-  return <FeedForPilots key={pilotIds.join(',')} pilotIds={pilotIds} followedCount={followedCount} />
+  // Keying by the id sets themselves gives every genuinely new set of followed pilots and
+  // takeoffs a fresh FeedForSources instance (fresh loading state, fresh results), instead of an
+  // effect resetting old state to match the new props — see useFlightFeedResults.
+  const key = `${pilotIds.join(',')}|${takeoffs.map((takeoff) => `${takeoff.countryId}/${takeoff.takeoffId}`).join(',')}`
+  return (
+    <FeedForSources
+      key={key}
+      pilotIds={pilotIds}
+      followedCount={followedCount}
+      takeoffs={takeoffs}
+      followedTakeoffCount={followedTakeoffCount}
+    />
+  )
 }
 
 // The one visible signal that this feed's own following filter could not be resolved (#155) —
@@ -99,15 +133,58 @@ function FollowsUnavailableNotice() {
   )
 }
 
-function FeedForPilots({
+function FeedForSources({
   pilotIds,
   followedCount,
+  takeoffs,
+  followedTakeoffCount,
 }: {
   pilotIds: number[]
   followedCount: number | null
+  takeoffs: TakeoffRef[]
+  followedTakeoffCount: number | null
 }) {
-  const results = usePilotFeedResults(pilotIds)
-  return <FeedView shownCount={pilotIds.length} followedCount={followedCount} {...results} />
+  const results = useFlightFeedResults(pilotIds, takeoffs)
+  return (
+    <FeedView
+      shownCount={pilotIds.length}
+      followedCount={followedCount}
+      shownTakeoffCount={takeoffs.length}
+      followedTakeoffCount={followedTakeoffCount}
+      {...results}
+    />
+  )
+}
+
+// The summary line's two halves, each omitted when that source is not followed at all so a
+// pilots-only follower reads exactly as before takeoffs existed.
+function summaryParts({
+  shownCount,
+  followedCount,
+  shownTakeoffCount,
+  followedTakeoffCount,
+}: {
+  shownCount: number
+  followedCount: number | null
+  shownTakeoffCount: number
+  followedTakeoffCount: number | null
+}): string[] {
+  const parts: string[] = []
+  if (shownCount > 0) {
+    parts.push(
+      followedCount === null
+        ? `${shownCount} pilot${shownCount === 1 ? '' : 's'} followed`
+        : `following ${followedCount} pilots — showing recent flights from the first ${shownCount} to keep this page fast`,
+    )
+  }
+  if (shownTakeoffCount > 0) {
+    parts.push(
+      followedTakeoffCount === null
+        ? `${shownTakeoffCount} takeoff${shownTakeoffCount === 1 ? '' : 's'} followed`
+        : `following ${followedTakeoffCount} takeoffs — showing recent flights from the first ${shownTakeoffCount} to keep this page fast`,
+    )
+  }
+  return parts
 }
 
 // Pure presentation of a resolved (or still-resolving) feed: no hooks, so it's exercised
@@ -118,28 +195,38 @@ function FeedForPilots({
 export function FeedView({
   shownCount,
   followedCount,
+  shownTakeoffCount,
+  followedTakeoffCount,
   isLoading,
   entries,
   failedPilots,
+  failedTakeoffs,
   hasSeenBefore,
 }: {
   shownCount: number
   // The real followed total when the list was truncated to fit MAX_PILOTS_PER_FEED, null
   // otherwise — see selectFeedPilotIds. Drives which summary line renders below.
   followedCount: number | null
+  // The takeoff twins of the two counts above, see selectFeedTakeoffs.
+  shownTakeoffCount: number
+  followedTakeoffCount: number | null
 } & FlightFeedResults) {
+  const summary = summaryParts({ shownCount, followedCount, shownTakeoffCount, followedTakeoffCount })
   return (
     <>
       <p className="text-sm opacity-70">
-        {followedCount === null
-          ? `${shownCount} pilot${shownCount === 1 ? '' : 's'} followed`
-          : `following ${followedCount} pilots — showing recent flights from the first ${shownCount} to keep this page fast`}
+        {summary.join(' · ')}
         {isLoading ? ' · loading…' : ''}
       </p>
-      <NewSinceLastVisitNotice isLoading={isLoading} entries={entries} hasSeenBefore={hasSeenBefore} />
+      {/* A takeoff-only follower has no pilot whose "last visit" could be compared against: every
+          row is site-sourced and never 'new', so the caption would only say something false. */}
+      {shownCount > 0 && (
+        <NewSinceLastVisitNotice isLoading={isLoading} entries={entries} hasSeenBefore={hasSeenBefore} />
+      )}
       <FailedPilotsNotice failures={failedPilots} />
+      <FailedTakeoffsNotice failures={failedTakeoffs} />
       {entries.length === 0 ? (
-        <NoRecentFlights isLoading={isLoading} />
+        <NoRecentFlights isLoading={isLoading} followsPilots={shownCount > 0} followsTakeoffs={shownTakeoffCount > 0} />
       ) : (
         <FeedTable entries={entries} />
       )}
@@ -202,8 +289,28 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
       <ul className="mt-1 list-inside list-disc opacity-80">
         {failures.map((failure) => (
           <li key={failure.pilotId}>
-            <Link className="underline" href={`/pilots/${failure.pilotId}`}>
+            <Link href={`/pilots/${failure.pilotId}`}>
               Pilot {failure.pilotId}
+            </Link>{' '}
+            — {failure.message}
+          </li>
+        ))}
+      </ul>
+    </Callout>
+  )
+}
+
+function FailedTakeoffsNotice({ failures }: { failures: TakeoffFeedFailure[] }) {
+  if (failures.length === 0) return null
+
+  return (
+    <Callout tone="warning">
+      <p className="font-medium">Some followed takeoffs could not be loaded:</p>
+      <ul className="mt-1 list-inside list-disc opacity-80">
+        {failures.map((failure) => (
+          <li key={`${failure.countryId}-${failure.takeoffId}`}>
+            <Link href={`/countries/${failure.countryId}/takeoffs/${failure.takeoffId}`}>
+              Takeoff {failure.takeoffId}
             </Link>{' '}
             — {failure.message}
           </li>
@@ -215,27 +322,28 @@ function FailedPilotsNotice({ failures }: { failures: PilotFeedFailure[] }) {
 
 function NotFollowingAnyoneNotice({ defaultPilotId }: { defaultPilotId: number }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-dashed border-black/15 p-6 text-sm opacity-80 dark:border-white/20">
+    <div className="flex flex-col gap-2 rounded-md border border-dashed border-rule p-6 text-sm opacity-80">
       <p>You are not following any pilots yet.</p>
       <p>
         Open a pilot&apos;s logbook and use the Follow button there to add their flights to this
-        feed.
+        feed. Following a takeoff from its page adds the flights flown from it.
       </p>
-      <Link className="underline" href="/pilots/search">
-        Search for a pilot by name
-      </Link>
-      <Link className="underline" href={`/pilots/${defaultPilotId}`}>
-        Browse a pilot&apos;s logbook
-      </Link>
-      <Link className="underline" href="/countries">
-        Browse clubs by country
-      </Link>
+      <DiscoveryLinks defaultPilotId={defaultPilotId} />
     </div>
   )
 }
 
-function NoRecentFlights({ isLoading }: { isLoading: boolean }) {
-  return <EmptyState>{isLoading ? 'Loading recent flights…' : 'No recent flights from the pilots you follow.'}</EmptyState>
+function NoRecentFlights({
+  isLoading,
+  followsPilots,
+  followsTakeoffs,
+}: {
+  isLoading: boolean
+  followsPilots: boolean
+  followsTakeoffs: boolean
+}) {
+  const sources = [followsPilots && 'pilots', followsTakeoffs && 'takeoffs'].filter(Boolean).join(' and ')
+  return <EmptyState>{isLoading ? 'Loading recent flights…' : `No recent flights from the ${sources} you follow.`}</EmptyState>
 }
 
 function FeedTable({ entries }: { entries: FeedEntry[] }) {
@@ -243,13 +351,13 @@ function FeedTable({ entries }: { entries: FeedEntry[] }) {
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="border-b border-black/10 text-left dark:border-white/15">
-            <th className="py-2 pr-4 font-medium">Date</th>
-            <th className="py-2 pr-4 font-medium">Pilot</th>
-            <th className="py-2 pr-4 font-medium">Site</th>
-            <th className="py-2 pr-4 text-right font-medium">Time</th>
-            <th className="py-2 pr-4 text-right font-medium">Distance</th>
-            <th className="py-2 font-medium">Track</th>
+          <tr className="border-b border-rule text-left">
+            <th className="py-2 pr-4 form-label">Date</th>
+            <th className="py-2 pr-4 form-label">Pilot</th>
+            <th className="py-2 pr-4 form-label">Site</th>
+            <th className="py-2 pr-4 text-right form-label">Time</th>
+            <th className="py-2 pr-4 text-right form-label">Distance</th>
+            <th className="py-2 form-label">Track</th>
           </tr>
         </thead>
         <tbody>

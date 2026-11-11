@@ -25,4 +25,24 @@ describe('SiteNav', () => {
 
     expect(container.querySelectorAll('svg').length).toBe(3)
   })
+
+  it('uses the Route icon for Flights, not Plane', () => {
+    render(<SiteNav />)
+
+    const icon = screen.getByRole('link', { name: 'Flights' }).querySelector('svg')
+    expect(icon?.classList.contains('lucide-route')).toBe(true)
+    expect(icon?.classList.contains('lucide-plane')).toBe(false)
+  })
+
+  it('keeps each label as sr-only text below sm: and visible from sm: up, never wrapping', () => {
+    render(<SiteNav />)
+
+    for (const name of ['Flights', 'Find a pilot', 'Countries']) {
+      const link = screen.getByRole('link', { name })
+      expect(link.className).toContain('whitespace-nowrap')
+      const label = screen.getByText(name)
+      expect(label.className).toContain('sr-only')
+      expect(label.className).toContain('sm:not-sr-only')
+    }
+  })
 })

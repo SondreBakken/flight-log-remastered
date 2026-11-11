@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { PilotVerification } from '@/lib/profiles/get-own-pilot-verification'
 import type { Profile } from '@/lib/profiles/get-profile'
 import { ProfilesQueryError } from '@/lib/profiles/profiles-query-error'
+import { subscribeOwnVerificationChanged } from '@/lib/profiles/own-verification-changed'
 import AccountSettings from './index'
 
 const mockGetCurrentUserId = vi.fn<() => Promise<string | null>>()
@@ -12,6 +13,7 @@ const mockRefresh = vi.fn()
 const mockStartPilotVerificationAction = vi.fn()
 const mockConfirmPilotVerificationAction = vi.fn()
 const mockSaveFlightlogPilotId = vi.fn()
+const mockSaveDisplayName = vi.fn()
 
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserId: () => mockGetCurrentUserId(),
@@ -34,7 +36,7 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('./actions', () => ({
-  saveDisplayName: vi.fn(),
+  saveDisplayName: (...args: unknown[]) => mockSaveDisplayName(...args),
   saveFlightlogPilotId: (...args: unknown[]) => mockSaveFlightlogPilotId(...args),
   startPilotVerificationAction: (...args: unknown[]) => mockStartPilotVerificationAction(...args),
   confirmPilotVerificationAction: (...args: unknown[]) => mockConfirmPilotVerificationAction(...args),
@@ -57,6 +59,7 @@ beforeEach(() => {
   mockStartPilotVerificationAction.mockReset()
   mockConfirmPilotVerificationAction.mockReset()
   mockSaveFlightlogPilotId.mockReset()
+  mockSaveDisplayName.mockReset()
 })
 
 async function renderAccountSettings() {
@@ -72,6 +75,10 @@ describe('AccountSettings', () => {
     mockGetProfile.mockResolvedValue({ displayName: 'Alex', flightlogPilotId: 12677 })
 
     await renderAccountSettings()
+
+    expect(screen.queryByLabelText('Display name')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit display name' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit pilot id' }))
 
     expect(screen.getByLabelText('Display name')).toHaveProperty('value', 'Alex')
     expect(screen.getByLabelText('flightlog.org pilot id')).toHaveProperty('value', '12677')
@@ -232,10 +239,41 @@ describe('AccountSettings', () => {
 
     await renderAccountSettings()
 
+    fireEvent.click(screen.getByRole('button', { name: 'Edit pilot id' }))
     fireEvent.change(screen.getByLabelText('flightlog.org pilot id'), { target: { value: '99999' } })
     fireEvent.click(within(formOf('flightlog.org pilot id')).getByRole('button', { name: 'Save' }))
 
     await screen.findByText('Saved.')
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes the server-rendered settings after successfully saving the display name', async () => {
+    mockGetProfile.mockResolvedValue({ displayName: 'Alex', flightlogPilotId: null })
+    mockSaveDisplayName.mockResolvedValue({ status: 'success' })
+
+    await renderAccountSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit display name' }))
+    fireEvent.click(within(formOf('Display name')).getByRole('button', { name: 'Save' }))
+
+    await screen.findByText('Saved.')
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the site nav the verification may have changed after each refresh', async () => {
+    const onChanged = vi.fn()
+    const stop = subscribeOwnVerificationChanged(onChanged)
+    mockGetProfile.mockResolvedValue(LINKED_PROFILE)
+    mockGetOwnPilotVerification.mockResolvedValue(PENDING_VERIFICATION)
+    mockConfirmPilotVerificationAction.mockResolvedValue({ status: 'success' })
+
+    await renderAccountSettings()
+
+    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+    stop()
   })
 })

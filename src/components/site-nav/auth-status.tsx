@@ -4,9 +4,13 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { LogIn, LogOut, PlaneTakeoff, TriangleAlert, User, type LucideIcon } from 'lucide-react'
 import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
+import { VerificationStamp } from '@/components/verification-stamp'
+import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 import { useOwnPilotId } from './use-own-pilot-id'
+import { useIsOwnVerified } from './use-own-verification'
 
-const NAV_ICON_ROW_CLASSES = 'flex items-center gap-1.5 underline-offset-2 hover:underline'
+// Applied to the icon and email, never to the link: opacity on the <a> would also dim the stamp inside it.
+const MUTED_CLASSES = 'opacity-70'
 
 // SiteNav sits in the root layout: reading the session server-side here would put a per-request
 // dynamic hole in every page under Cache Components, including the curated country pages
@@ -19,32 +23,34 @@ export default function AuthStatus() {
 
   if (state.kind === 'signed-out') {
     return (
-      <Link className="flex items-center gap-1.5 underline-offset-2 hover:underline" href="/sign-in">
+      <Link className={NAV_ICON_ROW_CLASSES} href="/sign-in">
         <LogIn aria-hidden="true" size={14} />
-        Sign in
+        <span className={NAV_LABEL_CLASSES}>Sign in</span>
       </Link>
     )
   }
 
-  return <SignedInStatus email={state.email} userId={state.userId} />
+  return <SignedInStatus key={state.userId} email={state.email} userId={state.userId} />
 }
 
-// Split out from the branch above so useOwnPilotId (which needs a userId) is only ever called
+// Split out from the branch above so useOwnPilotId and useIsOwnVerified (which need a userId) are only ever called
 // once state has actually narrowed to 'signed-in' — hooks can't be called conditionally in the
 // branch itself. Mirrors features/account/index.tsx's own SignedInAccountForm split exactly.
 function SignedInStatus({ userId, email }: { userId: string; email: string }) {
   const ownPilotId = useOwnPilotId(userId)
+  const isVerified = useIsOwnVerified(userId)
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex shrink-0 items-center gap-3">
       <OwnFlightsLink ownPilotId={ownPilotId} />
-      <NavIconLink href="/account" icon={User} muted>
-        {email}
+      <NavIconLink href="/account" icon={User} iconClassName={MUTED_CLASSES}>
+        <span className={`${NAV_LABEL_CLASSES} ${MUTED_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
+        {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
       </NavIconLink>
       <form action="/api/auth/sign-out" method="post">
         <button className={NAV_ICON_ROW_CLASSES} type="submit">
           <LogOut aria-hidden="true" size={14} />
-          Sign out
+          <span className={NAV_LABEL_CLASSES}>Sign out</span>
         </button>
       </form>
     </div>
@@ -67,7 +73,7 @@ function OwnFlightsLink({ ownPilotId }: { ownPilotId: ReturnType<typeof useOwnPi
 
   return (
     <NavIconLink href={`/pilots/${ownPilotId.pilotId}`} icon={PlaneTakeoff}>
-      My flights
+      <span className={NAV_LABEL_CLASSES}>My flights</span>
     </NavIconLink>
   )
 }
@@ -75,17 +81,17 @@ function OwnFlightsLink({ ownPilotId }: { ownPilotId: ReturnType<typeof useOwnPi
 function NavIconLink({
   href,
   icon: Icon,
-  muted,
+  iconClassName,
   children,
 }: {
   href: string
   icon: LucideIcon
-  muted?: boolean
+  iconClassName?: string
   children: ReactNode
 }) {
   return (
-    <Link className={muted ? `${NAV_ICON_ROW_CLASSES} opacity-70` : NAV_ICON_ROW_CLASSES} href={href}>
-      <Icon aria-hidden="true" size={14} />
+    <Link className={NAV_ICON_ROW_CLASSES} href={href}>
+      <Icon aria-hidden="true" className={iconClassName} size={14} />
       {children}
     </Link>
   )

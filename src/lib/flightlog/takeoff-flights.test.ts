@@ -25,9 +25,9 @@ describe('getTakeoffFlights', () => {
     mockedFetch.mockResolvedValue('<html>flights stub</html>')
     mockedParse.mockReturnValue([
       {
-        tripId: 1000946,
-        userId: 3365,
-        pilotName: 'Jarl Christian Kind',
+        tripId: 9000006,
+        userId: 900018,
+        pilotName: 'Pilot Eighteen',
         club: 'Pyongyang Freedom Fighters',
         glider: 'Gin Camino M',
         duration: '02:41',

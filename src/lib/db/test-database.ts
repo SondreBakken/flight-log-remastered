@@ -20,10 +20,21 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   return { client, db }
 }
 
-// No tables at all, so every query fails the way a broken database connection would.
-export function createUnmigratedTestDatabase(): TestDatabase {
-  const client = new PGlite()
-  return { client, db: drizzle({ client, schema }) }
+export type UnmigratedTestDatabase = {
+  client: { close(): Promise<void> }
+  db: TestDatabase['db']
+}
+
+// A database whose every query fails the way a lost connection would. It is a stub, not a
+// PGlite without migrations: booting PGlite's WASM takes 1.2 to 1.7 s idle and more than the
+// 5 s test timeout when a full `pnpm test` runs 11 workers, and these tests boot it inside the
+// test body, so the startup used to time out the test instead of exercising the failure path.
+export function createUnmigratedTestDatabase(): UnmigratedTestDatabase {
+  const connectionLost = () => Promise.reject(new Error('test database connection lost'))
+  const client = new Proxy({ close: () => Promise.resolve() } as Record<string, unknown>, {
+    get: (target, property) => (property in target ? target[property as string] : connectionLost),
+  })
+  return { client: client as UnmigratedTestDatabase['client'], db: drizzle({ client: client as unknown as PGlite, schema }) }
 }
 
 export async function createTestUser(client: PGlite): Promise<string> {

@@ -21,15 +21,30 @@ describe('formatCalendarDate', () => {
 
   it('keeps whatever follows the leading date (time, author) as-is', () => {
     expect(formatCalendarDate('2026-07-21 14:05', 'en-GB')).toBe('21 Jul 2026 14:05')
-    expect(formatCalendarDate('2026-02-14 13:52:15 Martin Krossoy', 'en-GB')).toBe(
-      '14 Feb 2026 13:52:15 Martin Krossoy',
+    expect(formatCalendarDate('2026-02-14 13:52:15 Pilot Two', 'en-GB')).toBe(
+      '14 Feb 2026 13:52:15 Pilot Two',
     )
   })
 
   it('returns a value without a real calendar date unchanged', () => {
-    expect(formatCalendarDate('2026-00-00', 'en-GB')).toBe('2026-00-00')
+    expect(formatCalendarDate('2026-13-01', 'en-GB')).toBe('2026-13-01')
+    expect(formatCalendarDate('2026-13-00', 'en-GB')).toBe('2026-13-00')
     expect(formatCalendarDate('2026-02-30', 'en-GB')).toBe('2026-02-30')
     expect(formatCalendarDate('yesterday', 'en-GB')).toBe('yesterday')
     expect(formatCalendarDate('', 'en-GB')).toBe('')
+  })
+
+  it('formats a -00 day as month and year', () => {
+    expect(formatCalendarDate('2026-08-00', 'en-GB')).toBe('Aug 2026')
+  })
+
+  it('formats a -00 month as the year alone, whatever the day', () => {
+    expect(formatCalendarDate('2026-00-00', 'en-GB')).toBe('2026')
+    expect(formatCalendarDate('2026-00-05', 'en-GB')).toBe('2026')
+  })
+
+  it('keeps trailing text after a placeholder date', () => {
+    expect(formatCalendarDate('2026-08-00 14:05', 'en-GB')).toBe('Aug 2026 14:05')
+    expect(formatCalendarDate('2026-00-00 Martin', 'en-GB')).toBe('2026 Martin')
   })
 })

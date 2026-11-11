@@ -26,3 +26,9 @@ export async function getCountries(): Promise<Country[]> {
   })
   return parseCountries(html)
 }
+
+// Page titles and headings must name a country even when the list lacks the id (it does not
+// 404 there, see the clubs page's own comment), so a miss takes this fallback name.
+export function countryNameFor(countries: Country[], countryId: number): string {
+  return countries.find((country) => country.countryId === countryId)?.name ?? `Country ${countryId}`
+}
