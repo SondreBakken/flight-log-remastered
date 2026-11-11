@@ -45,7 +45,8 @@ describe('CountryClubs', () => {
 
     for (const th of screen.getAllByRole('columnheader')) expect(th.className).toContain('form-label')
     expect(screen.getByText('18').className).toContain('tabular-nums')
-    expect(screen.getByText('18').closest('tr')?.className).toContain('border-rule')
+    // Literal on purpose: the prerender check matches built output on this exact class.
+    expect(screen.getByText('18').closest('tr')?.className).toBe('border-b border-rule')
   })
 
   it('links back to /countries, the actual index route, not a typo of it', () => {

@@ -1,10 +1,10 @@
 // Pure row counting and drift detection for check-clubs-prerender.mts, split out so the
 // selectors and the drift message are unit-testable without a build.
 //
-// The row class is a styling token (browse-country-clubs/index.tsx), not a contract: when it
-// changes, update CLUB_ROW_CLASS here. The header row carries the same classes plus
-// `text-left`, so an exact-class match excludes it.
-export const CLUB_ROW_CLASS = 'border-b border-rule'
+// The row class is imported from the feature that renders it, so a class change there flows
+// here. The header row carries the same classes plus `text-left`, so an exact-class match
+// excludes it.
+import { CLUB_ROW_CLASS } from '../../src/features/browse-country-clubs/row-classes'
 
 const HTML_ROW_PATTERN = new RegExp(`<tr class="${CLUB_ROW_CLASS}">`, 'g')
 const RSC_ROW_PATTERN = new RegExp(`\\["\\$","tr","\\d+",\\{"className":"${CLUB_ROW_CLASS}"`, 'g')

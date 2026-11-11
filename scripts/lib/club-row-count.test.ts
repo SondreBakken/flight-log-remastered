@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CLUB_ROW_CLASS, countHtmlClubRows, countRscClubRows, judgeClubRowCount } from './club-row-count'
+import { CLUB_ROW_CLASS } from '../../src/features/browse-country-clubs/row-classes'
+import { countHtmlClubRows, countRscClubRows, judgeClubRowCount } from './club-row-count'
 
 const HTML_HEADER = '<tr class="border-b border-rule text-left">'
 const HTML_ROW = '<tr class="border-b border-rule">'
