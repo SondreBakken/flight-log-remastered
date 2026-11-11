@@ -3,7 +3,7 @@ import { CLUB_ROW_CLASS, countHtmlClubRows, countRscClubRows, judgeClubRowCount 
 
 const HTML_HEADER = '<tr class="border-b border-rule text-left">'
 const HTML_ROW = '<tr class="border-b border-rule">'
-const RSC_HEADER = '["$","tr","h",{"className":"border-b border-rule text-left","children":[]}]'
+const RSC_HEADER = '["$","tr","0",{"className":"border-b border-rule text-left","children":[]}]'
 const RSC_ROW = '["$","tr","12",{"className":"border-b border-rule","children":[]}]'
 
 describe('countHtmlClubRows', () => {
