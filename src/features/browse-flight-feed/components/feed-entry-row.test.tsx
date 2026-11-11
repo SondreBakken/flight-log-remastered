@@ -52,6 +52,25 @@ beforeEach(() => {
   mockPush.mockClear()
 })
 
+describe('FeedEntryRow via-takeoff marker', () => {
+  it('renders no "via" text and the unchanged pilot cell for a pilot-sourced row', () => {
+    const row = remountRow(baseEntry)
+    const pilotCell = within(row).getAllByRole('cell')[1]
+
+    expect(row.textContent).not.toContain('via')
+    expect(pilotCell.innerHTML).toBe('<a href="/pilots/42">Ada Lovelace</a>')
+  })
+
+  it('renders "via <takeoff name>" linking to the takeoff page for a site-sourced row, without navigating the row', () => {
+    const row = remountRow({ ...baseEntry, viaTakeoff: { countryId: 160, takeoffId: 133, name: 'Voss, Hanguren' } })
+
+    const link = within(row).getByText('via Voss, Hanguren')
+    expect(link.getAttribute('href')).toBe('/countries/160/takeoffs/133')
+    fireEvent.click(link)
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+})
+
 describe('FeedEntryRow', () => {
   it('renders the date, pilot link, and formatted flight fields in column order, plus "View track" text when a track exists', () => {
     const row = remountRow(baseEntry)

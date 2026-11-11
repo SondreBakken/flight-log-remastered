@@ -1,4 +1,4 @@
-import type { Flight, Pilot, TrackIndexEntry } from '@/lib/flightlog/types'
+import type { Flight, Pilot, TakeoffFlight, TakeoffRef, TrackIndexEntry } from '@/lib/flightlog/types'
 
 // Each pilot's own recent slice must be at least as large as the merged feed: in the
 // worst case one followed pilot supplies every entry, and slicing a pilot's history
@@ -19,6 +19,13 @@ export const MAX_YEARS_PER_PILOT = 2
 // per-pilot year cap above: however tight the per-pilot request cost is, a follow list of
 // unbounded size must not be allowed to fan out unboundedly. See selectFeedPilotIds.
 export const MAX_PILOTS_PER_FEED = 20
+
+// The site-sourced twins of RECENT_FLIGHTS_PER_PILOT and MAX_PILOTS_PER_FEED, for the same two
+// reasons: one followed takeoff can in the worst case supply every merged entry, so its slice
+// must be at least FEED_SIZE deep, and a follow list of unbounded size must not fan out into
+// unbounded takeoff requests. See selectFeedTakeoffs.
+export const RECENT_FLIGHTS_PER_TAKEOFF = FEED_SIZE
+export const MAX_TAKEOFFS_PER_FEED = 20
 
 export type PilotFeedSuccess = {
   status: 'success'
@@ -77,7 +84,28 @@ export type FetchedPilotFeedResult = FetchedPilotFeedSuccess | PilotFeedFailure
 // (blocking finding #1): both branches always resolve to 'new' or 'not-new'.
 export type FlightNewness = 'new' | 'not-new'
 
+// A followed takeoff as the feed shows it: its (countryId, takeoffId) identity plus the name the
+// "via" marker renders.
+export type NamedTakeoffRef = TakeoffRef & { name: string }
+
+export type TakeoffFeedSuccess = {
+  status: 'success'
+  takeoff: NamedTakeoffRef
+  flights: TakeoffFlight[]
+}
+
+export type TakeoffFeedFailure = {
+  status: 'error'
+} & TakeoffRef & { message: string }
+
+export type TakeoffFeedResult = TakeoffFeedSuccess | TakeoffFeedFailure
+
 export type FeedEntry = {
+  // Set only on a row that exists in the feed because the viewer follows this takeoff, never on
+  // a pilot-sourced row (a trip both followed sources report is deduped to the pilot's entry).
+  // Its presence is also what marks the row as having no pilot-keyed watermark or seen-trip
+  // state to write: the pilot on such a row may not be followed at all.
+  viaTakeoff?: NamedTakeoffRef
   pilot: Pilot
   flight: Flight
   hasTrack: boolean
@@ -94,7 +122,7 @@ export type RecentFlightsSlice = {
   years: number[]
 }
 
-function compareFlightsNewestFirst(a: Flight, b: Flight): number {
+function compareFlightsNewestFirst(a: Pick<Flight, 'date' | 'tripId'>, b: Pick<Flight, 'date' | 'tripId'>): number {
   if (a.date !== b.date) return a.date < b.date ? 1 : -1
   // Same-day ties: an arbitrary but STABLE tiebreak (higher tripId first), needed
   // because two same-day flights would otherwise order however the source HTML happened
@@ -156,6 +184,21 @@ export async function loadRecentFlightsForPilot(
   return { pilot: logbook.pilot, flights: recent.flights, trackedTrips }
 }
 
+/**
+ * The site-sourced counterpart of sliceRecentFlights: a followed takeoff's flights, newest
+ * first, capped to RECENT_FLIGHTS_PER_TAKEOFF. Rows without a date are dropped before the cap,
+ * since they can never render in the feed and must not take a slot from a row that can.
+ */
+export function sliceRecentTakeoffFlights(
+  flights: TakeoffFlight[],
+  limit: number = RECENT_FLIGHTS_PER_TAKEOFF,
+): TakeoffFlight[] {
+  return flights
+    .filter((flight): flight is TakeoffFlight & { date: string } => flight.date !== null)
+    .sort(compareFlightsNewestFirst)
+    .slice(0, limit)
+}
+
 // Strictly greater-than, not greater-or-equal. The reason is NOT flightlog.org's own `ts=`
 // query param semantics on the track-index request (tracks.ts hardcodes `ts=0` and fetches a
 // whole year, then filters locally — the upstream param's own inclusivity is never exercised
@@ -198,20 +241,100 @@ function toFeedEntries(result: PilotFeedSuccess): FeedEntry[] {
   })
 }
 
+// A site-sourced row carries only what the takeoff's flight table publishes, so what it cannot
+// know is stated rather than guessed: no pilot country, no per-row flight count or open
+// distance, no track, and never 'new' (newness is a pilot-keyed watermark/seen-trip concept,
+// and the pilot here may not be followed). A row with no date cannot be placed in the sorted
+// feed and is dropped.
+function toSiteFeedEntries(result: TakeoffFeedSuccess): FeedEntry[] {
+  const { takeoff } = result
+  return result.flights.flatMap((flight): FeedEntry[] => {
+    if (flight.date === null) return []
+    return [
+      {
+        viaTakeoff: takeoff,
+        pilot: { userId: flight.userId, name: flight.pilotName, country: null, club: flight.club },
+        flight: {
+          tripId: flight.tripId,
+          userId: flight.userId,
+          date: flight.date,
+          country: null,
+          takeoff: takeoff.name,
+          takeoffRef: { countryId: takeoff.countryId, takeoffId: takeoff.takeoffId },
+          glider: flight.glider,
+          duration: flight.duration,
+          flightCount: 0,
+          distanceKm: flight.distanceKm,
+          openDistanceKm: null,
+          note: flight.note,
+        },
+        hasTrack: false,
+        newness: 'not-new',
+        trackedAt: null,
+      },
+    ]
+  })
+}
+
+function compareTakeoffRefs(a: TakeoffRef, b: TakeoffRef): number {
+  return a.countryId - b.countryId || a.takeoffId - b.takeoffId
+}
+
+// A trip is reported once: first entry per trip id wins. Callers list pilot entries before site
+// entries, so a trip both sources report keeps the pilot's entry, which carries the watermark-based
+// newness.
+//
+// Trip id alone is not enough. a=28 folds same-day, same-glider flights into ONE row with one
+// tripId and flightCount > 1 (see Flight in lib/flightlog/types.ts), while a=42 lists one row per
+// trip (each row has its own time of day and trip link; see parseFlightRows). A followed pilot's
+// 6-flight day at a followed takeoff is therefore one pilot row plus up to 5 site rows with other
+// trip ids. A site entry is dropped when a pilot-sourced entry already covers the same pilot on
+// the same date: the logbook is the complete record of that pilot's day. The match is (userId,
+// date), not glider, because a=42's glider text (e.g. "Gin Camino M (white/red)") is not
+// guaranteed to equal a=28's.
+function dedupeEntries(entries: FeedEntry[]): FeedEntry[] {
+  const pilotDays = new Set(
+    entries.filter((entry) => !entry.viaTakeoff).map((entry) => pilotDayKey(entry.flight)),
+  )
+  const byTripId = new Map<number, FeedEntry>()
+  for (const entry of entries) {
+    if (entry.viaTakeoff && pilotDays.has(pilotDayKey(entry.flight))) continue
+    if (!byTripId.has(entry.flight.tripId)) byTripId.set(entry.flight.tripId, entry)
+  }
+  return [...byTripId.values()]
+}
+
+function pilotDayKey(flight: { userId: number; date: string }): string {
+  return `${flight.userId}|${flight.date}`
+}
+
 /**
  * Merges every followed pilot's already-sliced flights into one feed: flattens the
  * successful results, sorts newest first across ALL pilots (not per pilot), then slices
  * to the feed size. Failed pilots contribute no entries here — see failedPilotResults,
  * which surfaces them instead of letting them disappear silently.
  *
+ * Followed takeoffs' flights join the same merge. They are deduped (by trip id, and by pilot and date against pilot entries) BEFORE the sort and
+ * slice: pilot entries first, then site entries in ascending (countryId, takeoffId) order, first
+ * wins. Deduping after the slice would let a duplicate of a truncated pilot entry survive.
+ *
  * Each success result carries its own `watermarkAtLoad` (see PilotFeedSuccess) — read at the
  * start of this load, before any pilot's watermark advances — so classification here can never
  * observe a watermark that has already moved past what it's being compared against.
  */
-export function buildFeedEntries(results: PilotFeedResult[], limit: number = FEED_SIZE): FeedEntry[] {
-  const entries = results
+export function buildFeedEntries(
+  results: PilotFeedResult[],
+  limit: number = FEED_SIZE,
+  takeoffResults: readonly TakeoffFeedResult[] = [],
+): FeedEntry[] {
+  const pilotEntries = results
     .filter((result): result is PilotFeedSuccess => result.status === 'success')
     .flatMap(toFeedEntries)
+  const siteEntries = takeoffResults
+    .filter((result): result is TakeoffFeedSuccess => result.status === 'success')
+    .sort((a, b) => compareTakeoffRefs(a.takeoff, b.takeoff))
+    .flatMap(toSiteFeedEntries)
+  const entries = dedupeEntries([...pilotEntries, ...siteEntries])
   entries.sort((a, b) => compareFlightsNewestFirst(a.flight, b.flight))
   return entries.slice(0, limit)
 }
@@ -309,6 +432,10 @@ export function failedPilotResults(results: PilotFeedResult[]): PilotFeedFailure
   return results.filter((result): result is PilotFeedFailure => result.status === 'error')
 }
 
+export function failedTakeoffResults(results: readonly TakeoffFeedResult[]): TakeoffFeedFailure[] {
+  return results.filter((result): result is TakeoffFeedFailure => result.status === 'error')
+}
+
 export type FeedPilotSelection = {
   pilotIds: number[]
   // The full followed count when truncation happened, so callers can show an honest notice
@@ -330,6 +457,28 @@ export function selectFeedPilotIds(
   const sorted = [...followedIds].sort((a, b) => a - b)
   return {
     pilotIds: sorted.slice(0, limit),
+    followedCount: sorted.length > limit ? sorted.length : null,
+  }
+}
+
+export type FeedTakeoffSelection = {
+  takeoffs: TakeoffRef[]
+  // The full followed count when truncation happened (see FeedPilotSelection), null otherwise.
+  followedCount: number | null
+}
+
+/**
+ * Bounds how many followed takeoffs one feed load fetches (MAX_TAKEOFFS_PER_FEED), the way
+ * selectFeedPilotIds does for pilots: ascending (countryId, takeoffId), so the same takeoffs
+ * show on every load.
+ */
+export function selectFeedTakeoffs(
+  followedTakeoffs: readonly TakeoffRef[],
+  limit: number = MAX_TAKEOFFS_PER_FEED,
+): FeedTakeoffSelection {
+  const sorted = [...followedTakeoffs].sort(compareTakeoffRefs)
+  return {
+    takeoffs: sorted.slice(0, limit),
     followedCount: sorted.length > limit ? sorted.length : null,
   }
 }

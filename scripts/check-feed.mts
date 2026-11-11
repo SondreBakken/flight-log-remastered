@@ -9,8 +9,10 @@ import {
   FEED_SIZE,
   loadRecentFlightsForPilot,
   MAX_PILOTS_PER_FEED,
+  MAX_TAKEOFFS_PER_FEED,
   MAX_YEARS_PER_PILOT,
   RECENT_FLIGHTS_PER_PILOT,
+  RECENT_FLIGHTS_PER_TAKEOFF,
   selectFeedPilotIds,
   shownTrackedTsByPilot,
   sliceRecentFlights,
@@ -105,6 +107,8 @@ assertEqual(
   'MAX_YEARS_PER_PILOT is pinned to 2 — the explicit per-pilot traffic bound this branch was rejected for lacking',
 )
 assertEqual(MAX_PILOTS_PER_FEED, 20, 'MAX_PILOTS_PER_FEED is pinned to 20')
+assertEqual(MAX_TAKEOFFS_PER_FEED, 20, 'MAX_TAKEOFFS_PER_FEED is pinned to 20')
+assertEqual(RECENT_FLIGHTS_PER_TAKEOFF, 30, 'RECENT_FLIGHTS_PER_TAKEOFF is pinned to 30')
 assertEqual(CONCURRENCY_LIMIT, 4, 'CONCURRENCY_LIMIT is pinned to 4')
 
 // The restated worst case: a 10-pilot feed costs one getPilotLogbook request plus at most
@@ -963,7 +967,7 @@ function renderFeedMarkup(element: ReactElement): string {
 
 {
   const empty = renderFeedMarkup(
-    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [] }, defaultPilotId: 1 }),
+    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [], followedTakeoffs: [] }, defaultPilotId: 1 }),
   )
   assert(empty.includes('Recent flights'), 'FlightFeedView: renders real content immediately, no hydration gap')
   assert(
@@ -972,7 +976,7 @@ function renderFeedMarkup(element: ReactElement): string {
   )
 
   const withFollows = renderFeedMarkup(
-    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [900024] }, defaultPilotId: 1 }),
+    createElement(FlightFeedView, { follows: { status: 'resolved', followedPilotIds: [900024], followedTakeoffs: [] }, defaultPilotId: 1 }),
   )
   assert(
     !withFollows.includes('You are not following any pilots yet'),
@@ -1002,9 +1006,12 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: false,
       entries: [],
       failedPilots: [failure(9, 'could not load recent flights for pilot 9')],
+      failedTakeoffs: [],
       hasSeenBefore: true,
     }),
   )
@@ -1017,15 +1024,38 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: false,
       entries: [],
       failedPilots: [],
+      failedTakeoffs: [],
       hasSeenBefore: true,
     }),
   )
   assert(
     !withoutFailure.includes('could not be loaded'),
     'FeedView: an empty failedPilots prop renders no failure notice',
+  )
+
+  const withFailedTakeoff = renderFeedMarkup(
+    createElement(FeedView, {
+      shownCount: 0,
+      followedCount: null,
+      shownTakeoffCount: 1,
+      followedTakeoffCount: null,
+      isLoading: false,
+      entries: [],
+      failedPilots: [],
+      failedTakeoffs: [{ status: 'error', countryId: 160, takeoffId: 133, message: 'takeoff 160/133: request failed' }],
+      hasSeenBefore: false,
+    }),
+  )
+  assert(
+    withFailedTakeoff.includes('Some followed takeoffs could not be loaded') &&
+      withFailedTakeoff.includes('href="/countries/160/takeoffs/133"') &&
+      withFailedTakeoff.includes('takeoff 160/133: request failed'),
+    'FeedView: a non-empty failedTakeoffs prop renders the notice with a link to the takeoff and its message',
   )
 }
 
@@ -1050,9 +1080,12 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: false,
       entries: [newEntry],
       failedPilots: [],
+      failedTakeoffs: [],
       hasSeenBefore: true,
     }),
   )
@@ -1065,9 +1098,12 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: true,
       entries: [newEntry],
       failedPilots: [],
+      failedTakeoffs: [],
       hasSeenBefore: true,
     }),
   )
@@ -1081,9 +1117,12 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: false,
       entries: [notNewEntry],
       failedPilots: [],
+      failedTakeoffs: [],
       hasSeenBefore: true,
     }),
   )
@@ -1096,9 +1135,12 @@ function renderFeedMarkup(element: ReactElement): string {
     createElement(FeedView, {
       shownCount: 1,
       followedCount: null,
+      shownTakeoffCount: 0,
+      followedTakeoffCount: null,
       isLoading: false,
       entries: [newEntry],
       failedPilots: [],
+      failedTakeoffs: [],
       hasSeenBefore: false,
     }),
   )

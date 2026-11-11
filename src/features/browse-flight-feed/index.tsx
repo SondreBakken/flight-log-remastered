@@ -25,7 +25,7 @@ type FlightFeedProps = {
 // to a plain array, since it matches on its status itself. A signed-out visitor has no follow list to
 // filter by at all, so they get SignedOutHome (recent public flights) instead.
 export default async function FlightFeed({ defaultPilotId }: FlightFeedProps) {
-  const follows = await resolveViewerFollowState()
+  const follows = await resolveViewerFollowState(undefined, { includeTakeoffs: true })
   if (follows.status === 'signed-out') return <SignedOutHome defaultPilotId={defaultPilotId} />
   return <FlightFeedView follows={follows} defaultPilotId={defaultPilotId} />
 }

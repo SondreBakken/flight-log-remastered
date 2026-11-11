@@ -3,14 +3,21 @@ import {
   anyPilotHasPriorVisit,
   buildFeedEntries,
   countNewEntries,
+  failedTakeoffResults,
+  FEED_SIZE,
+  MAX_TAKEOFFS_PER_FEED,
+  RECENT_FLIGHTS_PER_TAKEOFF,
+  selectFeedTakeoffs,
+  sliceRecentTakeoffFlights,
   fetchedTripIdsByPilot,
   shownTrackedTsByPilot,
   shownTripIdsByPilot,
   type FeedEntry,
   type PilotFeedResult,
   type PilotFeedSuccess,
+  type TakeoffFeedResult,
 } from './feed'
-import type { Flight, Pilot } from '@/lib/flightlog/types'
+import type { Flight, Pilot, TakeoffFlight } from '@/lib/flightlog/types'
 
 // This file covers ONLY the "new since last visit" marking logic added for issue #5 (tracked
 // flights) and extended to untracked flights by #62 — classifyTrackedNewness/
@@ -388,5 +395,221 @@ describe('anyPilotHasPriorVisit — a prior watermark OR a prior seen-trip entry
 
   it('a failed pilot contributes neither signal either way', () => {
     expect(anyPilotHasPriorVisit([{ status: 'error', pilotId: 1, message: 'boom' }])).toBe(false)
+  })
+})
+
+let nextSiteTripId = 100_000
+function makeTakeoffFlight(overrides: Partial<TakeoffFlight> = {}): TakeoffFlight {
+  return {
+    tripId: nextSiteTripId++,
+    userId: 777,
+    pilotName: 'Site Pilot',
+    club: 'Club X',
+    glider: 'Gliderino',
+    duration: '0:45',
+    distanceKm: 12,
+    note: 'a note',
+    date: '2026-01-01',
+    timeOfDay: '12:00',
+    ...overrides,
+  }
+}
+
+function takeoffSuccess(
+  ref: { countryId: number; takeoffId: number },
+  flights: TakeoffFlight[],
+  name = `Takeoff ${ref.takeoffId}`,
+): TakeoffFeedResult {
+  return { status: 'success', takeoff: { ...ref, name }, flights }
+}
+
+const SITE_A = { countryId: 160, takeoffId: 10 }
+const SITE_B = { countryId: 160, takeoffId: 20 }
+
+describe('buildFeedEntries — followed takeoffs (#246)', () => {
+  it('maps a site flight to a feed entry with the documented fixed fields', () => {
+    const flight = makeTakeoffFlight({ tripId: 7, date: '2026-03-04' })
+
+    const [entry] = buildFeedEntries([], FEED_SIZE, [takeoffSuccess(SITE_A, [flight], 'Voss, Hanguren')])
+
+    expect(entry).toEqual({
+      viaTakeoff: { ...SITE_A, name: 'Voss, Hanguren' },
+      pilot: { userId: 777, name: 'Site Pilot', country: null, club: 'Club X' },
+      flight: {
+        tripId: 7,
+        userId: 777,
+        date: '2026-03-04',
+        country: null,
+        takeoff: 'Voss, Hanguren',
+        takeoffRef: SITE_A,
+        glider: 'Gliderino',
+        duration: '0:45',
+        flightCount: 0,
+        distanceKm: 12,
+        openDistanceKm: null,
+        note: 'a note',
+      },
+      hasTrack: false,
+      newness: 'not-new',
+      trackedAt: null,
+    })
+  })
+
+  it('drops a site row with a null date, keeping the dated one', () => {
+    const entries = buildFeedEntries([], FEED_SIZE, [
+      takeoffSuccess(SITE_A, [makeTakeoffFlight({ tripId: 1, date: null }), makeTakeoffFlight({ tripId: 2 })]),
+    ])
+
+    expect(entries.map((entry) => entry.flight.tripId)).toEqual([2])
+  })
+
+  it('sorts pilot and site entries together newest first, same-day ties by tripId descending', () => {
+    const entries = buildFeedEntries(
+      [
+        success({
+          pilotId: 1,
+          flights: [makeFlight({ tripId: 11, date: '2026-02-01' }), makeFlight({ tripId: 13, date: '2026-01-01' })],
+        }),
+      ],
+      FEED_SIZE,
+      [
+        takeoffSuccess(SITE_A, [
+          makeTakeoffFlight({ tripId: 12, date: '2026-02-01' }),
+          makeTakeoffFlight({ tripId: 14, date: '2026-03-01' }),
+          makeTakeoffFlight({ tripId: 10, date: '2026-01-01' }),
+        ]),
+      ],
+    )
+
+    expect(entries.map((entry) => entry.flight.tripId)).toEqual([14, 12, 11, 13, 10])
+  })
+
+  it('keeps one entry for a trip in both a followed pilot and a followed takeoff: the pilot-sourced one, with no viaTakeoff', () => {
+    const entries = buildFeedEntries(
+      [success({ pilotId: 777, flights: [makeFlight({ tripId: 50, userId: 777 })], trackedTrips: [{ tripId: 50, updatedAt: '20260101000000' }] })],
+      FEED_SIZE,
+      [takeoffSuccess(SITE_A, [makeTakeoffFlight({ tripId: 50 })])],
+    )
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.viaTakeoff).toBeUndefined()
+    expect(entries[0]?.hasTrack).toBe(true)
+    expect(entries[0]?.newness).toBe('new')
+  })
+
+  it('drops site rows for the same pilot and date as an aggregated pilot row, but keeps other days and other pilots', () => {
+    const aggregatedPilotRow = makeFlight({ tripId: 70, userId: 777, date: '2026-05-02', flightCount: 6 })
+    const entries = buildFeedEntries([success({ pilotId: 777, flights: [aggregatedPilotRow] })], FEED_SIZE, [
+      takeoffSuccess(SITE_A, [
+        makeTakeoffFlight({ tripId: 71, userId: 777, date: '2026-05-02', timeOfDay: '10:00' }),
+        makeTakeoffFlight({ tripId: 72, userId: 777, date: '2026-05-02', timeOfDay: '11:00' }),
+        makeTakeoffFlight({ tripId: 73, userId: 777, date: '2026-05-01' }),
+        makeTakeoffFlight({ tripId: 74, userId: 888, date: '2026-05-02' }),
+      ]),
+    ])
+
+    expect(entries.map((entry) => entry.flight.tripId)).toEqual([74, 70, 73])
+    expect(entries.find((entry) => entry.flight.tripId === 70)?.viaTakeoff).toBeUndefined()
+  })
+
+  it('keeps one entry for a trip in two followed takeoffs: the first by ascending (countryId, takeoffId), whatever order the results settled in', () => {
+    const shared = makeTakeoffFlight({ tripId: 60 })
+    const later = takeoffSuccess({ countryId: 203, takeoffId: 1 }, [shared])
+    const earlier = takeoffSuccess(SITE_B, [shared])
+
+    for (const results of [[later, earlier], [earlier, later]]) {
+      const entries = buildFeedEntries([], FEED_SIZE, results)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]?.viaTakeoff).toEqual({ ...SITE_B, name: 'Takeoff 20' })
+    }
+  })
+
+  it('dedupes before truncating: a pilot entry cut by FEED_SIZE does not promote its site duplicate', () => {
+    const newerPilotFlights = Array.from({ length: 3 }, (_, index) =>
+      makeFlight({ tripId: 200 + index, userId: 1, date: '2026-06-01' }),
+    )
+    const cutPilotFlight = makeFlight({ tripId: 300, userId: 1, date: '2026-01-01' })
+
+    const entries = buildFeedEntries(
+      [success({ pilotId: 1, flights: [...newerPilotFlights, cutPilotFlight] })],
+      3,
+      [takeoffSuccess(SITE_A, [makeTakeoffFlight({ tripId: 300, date: '2026-01-01' })])],
+    )
+
+    expect(entries.map((entry) => entry.flight.tripId)).toEqual([202, 201, 200])
+  })
+
+  it('truncates the merged feed to the limit across both sources', () => {
+    const flights = Array.from({ length: FEED_SIZE + 1 }, (_, index) =>
+      makeTakeoffFlight({ date: `2026-01-${String((index % 28) + 1).padStart(2, '0')}` }),
+    )
+
+    expect(buildFeedEntries([], FEED_SIZE, [takeoffSuccess(SITE_A, flights)])).toHaveLength(FEED_SIZE)
+  })
+
+  it('contributes no entries for a failed takeoff, and countNewEntries ignores site rows', () => {
+    const entries = buildFeedEntries([], FEED_SIZE, [
+      { status: 'error', ...SITE_A, message: 'x' },
+      takeoffSuccess(SITE_B, [makeTakeoffFlight()]),
+    ])
+
+    expect(entries).toHaveLength(1)
+    expect(countNewEntries(entries)).toBe(0)
+  })
+})
+
+describe('failedTakeoffResults', () => {
+  it('returns only the failures', () => {
+    const failure: TakeoffFeedResult = { status: 'error', ...SITE_A, message: 'x' }
+
+    expect(failedTakeoffResults([failure, takeoffSuccess(SITE_B, [])])).toEqual([failure])
+  })
+})
+
+describe('sliceRecentTakeoffFlights', () => {
+  it('keeps the 30 newest dated flights and drops undated ones before the cap', () => {
+    const dated = Array.from({ length: RECENT_FLIGHTS_PER_TAKEOFF + 1 }, (_, index) =>
+      makeTakeoffFlight({ tripId: index + 1, date: `2026-01-${String(index + 1).padStart(2, '0')}` }),
+    )
+    // 31 distinct days would overflow January, so push the oldest into December 2025.
+    dated[0] = { ...dated[0]!, date: '2025-12-01' }
+
+    const sliced = sliceRecentTakeoffFlights([makeTakeoffFlight({ tripId: 999, date: null }), ...dated])
+
+    expect(sliced).toHaveLength(RECENT_FLIGHTS_PER_TAKEOFF)
+    expect(sliced.map((flight) => flight.tripId)).not.toContain(1)
+    expect(sliced.map((flight) => flight.tripId)).not.toContain(999)
+    expect(sliced[0]?.tripId).toBe(RECENT_FLIGHTS_PER_TAKEOFF + 1)
+  })
+})
+
+describe('selectFeedTakeoffs', () => {
+  const refs = (count: number) => Array.from({ length: count }, (_, index) => ({ countryId: 160, takeoffId: count - index }))
+
+  it.each([
+    [0, 0, null],
+    [MAX_TAKEOFFS_PER_FEED, MAX_TAKEOFFS_PER_FEED, null],
+    [MAX_TAKEOFFS_PER_FEED + 1, MAX_TAKEOFFS_PER_FEED, MAX_TAKEOFFS_PER_FEED + 1],
+  ])('with %i followed returns %i takeoffs and followedCount %s', (followed, selected, followedCount) => {
+    const result = selectFeedTakeoffs(refs(followed))
+
+    expect(result.takeoffs).toHaveLength(selected)
+    expect(result.followedCount).toBe(followedCount)
+  })
+
+  it('selects by ascending (countryId, takeoffId)', () => {
+    const result = selectFeedTakeoffs(
+      [
+        { countryId: 203, takeoffId: 1 },
+        { countryId: 160, takeoffId: 9 },
+        { countryId: 160, takeoffId: 2 },
+      ],
+      2,
+    )
+
+    expect(result.takeoffs).toEqual([
+      { countryId: 160, takeoffId: 2 },
+      { countryId: 160, takeoffId: 9 },
+    ])
   })
 })

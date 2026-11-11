@@ -18,13 +18,14 @@ vi.mock('@/lib/flightlog/config', () => ({ flightlogTakeoffUrl: vi.fn(() => 'htt
 
 // The real resolver reads the session from request headers, which do not exist outside a request.
 vi.mock('@/lib/follows/resolve-viewer-follow-state', () => ({
-  resolveFollowButtonState: vi.fn(async () => ({ isSignedIn: false, followedPilotIds: [] })),
+  resolveViewerFollowState: vi.fn(async () => ({ status: 'signed-out' })),
 }))
 
 import { getCountries } from '@/lib/flightlog/countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
 import { TakeoffDetail, generateMetadata } from './page'
 
 const mockedGetCountries = vi.mocked(getCountries)
@@ -131,6 +132,23 @@ describe('TakeoffDetail route guard', () => {
     expect(element.props.detail).toEqual(STUB_DETAIL)
     expect(element.props.flights).toEqual([])
     expect(element.props.mapEntry).toEqual(KNOWN_LOCATION_TAKEOFF)
+  })
+
+  it.each([
+    [[{ countryId: 160, takeoffId: 179 }], true],
+    [[{ countryId: 203, takeoffId: 179 }], false],
+  ])('passes isFollowed from the resolved follow state for this exact (country, takeoff): %j -> %s', async (followedTakeoffs, expected) => {
+    vi.mocked(resolveViewerFollowState).mockResolvedValueOnce({ status: 'resolved', followedPilotIds: [], followedTakeoffs })
+    mockedGetCountries.mockResolvedValue([{ countryId: 160, name: 'Norway' }])
+    mockedGetTakeoffDetail.mockResolvedValue(STUB_DETAIL)
+    mockedGetTakeoffFlights.mockResolvedValue([])
+    mockedGetTakeoffs.mockResolvedValue([])
+
+    const element = await TakeoffDetail({ params: Promise.resolve({ countryId: '160', takeoffId: '179' }) })
+
+    expect(element.props.isSignedIn).toBe(true)
+    expect(element.props.isFollowed).toBe(expected)
+    expect(resolveViewerFollowState).toHaveBeenLastCalledWith(expect.any(Array), { includeTakeoffs: true })
   })
 
   it('falls back to a generic country label when the resolved country id is absent from getCountries', async () => {

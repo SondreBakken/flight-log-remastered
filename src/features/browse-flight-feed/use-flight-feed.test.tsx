@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Activity } from 'react'
 import { render, waitFor } from '@testing-library/react'
 import type { RecentFlightsSuccessBody } from '@/app/api/pilots/[userId]/recent-flights/contract'
-import type { Pilot } from '@/lib/flightlog/types'
-import type { usePilotFeedResults as UsePilotFeedResults, FlightFeedResults } from './use-flight-feed'
+import type { Pilot, TakeoffRef } from '@/lib/flightlog/types'
+import type { useFlightFeedResults as UseFlightFeedResults, FlightFeedResults } from './use-flight-feed'
 
-// This file exercises the actual WIRING in usePilotFeedResults — not just the pure pieces
+// This file exercises the actual WIRING in useFlightFeedResults — not just the pure pieces
 // (feed.ts's classifyTrackedNewness/classifyUntrackedNewness, watermark-store's
 // advanceWatermark, seen-trip-store's replaceSeenTripIds) that feed.test.ts, watermark-ids.
 // test.ts, and seen-trip-ids.test.ts already cover in isolation. Those pure-function tests
@@ -63,30 +63,32 @@ function jsonResponse(body: unknown): Response {
 // every later test in this file, regardless of what localStorage is reseeded to. A fresh
 // instance per test (mirroring follow-button/index.test.tsx's loadFreshFollowButton) is the
 // only way each test's seeded localStorage is what the hook actually hydrates from.
-async function loadFreshUsePilotFeedResults(): Promise<typeof UsePilotFeedResults> {
+async function loadFreshUseFlightFeedResults(): Promise<typeof UseFlightFeedResults> {
   vi.resetModules()
   const mod = await import('./use-flight-feed')
-  return mod.usePilotFeedResults
+  return mod.useFlightFeedResults
 }
 
 // A minimal harness that mounts the given hook instance and lets its effect run. `onResults`,
 // when passed, fires on every render with whatever the hook currently returns — the only way a
-// test can inspect `entries`/`newness`, since usePilotFeedResults renders nothing on its own.
+// test can inspect `entries`/`newness`, since useFlightFeedResults renders nothing on its own.
 function FeedHarness({
   useHook,
   pilotIds,
+  takeoffs = [],
   onResults,
 }: {
-  useHook: typeof UsePilotFeedResults
+  useHook: typeof UseFlightFeedResults
   pilotIds: number[]
+  takeoffs?: TakeoffRef[]
   onResults?: (results: FlightFeedResults) => void
 }) {
-  const results = useHook(pilotIds)
+  const results = useHook(pilotIds, takeoffs)
   onResults?.(results)
   return null
 }
 
-describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
+describe('useFlightFeedResults — watermark wiring (issue #5)', () => {
   let originalFetch: typeof fetch
 
   beforeEach(() => {
@@ -100,7 +102,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
 
   it('advances the pilot\'s watermark to the newest tracked ts once their feed has loaded, without touching flightlog.org again (see tracks.test.ts for the request-count proof at the fetch layer)', async () => {
     globalThis.fetch = vi.fn(async () => jsonResponse(stubbedFeedResponse())) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
 
@@ -115,7 +117,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
     // this is the pilot's real watermark-at-load.
     window.localStorage.setItem(WATERMARK_KEY, JSON.stringify({ [PILOT_ID]: '20250101000000' }))
     globalThis.fetch = vi.fn(async () => jsonResponse(stubbedFeedResponse())) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />)
@@ -192,7 +194,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
       if (url.includes(`/${quietPilotId}/`)) return jsonResponse(quietBody)
       throw new Error(`unexpected URL: ${url}`)
     }) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(<FeedHarness useHook={useHook} pilotIds={[busyPilotId, quietPilotId]} onResults={(results) => (latest = results)} />)
@@ -211,7 +213,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
 
   it('does NOT advance the watermark for a pilot whose feed load fails', async () => {
     globalThis.fetch = vi.fn(async () => new Response('boom', { status: 502 })) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
 
@@ -228,7 +230,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
       // gets remembered in id memory, since shownTripIdsByPilot records every rendered flight's
       // id, tracked or not — not only the untracked ones the pre-fix version scoped to.
       globalThis.fetch = vi.fn(async () => jsonResponse(stubbedFeedResponse())) as unknown as typeof fetch
-      const firstLoadHook = await loadFreshUsePilotFeedResults()
+      const firstLoadHook = await loadFreshUseFlightFeedResults()
       render(<FeedHarness useHook={firstLoadHook} pilotIds={[PILOT_ID]} />)
       await waitFor(() => {
         const stored = JSON.parse(window.localStorage.getItem(WATERMARK_KEY) ?? '{}')
@@ -245,7 +247,7 @@ describe('usePilotFeedResults — watermark wiring (issue #5)', () => {
       globalThis.fetch = vi.fn(async () =>
         jsonResponse({ ...stubbedFeedResponse(), trackedTrips: [] }),
       ) as unknown as typeof fetch
-      const secondLoadHook = await loadFreshUsePilotFeedResults()
+      const secondLoadHook = await loadFreshUseFlightFeedResults()
       let latest: FlightFeedResults | undefined
       render(
         <FeedHarness useHook={secondLoadHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />,
@@ -283,7 +285,7 @@ function untrackedFlightBody(tripId: number): RecentFlightsSuccessBody {
   }
 }
 
-describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (#62)', () => {
+describe('useFlightFeedResults — seen-trip-store wiring for UNTRACKED flights (#62)', () => {
   let originalFetch: typeof fetch
 
   beforeEach(() => {
@@ -297,7 +299,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
 
   it('records an untracked flight as seen once it has rendered, without touching flightlog.org again', async () => {
     globalThis.fetch = vi.fn(async () => jsonResponse(untrackedFlightBody(991729))) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
 
@@ -312,7 +314,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
     // flight (991729) is genuinely absent from the pilot's remembered set at load time.
     window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [PILOT_ID]: [1] }))
     globalThis.fetch = vi.fn(async () => jsonResponse(untrackedFlightBody(991729))) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />)
@@ -337,7 +339,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
   it("classifies an untracked flight as 'not-new' when its trip id IS already in the pilot's seen-trip set at load time (blocking finding #3: severing the getSeenTripIds read — hardcoding seenTripIdsAtLoad to null — left this path with zero hook-level coverage; every existing assertion here seeded a DIFFERENT id and expected 'new', which a severed read also produces)", async () => {
     window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [PILOT_ID]: [991729] }))
     globalThis.fetch = vi.fn(async () => jsonResponse(untrackedFlightBody(991729))) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} onResults={(results) => (latest = results)} />)
@@ -415,7 +417,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
       if (url.includes(`/${PILOT_ID}/`)) return jsonResponse(quietBody)
       throw new Error(`unexpected URL: ${url}`)
     }) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(
@@ -500,7 +502,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
       if (url.includes(`/${quietPilotId}/`)) return jsonResponse(quietBody)
       throw new Error(`unexpected URL: ${url}`)
     }) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     render(<FeedHarness useHook={useHook} pilotIds={[busyPilotId, quietPilotId]} onResults={(results) => (latest = results)} />)
@@ -519,7 +521,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
   it('does NOT wipe a pilot\'s seen-trip set when their fetch fails (the second trap #62 calls out — #5 already got this right for watermarks)', async () => {
     window.localStorage.setItem(SEEN_TRIP_KEY, JSON.stringify({ [PILOT_ID]: [1, 2, 3] }))
     globalThis.fetch = vi.fn(async () => new Response('boom', { status: 502 })) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} />)
 
@@ -533,7 +535,7 @@ describe('usePilotFeedResults — seen-trip-store wiring for UNTRACKED flights (
 // navigation: leaving the feed hides it instead of unmounting, so `results` survives, and
 // coming back re-runs the mount effect against that surviving state. A harness that only ever
 // mounts once can never see what a second effect run does to state it did not start from.
-describe('usePilotFeedResults — re-shown inside <Activity> (cacheComponents client navigation)', () => {
+describe('useFlightFeedResults — re-shown inside <Activity> (cacheComponents client navigation)', () => {
   let originalFetch: typeof fetch
 
   beforeEach(() => {
@@ -555,7 +557,7 @@ describe('usePilotFeedResults — re-shown inside <Activity> (cacheComponents cl
       .mockResolvedValueOnce(
         jsonResponse({ ...stubbedFeedResponse(), trackedTrips: [{ tripId: 991729, updatedAt: reshownTs }] }),
       ) as unknown as typeof fetch
-    const useHook = await loadFreshUsePilotFeedResults()
+    const useHook = await loadFreshUseFlightFeedResults()
 
     let latest: FlightFeedResults | undefined
     const harness = (mode: 'visible' | 'hidden') => (
@@ -577,5 +579,117 @@ describe('usePilotFeedResults — re-shown inside <Activity> (cacheComponents cl
     })
     expect(latest?.isLoading).toBe(false)
     expect(latest?.entries.map((entry) => entry.flight.tripId)).toEqual([991729])
+  })
+})
+
+const SEEN_TRIPS_KEY = 'flight-log:seen-untracked-trips'
+const UNFOLLOWED_PILOT_ID = 777
+const TAKEOFF_REF = { countryId: 160, takeoffId: 133 }
+const TAKEOFF_NAME = 'Voss, Hanguren'
+
+function takeoffBody(tripId: number, date: string | null = '2026-06-01') {
+  return {
+    takeoff: { ...TAKEOFF_REF, name: TAKEOFF_NAME },
+    flights: [
+      {
+        tripId,
+        userId: UNFOLLOWED_PILOT_ID,
+        pilotName: 'Unfollowed Pilot',
+        club: null,
+        glider: null,
+        duration: null,
+        distanceKm: null,
+        note: null,
+        date,
+        timeOfDay: null,
+      },
+    ],
+  }
+}
+
+describe('useFlightFeedResults — followed takeoffs (#246)', () => {
+  let originalFetch: typeof fetch
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  function stubFetch(handlers: { pilot?: () => Response; takeoff: () => Response }) {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith('/api/countries/')) return handlers.takeoff()
+      if (handlers.pilot) return handlers.pilot()
+      throw new Error(`unexpected URL: ${url}`)
+    }) as unknown as typeof fetch
+  }
+
+  it('merges a followed takeoff\'s flights into the entries, marked via the takeoff, and writes no watermark or seen-trip state for its unfollowed pilot', async () => {
+    stubFetch({ takeoff: () => jsonResponse(takeoffBody(5001)) })
+    const useHook = await loadFreshUseFlightFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[]} takeoffs={[TAKEOFF_REF]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.entries.map((entry) => [entry.flight.tripId, entry.viaTakeoff])).toEqual([
+      [5001, { ...TAKEOFF_REF, name: TAKEOFF_NAME }],
+    ])
+    expect(latest?.entries[0]?.newness).toBe('not-new')
+    expect(window.localStorage.getItem(WATERMARK_KEY)).toBeNull()
+    expect(window.localStorage.getItem(SEEN_TRIPS_KEY)).toBeNull()
+  })
+
+  it('still remembers a followed pilot\'s own entries when a site row from an unfollowed pilot sits in the same feed, without throwing', async () => {
+    stubFetch({
+      pilot: () => jsonResponse(stubbedFeedResponse()),
+      takeoff: () => jsonResponse(takeoffBody(5002)),
+    })
+    const useHook = await loadFreshUseFlightFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} takeoffs={[TAKEOFF_REF]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.entries.map((entry) => entry.flight.tripId)).toEqual([5002, 991729])
+    await waitFor(() => {
+      expect(JSON.parse(window.localStorage.getItem(WATERMARK_KEY) ?? '{}')).toEqual({ [PILOT_ID]: '20260523164423' })
+    })
+    expect(Object.keys(JSON.parse(window.localStorage.getItem(SEEN_TRIPS_KEY) ?? '{}'))).toEqual([String(PILOT_ID)])
+  })
+
+  it.each([
+    ['an error status', () => new Response(JSON.stringify({ error: 'nope' }), { status: 502 })],
+    ['a 404', () => new Response(JSON.stringify({ error: 'gone' }), { status: 404 })],
+    ['a malformed body', () => jsonResponse({ unexpected: true })],
+  ])('reports a takeoff answering with %s as failed, keeping the pilots\' rows', async (_label, respond) => {
+    stubFetch({ pilot: () => jsonResponse(stubbedFeedResponse()), takeoff: respond })
+    const useHook = await loadFreshUseFlightFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[PILOT_ID]} takeoffs={[TAKEOFF_REF]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.entries.map((entry) => entry.flight.tripId)).toEqual([991729])
+    expect(latest?.failedTakeoffs.map(({ countryId, takeoffId }) => ({ countryId, takeoffId }))).toEqual([TAKEOFF_REF])
+    expect(latest?.failedPilots).toEqual([])
+  })
+
+  it('reports a takeoff whose request hits the fetch timeout as failed with a timeout message', async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new DOMException('signal timed out', 'TimeoutError')
+    }) as unknown as typeof fetch
+    const useHook = await loadFreshUseFlightFeedResults()
+
+    let latest: FlightFeedResults | undefined
+    render(<FeedHarness useHook={useHook} pilotIds={[]} takeoffs={[TAKEOFF_REF]} onResults={(results) => (latest = results)} />)
+
+    await waitFor(() => expect(latest?.isLoading).toBe(false))
+    expect(latest?.failedTakeoffs).toHaveLength(1)
+    expect(latest?.failedTakeoffs[0]?.message).toMatch(/timed out/)
   })
 })
