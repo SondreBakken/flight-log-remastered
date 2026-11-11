@@ -7,7 +7,8 @@ official API. Next.js 16 App Router, React 19, MapLibre.
 
 Deployed on Railway (EU West), which autodeploys every push to `main`. Migrations run in the
 pre-deploy step (`pnpm db:migrate`). Railway's IPs are not blocked by flightlog.org's WAF, so the
-deployed app reads live data with no proxy in between.
+deployed app reads live data with no proxy in between. The app must run as a single replica, because `use cache` entries and the
+outbound request gate live in process memory.
 
 ```bash
 pnpm dev            # http://localhost:3000

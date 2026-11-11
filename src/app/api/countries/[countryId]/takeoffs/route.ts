@@ -4,9 +4,9 @@ import { encodeTakeoffRow, type TakeoffRow } from './contract'
 
 // #38's decision, in one line: prerender this at BUILD time for a curated set of countries,
 // so the 970 KB upstream fetch (getTakeoffs, unchanged) is a build cost and the response is
-// a static asset the CDN and the browser both cache — rather than a route that runs
-// `getTakeoffs`'s `use cache` at request time, where the Next.js docs say entries typically
-// do not persist across requests on serverless (each request can hit a different instance).
+// a static asset the browser and any intermediary cache can hold — rather than a route that
+// runs `getTakeoffs`'s `use cache` at request time, where entries live only in process
+// memory (the Next.js docs: they do not persist across revalidation or instances).
 // `generateStaticParams` plus this route's own deterministic, cache-backed data access is
 // what makes `next build` able to fully render the response for every id below and write it
 // to disk — see scripts/check-takeoffs-prerender.mts, which asserts that against the real
@@ -32,7 +32,7 @@ const MAX_ECHOED_COUNTRY_ID_LENGTH = 32
 // enumerate) is rejected outright by Cache Components — see dynamicParams.md: "not
 // available when Cache Components is enabled." Without it, an uncurated id falls through to
 // request-time rendering by default, which would reintroduce, for that id, exactly the "use
-// cache doesn't persist on serverless" caveat this route exists to sidestep. This check is
+// cache entries are per-process memory" caveat this route exists to sidestep. This check is
 // the replacement: a plain, deterministic membership test that completes during
 // prerendering for every curated id (so it never blocks the static shell) and short-circuits
 // BEFORE `getTakeoffs` for anything else, so an uncurated id never even attempts the

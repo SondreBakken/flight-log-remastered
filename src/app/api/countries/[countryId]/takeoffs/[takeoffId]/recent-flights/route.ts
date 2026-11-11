@@ -11,7 +11,7 @@ type RouteParams = { params: Promise<{ countryId: string; takeoffId: string }> }
 const MAX_ECHOED_ID_LENGTH = 32
 
 // Canonical positive decimal only, so '010' or '1e2' never reach upstream as a distinct URL (and
-// a distinct CDN cache key) for the same takeoff.
+// a distinct HTTP cache key) for the same takeoff.
 const CANONICAL_POSITIVE_INTEGER = /^[1-9]\d*$/
 
 // Same short public cache as the pilot recent-flights route: the data underneath is cached for

@@ -8,7 +8,7 @@
 // produces: hex (`0xA0`), octal/binary (`0o240`/`0b10100000`), exponential (`1.6e2`), a
 // leading `+`, surrounding whitespace, and a trailing `.` all normalise to 160 under `Number`
 // but are none of them the string `generateStaticParams` enumerated or any real link in this
-// app emits. Each distinct spelling is also a distinct URL and therefore a distinct CDN cache
+// app emits. Each distinct spelling is also a distinct URL and therefore a distinct HTTP cache
 // key, so accepting them all turns a prerendered route back into an anonymous trigger for the
 // very request-time fetch prerendering exists to avoid — see the takeoffs API route's own doc
 // comment. Requiring a canonical decimal string BEFORE calling `Number` closes that.
