@@ -6,7 +6,7 @@ import { encodeTakeoffRow, type TakeoffRow } from './contract'
 // so the 970 KB upstream fetch (getTakeoffs, unchanged) is a build cost and the response is
 // a static asset the browser and any intermediary cache can hold — rather than a route that
 // runs `getTakeoffs`'s `use cache` at request time, where entries live only in process
-// memory (the Next.js docs: they do not persist across revalidation or instances).
+// memory (lost on restart or redeploy and not shared between replicas, per self-hosting.md).
 // `generateStaticParams` plus this route's own deterministic, cache-backed data access is
 // what makes `next build` able to fully render the response for every id below and write it
 // to disk — see scripts/check-takeoffs-prerender.mts, which asserts that against the real

@@ -12,8 +12,8 @@ type CountryParams = Promise<{ countryId: string }>
 // #40: prerenders the curated set (currently just Norway, the only club list this app has
 // measured — see CURATED_CLUB_COUNTRY_IDS's own doc comment) at build time, so `getClubs`'s
 // 'days' cacheLife actually gets to do its job for the country pilots hit most, rather than
-// re-running on every request the way it does on serverless when nothing ELSE keeps an
-// instance warm (see getClubs's own doc comment). Unlike the sibling takeoffs route/page,
+// re-running after every restart or redeploy, since `use cache` entries live in process
+// memory (see getClubs's own doc comment). Unlike the sibling takeoffs route/page,
 // this array does NOT gate which ids the page will serve — see Clubs below — only which ids
 // get prerendered; every other well-formed id still renders normally, on demand.
 export async function generateStaticParams(): Promise<{ countryId: string }[]> {
