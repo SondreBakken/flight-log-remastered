@@ -1,5 +1,5 @@
 import type { Country, CountryCounts } from '@/lib/flightlog/types'
-import { buildCountryRows, hasClubCounts } from './build-country-rows'
+import { buildCountryRows } from './build-country-rows'
 import CountryList from './country-list'
 
 export default function CountryIndex({
@@ -13,7 +13,7 @@ export default function CountryIndex({
     <section className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Countries</h1>
       <p className="text-sm opacity-70">Pick a country to browse its clubs.</p>
-      <CountryList rows={buildCountryRows(countries, counts)} showCounts={hasClubCounts(counts)} />
+      <CountryList data={buildCountryRows(countries, counts)} />
     </section>
   )
 }

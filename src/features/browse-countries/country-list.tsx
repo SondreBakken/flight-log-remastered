@@ -3,12 +3,20 @@
 import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { useState } from 'react'
-import type { CountryRow } from './build-country-rows'
+import type { CountryListData } from './build-country-rows'
 
-export default function CountryList({ rows, showCounts }: { rows: CountryRow[]; showCounts: boolean }) {
+type Entry = { countryId: number; name: string; counts?: { pilots: number; clubs: number } }
+
+function toEntries(data: CountryListData): Entry[] {
+  if (data.kind === 'fallback') return data.countries
+  return data.rows.map(({ countryId, name, pilots, clubs }) => ({ countryId, name, counts: { pilots, clubs } }))
+}
+
+export default function CountryList({ data }: { data: CountryListData }) {
   const [query, setQuery] = useState('')
   const needle = query.trim().toLowerCase()
-  const visible = needle === '' ? rows : rows.filter((row) => row.name.toLowerCase().includes(needle))
+  const entries = toEntries(data)
+  const visible = needle === '' ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(needle))
 
   return (
     <div className="flex flex-col gap-4">
@@ -27,12 +35,12 @@ export default function CountryList({ rows, showCounts }: { rows: CountryRow[]; 
         <p className="text-sm opacity-70">No countries match.</p>
       ) : (
         <ul className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2 md:grid-cols-3">
-          {visible.map((row) => (
-            <li key={row.countryId} className="flex items-baseline justify-between gap-3">
-              <Link href={`/countries/${row.countryId}`}>{row.name}</Link>
-              {showCounts && (
+          {visible.map((entry) => (
+            <li key={entry.countryId} className="flex items-baseline justify-between gap-3">
+              <Link href={`/countries/${entry.countryId}`}>{entry.name}</Link>
+              {entry.counts && (
                 <span className="text-xs opacity-60">
-                  {row.pilots} pilots, {row.clubs} clubs
+                  {entry.counts.pilots} pilots, {entry.counts.clubs} clubs
                 </span>
               )}
             </li>
