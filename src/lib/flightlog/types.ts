@@ -200,6 +200,13 @@ export type Country = {
   name: string
 }
 
+// Registered pilots and clubs per country, keyed by `country_id`, from a=3. A country absent
+// from `clubs` has no clubs; absent from `pilots` has no registered pilot entry.
+export type CountryCounts = {
+  pilots: Map<number, number>
+  clubs: Map<number, number>
+}
+
 // From `a=25` (see docs/flightlog-api.md): despite the column heading flightlog.org itself
 // renders and despite this app's own earlier misreading of it (#66), the second `<td>` is the
 // club's MEMBER count, not a flight count — confirmed against `a=26`'s own explicit `Members`

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import CountryIndex from '@/features/browse-countries'
 import { getCountries } from '@/lib/flightlog/countries'
+import { getCountryCounts } from '@/lib/flightlog/country-counts'
 
 export const metadata: Metadata = { title: 'Countries' }
 
@@ -13,9 +14,15 @@ export default function CountriesPage() {
   )
 }
 
-async function Countries() {
-  const countries = await getCountries()
-  return <CountryIndex countries={countries} />
+// A failed a=3 fetch (or one that parsed to no club counts, which getCountryCounts throws on)
+// must not take the page down: null counts make the index fall back to the plain list.
+export async function Countries() {
+  const [countries, entries] = await Promise.all([
+    getCountries(),
+    getCountryCounts().catch(() => null),
+  ])
+  const counts = entries && { pilots: new Map(entries.pilots), clubs: new Map(entries.clubs) }
+  return <CountryIndex countries={countries} counts={counts} />
 }
 
 function CountriesSkeleton() {
