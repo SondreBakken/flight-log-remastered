@@ -46,6 +46,17 @@ describe('parseCountryCounts', () => {
     expect(parseCountryCounts(html).clubs).toEqual(new Map([[NORWAY, 12]]))
   })
 
+  it('matches the action param exactly, so a=480 and a=250 are not read as 48 and 25', () => {
+    const html = `<b>No of registered users per country:</b><br>
+<a href='?l=1&a=480&country_id=160'>Norway</a> (1)<br>
+<b>No of clubs per country:</b><br>
+<a href='?l=1&a=250&country_id=160'>Norway</a> (2)<br>`
+
+    const counts = parseCountryCounts(html)
+    expect(counts.pilots.size).toBe(0)
+    expect(counts.clubs.size).toBe(0)
+  })
+
   it('returns two empty maps for markup with neither list', () => {
     const counts = parseCountryCounts('<html><body><p>nothing</p></body></html>')
 

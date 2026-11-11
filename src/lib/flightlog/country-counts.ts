@@ -11,7 +11,9 @@ export type CountryCountEntries = {
 
 // Throws on a successful response that parses to no club counts, so `use cache` never stores
 // an unreadable page for days (same throw-on-unrecognised pattern as parseClubs). The caller
-// (src/app/countries/page.tsx) catches and falls back to the plain country list.
+// (src/app/countries/page.tsx) catches and falls back to the plain country list. A failure at
+// build time is likewise not cached by this function, but the prerendered fallback page it
+// produced persists until the page revalidates.
 export async function getCountryCounts(): Promise<CountryCountEntries> {
   'use cache'
   cacheLife('days')

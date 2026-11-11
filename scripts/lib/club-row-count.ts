@@ -24,7 +24,15 @@ export type RowCountVerdict =
 // Zero rows after the club-count text matched means the text rendered but the selector no
 // longer finds the rows, so name that instead of a bare count mismatch. When the count text
 // did not match (empty or fallback shell) the plain count label is kept.
-export function judgeClubRowCount(file: string, countTextMatched: boolean, rowCount: number, expectedRowCount: number, verb: string): RowCountVerdict {
+export type ClubRowCountInput = {
+  file: string
+  countTextMatched: boolean
+  rowCount: number
+  expectedRowCount: number
+  verb: string
+}
+
+export function judgeClubRowCount({ file, countTextMatched, rowCount, expectedRowCount, verb }: ClubRowCountInput): RowCountVerdict {
   if (countTextMatched && rowCount === 0) {
     return {
       kind: 'selector-drift',
