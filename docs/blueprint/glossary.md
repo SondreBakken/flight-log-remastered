@@ -8,7 +8,7 @@
 | Certificates | The NLF/HPS paragliding certificate syllabus (PP2 to PP5) and progress against it | Certificates |
 | Following | Users following flightlog.org pilots | Following |
 | Comments | Users' comments on flights | Comments |
-| Flight feed | Merged newest-first list of recent flights across followed pilots, marking what is new since the last visit | Flight feed |
+| Flight feed | Merged newest-first list of recent flights across followed pilots and followed takeoffs, deduped by trip id, marking what is new since the last visit | Flight feed |
 | Pilot | A flightlog.org pilot with userId, name, country and club; a missing profile cell yields a synthetic fallback pilot "Pilot <id>" | Flightlog |
 | Pilot id | A pilot's flightlog.org user id, a safe integer above 0; shared by follows, watermarks, profiles and routes | Flightlog |
 | Flight | A row of a pilot's flightlog.org logbook, identified by tripId; same-day same-glider flights are aggregated into one row with flightCount | Flightlog |
@@ -39,10 +39,11 @@
 | Requirement | A criterion for advancing to a certificate level: experience from flights, tenure at the current level, or a manual self-check | Certificates |
 | Certificate checklist | A pilot's self-check state per level and requirement id; absent means unchecked | Certificates |
 | Follow | A user's subscription to a flightlog.org pilot, keyed by user and pilot id | Following |
+| Followed takeoff | A user's subscription to a takeoff, keyed by user, country id and takeoff id; its recent flights join the flight feed | Following |
 | Follower | A user who follows a given pilot, with follow time and display name | Following |
 | Viewer | The visitor, signed in or not, acting on a page | Following |
 | Comment | A user's text remark on a flight, soft-deleted and then hidden from every reader | Comments |
 | Watermark | Per followed pilot, the newest track timestamp already shown; a tracked flight with a later timestamp is new | Flight feed |
 | Seen trips | Per followed pilot, the trip ids already shown; decides newness for flights without a track timestamp | Flight feed |
-| Feed entry | One feed row: pilot, flight, whether it has a track, its newness and track timestamp | Flight feed |
+| Feed entry | One feed row: pilot, flight, whether it has a track, its newness and track timestamp, and the followed takeoff it came through when sourced from one | Flight feed |
 | Flight newness | Whether a flight is new since the viewer's last visit: new or not-new | Flight feed |
