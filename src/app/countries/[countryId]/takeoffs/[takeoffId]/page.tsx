@@ -105,7 +105,7 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
   const mapEntry = locationEntry && hasKnownLocation(locationEntry) ? locationEntry : null
 
   const candidatePilotIds = [...new Set(flights.map((flight) => flight.userId))]
-  const followState = await resolveViewerFollowState(candidatePilotIds)
+  const followState = await resolveViewerFollowState(candidatePilotIds, { includeTakeoffs: true })
   const { isSignedIn, followedPilotIds } = toFollowButtonState(followState)
   const { isFollowed } = toTakeoffFollowButtonState(followState, { countryId, takeoffId })
 

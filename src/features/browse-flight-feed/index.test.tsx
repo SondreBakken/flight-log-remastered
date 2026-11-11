@@ -61,6 +61,12 @@ describe('FlightFeed branching on the viewer follow state', () => {
     expect(element.type).toBe(FlightFeedView)
     expect(element.props).toEqual({ follows, defaultPilotId: DEFAULT_PILOT_ID })
   })
+
+  it('asks the resolver for every followed pilot and the followed takeoffs, which the feed renders', async () => {
+    await feedFor({ status: 'signed-out' })
+
+    expect(resolveViewerFollowState).toHaveBeenCalledWith(undefined, { includeTakeoffs: true })
+  })
 })
 
 // The round-1 blocker #155's own follow-up closed: pruning seen-trip-store against an empty

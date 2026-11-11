@@ -148,6 +148,7 @@ describe('TakeoffDetail route guard', () => {
 
     expect(element.props.isSignedIn).toBe(true)
     expect(element.props.isFollowed).toBe(expected)
+    expect(resolveViewerFollowState).toHaveBeenLastCalledWith(expect.any(Array), { includeTakeoffs: true })
   })
 
   it('falls back to a generic country label when the resolved country id is absent from getCountries', async () => {

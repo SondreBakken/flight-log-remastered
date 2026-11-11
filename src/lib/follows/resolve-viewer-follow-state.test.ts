@@ -78,12 +78,12 @@ describe('resolveViewerFollowState', () => {
     expect([...state.followedPilotIds].sort((a, b) => a - b)).toEqual([12677, 900024])
   })
 
-  it('resolves the followed takeoffs alongside the pilots, for the authenticated user only', async () => {
+  it('resolves the followed takeoffs, when opted in, alongside the pilots, for the authenticated user only', async () => {
     mockGetCurrentUserId.mockResolvedValue('user-abc')
     mockGetFollowedPilotIds.mockResolvedValue(new Set([900024]))
     mockGetFollowedTakeoffs.mockResolvedValue([{ countryId: 160, takeoffId: 133 }])
 
-    const state = await resolveViewerFollowState([900024])
+    const state = await resolveViewerFollowState([900024], { includeTakeoffs: true })
 
     expect(state).toEqual({
       status: 'resolved',
@@ -99,8 +99,21 @@ describe('resolveViewerFollowState', () => {
     mockGetFollowedPilotIds.mockResolvedValue(new Set([900024]))
     mockGetFollowedTakeoffs.mockRejectedValue(new FollowsQueryError('takeoff follows query failed'))
 
-    expect(await resolveViewerFollowState([900024])).toEqual({ status: 'follows-unavailable' })
+    expect(await resolveViewerFollowState([900024], { includeTakeoffs: true })).toEqual({ status: 'follows-unavailable' })
     consoleError.mockRestore()
+  })
+
+  it('never reads takeoffs by default, so adornment pages pay no extra query and a failing takeoffs query cannot degrade them', async () => {
+    mockGetCurrentUserId.mockResolvedValue('user-abc')
+    mockGetFollowedPilotIds.mockResolvedValue(new Set([900024]))
+    mockGetFollowedTakeoffs.mockRejectedValue(new FollowsQueryError('takeoff follows query failed'))
+
+    expect(await resolveViewerFollowState([900024])).toEqual({
+      status: 'resolved',
+      followedPilotIds: [900024],
+      followedTakeoffs: [],
+    })
+    expect(mockGetFollowedTakeoffs).not.toHaveBeenCalled()
   })
 
   it('degrades to an explicit follows-unavailable status, without crashing, when getFollowedPilotIds throws a FollowsQueryError', async () => {

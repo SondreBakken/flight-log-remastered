@@ -31,11 +31,17 @@ const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 // to the same shape a signed-out visitor already gets, since crashing the whole page over a follow
 // button would be a worse outcome than a degraded one. A page where follow state IS the content
 // matches on 'follows-unavailable' directly (see followedPilotIdsOf) and renders its own visible
-// error state, rather than trusting an empty followedPilotIds at face value. The viewer's followed
-// takeoffs are always read unscoped (candidatePilotIds does not apply to them), and a failure there
-// degrades the same way. Only FollowsQueryError
-// is caught here; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
-export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): Promise<ViewerFollowState> {
+// error state, rather than trusting an empty followedPilotIds at face value.
+//
+// The viewer's followed takeoffs are read only when options.includeTakeoffs is set, by the two
+// callers that use them (the flight feed and the takeoff detail page). Every other caller leaves
+// followedTakeoffs empty, pays no extra query, and cannot be degraded by a failing takeoffs query.
+// When read, they are unscoped (candidatePilotIds does not apply) and a failure degrades the same
+// way as the pilot query. Only FollowsQueryError is caught here; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
+export async function resolveViewerFollowState(
+  candidatePilotIds?: PilotId[],
+  options: { includeTakeoffs?: boolean } = {},
+): Promise<ViewerFollowState> {
   const userId = await getCurrentUserId()
   if (!userId) return SIGNED_OUT_STATE
 
@@ -43,7 +49,7 @@ export async function resolveViewerFollowState(candidatePilotIds?: PilotId[]): P
     const db = getDb()
     const [followedPilotIds, followedTakeoffs] = await Promise.all([
       getFollowedPilotIds(db, userId, candidatePilotIds),
-      getFollowedTakeoffs(db, userId),
+      options.includeTakeoffs ? getFollowedTakeoffs(db, userId) : [],
     ])
     return { status: 'resolved', followedPilotIds: [...followedPilotIds], followedTakeoffs }
   } catch (error) {
