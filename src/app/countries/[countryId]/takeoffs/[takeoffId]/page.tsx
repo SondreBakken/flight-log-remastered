@@ -8,7 +8,8 @@ import { parseCuratedCountryId } from '@/lib/flightlog/curated-countries'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getTakeoffs } from '@/lib/flightlog/takeoffs'
-import { resolveFollowButtonState } from '@/lib/follows/resolve-viewer-follow-state'
+import { resolveViewerFollowState } from '@/lib/follows/resolve-viewer-follow-state'
+import { toFollowButtonState, toTakeoffFollowButtonState } from '@/lib/follows/viewer-follow-state'
 
 type TakeoffDetailParams = Promise<{ countryId: string; takeoffId: string }>
 
@@ -104,7 +105,9 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
   const mapEntry = locationEntry && hasKnownLocation(locationEntry) ? locationEntry : null
 
   const candidatePilotIds = [...new Set(flights.map((flight) => flight.userId))]
-  const { isSignedIn, followedPilotIds } = await resolveFollowButtonState(candidatePilotIds)
+  const followState = await resolveViewerFollowState(candidatePilotIds)
+  const { isSignedIn, followedPilotIds } = toFollowButtonState(followState)
+  const { isFollowed } = toTakeoffFollowButtonState(followState, { countryId, takeoffId })
 
   return (
     <TakeoffDetailView
@@ -116,6 +119,7 @@ export async function TakeoffDetail({ params }: { params: TakeoffDetailParams })
       currentYear={new Date().getFullYear()}
       isSignedIn={isSignedIn}
       followedPilotIds={followedPilotIds}
+      isFollowed={isFollowed}
     />
   )
 }

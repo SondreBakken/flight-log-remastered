@@ -3,6 +3,7 @@ import { ChevronLeft, ExternalLink } from 'lucide-react'
 import { TakeoffsMap } from '@/components/takeoffs-map'
 import { EmptyState } from '@/components/empty-state'
 import { CalendarDate } from '@/components/calendar-date'
+import { TakeoffFollowButton } from '@/components/follow-button/takeoff-follow-button'
 import { flightlogTakeoffUrl } from '@/lib/flightlog/config'
 import type { PilotId, SiteRecord, Takeoff, TakeoffDetail, TakeoffFlight } from '@/lib/flightlog/types'
 import { TakeoffFlightRow } from './components/flight-row'
@@ -22,6 +23,9 @@ type TakeoffDetailViewProps = {
   // year's flight rows' own userIds.
   isSignedIn: boolean
   followedPilotIds: PilotId[]
+  // Whether the viewer follows this takeoff itself (see toTakeoffFollowButtonState), as opposed
+  // to followedPilotIds, which is about the pilots in the flights table.
+  isFollowed: boolean
 }
 
 // #11's takeoff detail page: name/region/altitude/description/site-records from a=22, flights
@@ -38,10 +42,11 @@ export default function TakeoffDetailView({
   currentYear,
   isSignedIn,
   followedPilotIds,
+  isFollowed,
 }: TakeoffDetailViewProps) {
   return (
     <section className="flex flex-col gap-6">
-      <TakeoffHeader countryName={countryName} detail={detail} />
+      <TakeoffHeader countryId={countryId} countryName={countryName} detail={detail} isSignedIn={isSignedIn} isFollowed={isFollowed} />
       <TakeoffLinks countryId={countryId} countryName={countryName} takeoffId={detail.takeoffId} linkUrl={detail.linkUrl} />
       {detail.siteRecords.length > 0 && <SiteRecords records={detail.siteRecords} />}
       {detail.description !== null && <Description text={detail.description} />}
@@ -62,11 +67,24 @@ export default function TakeoffDetailView({
   )
 }
 
-function TakeoffHeader({ countryName, detail }: { countryName: string; detail: TakeoffDetail }) {
+function TakeoffHeader({
+  countryId,
+  countryName,
+  detail,
+  isSignedIn,
+  isFollowed,
+}: {
+  countryId: number
+  countryName: string
+  detail: TakeoffDetail
+  isSignedIn: boolean
+  isFollowed: boolean
+}) {
   return (
-    <header className="flex flex-col gap-1">
+    <header className="flex flex-col items-start gap-1">
       <h1 className="text-2xl font-semibold tracking-tight">{detail.name}</h1>
       <p className="text-sm opacity-70">{[detail.region, detail.altitude].filter(Boolean).join(' · ') || countryName}</p>
+      <TakeoffFollowButton countryId={countryId} takeoffId={detail.takeoffId} isFollowed={isFollowed} isSignedIn={isSignedIn} />
     </header>
   )
 }

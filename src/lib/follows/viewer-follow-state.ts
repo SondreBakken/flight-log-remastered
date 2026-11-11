@@ -1,4 +1,4 @@
-import type { PilotId } from '@/lib/flightlog/types'
+import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 
 // A discriminated union, not a followedPilotIds array plus a followsUnavailable flag: those two
 // fields could previously disagree (a "resolved" state with a non-empty followedPilotIds AND
@@ -14,7 +14,7 @@ import type { PilotId } from '@/lib/flightlog/types'
 // pull in. Keeping the pure pieces here, with no I/O imports at all, is what makes that safe.
 export type ViewerFollowState =
   | { status: 'signed-out' }
-  | { status: 'resolved'; followedPilotIds: PilotId[] }
+  | { status: 'resolved'; followedPilotIds: PilotId[]; followedTakeoffs: TakeoffRef[] }
   | { status: 'follows-unavailable' }
 
 // The single status → follow-list mapping, shared by every caller that used to hand-roll it
@@ -45,5 +45,33 @@ export function toFollowButtonState(state: ViewerFollowState): { isSignedIn: boo
   return {
     isSignedIn: state.status !== 'signed-out',
     followedPilotIds: followedPilotIdsOf(state) ?? [],
+  }
+}
+
+// The takeoff-side twin of followedPilotIdsOf: same null-for-unavailable contract, so the flight
+// feed can tell "follows no takeoffs" from "could not load the follow list" by the return value.
+export function followedTakeoffsOf(state: ViewerFollowState): TakeoffRef[] | null {
+  switch (state.status) {
+    case 'signed-out':
+      return []
+    case 'resolved':
+      return state.followedTakeoffs
+    case 'follows-unavailable':
+      return null
+  }
+}
+
+// The takeoff detail page's adornment shape, the counterpart of toFollowButtonState: a
+// follows-unavailable state degrades to "signed in, not following" rather than crashing the page.
+export function toTakeoffFollowButtonState(
+  state: ViewerFollowState,
+  takeoff: TakeoffRef,
+): { isSignedIn: boolean; isFollowed: boolean } {
+  const followedTakeoffs = followedTakeoffsOf(state) ?? []
+  return {
+    isSignedIn: state.status !== 'signed-out',
+    isFollowed: followedTakeoffs.some(
+      (followed) => followed.countryId === takeoff.countryId && followed.takeoffId === takeoff.takeoffId,
+    ),
   }
 }

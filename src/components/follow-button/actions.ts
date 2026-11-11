@@ -4,7 +4,9 @@ import { getDb } from '@/lib/db/client'
 import { getCurrentUserId } from '@/lib/auth/current-user'
 import { followPilot } from '@/lib/follows/follow-pilot'
 import { unfollowPilot } from '@/lib/follows/unfollow-pilot'
-import type { PilotId } from '@/lib/flightlog/types'
+import { followTakeoff } from '@/lib/follows/follow-takeoff'
+import { unfollowTakeoff } from '@/lib/follows/unfollow-takeoff'
+import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 
 export type FollowActionResult = { status: 'success' } | { status: 'error'; message: string }
 
@@ -39,6 +41,33 @@ export async function unfollowPilotAction(pilotId: PilotId): Promise<FollowActio
 
   const result = await unfollowPilot(getDb(), { userId, pilotId })
   if (result.kind === 'db-error') return { status: 'error', message: UNFOLLOW_GENERIC_ERROR_MESSAGE }
+
+  return { status: 'success' }
+}
+
+const TAKEOFF_SIGN_IN_MESSAGE = 'Sign in to follow takeoffs.'
+const FOLLOW_TAKEOFF_ERROR_MESSAGE = 'Something went wrong following this takeoff. Try again.'
+const UNFOLLOW_TAKEOFF_ERROR_MESSAGE = 'Something went wrong unfollowing this takeoff. Try again.'
+
+// Same session rule as followPilotAction: the row is always written under getCurrentUserId(),
+// never a client-supplied identity. The takeoff is the (countryId, takeoffId) pair, since
+// flightlog.org numbers takeoffs per country.
+export async function followTakeoffAction(takeoff: TakeoffRef): Promise<FollowActionResult> {
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: TAKEOFF_SIGN_IN_MESSAGE }
+
+  const result = await followTakeoff(getDb(), { userId, countryId: takeoff.countryId, takeoffId: takeoff.takeoffId })
+  if (result.kind === 'db-error') return { status: 'error', message: FOLLOW_TAKEOFF_ERROR_MESSAGE }
+
+  return { status: 'success' }
+}
+
+export async function unfollowTakeoffAction(takeoff: TakeoffRef): Promise<FollowActionResult> {
+  const userId = await getCurrentUserId()
+  if (!userId) return { status: 'error', message: TAKEOFF_SIGN_IN_MESSAGE }
+
+  const result = await unfollowTakeoff(getDb(), { userId, countryId: takeoff.countryId, takeoffId: takeoff.takeoffId })
+  if (result.kind === 'db-error') return { status: 'error', message: UNFOLLOW_TAKEOFF_ERROR_MESSAGE }
 
   return { status: 'success' }
 }
