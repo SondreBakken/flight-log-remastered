@@ -28,7 +28,7 @@ function readCounts(sectionHtml: string, action: number): Map<number, number> {
     .not(HONEYPOT_SELECTOR)
     .each((_, element) => {
       const href = $(element).attr('href') ?? ''
-      if (!href.includes(`a=${action}`)) return
+      if (new URLSearchParams(href.split('?')[1]).get('a') !== String(action)) return
       const countryId = href.match(/country_id=(\d+)/)?.[1]
       const next = element.next
       const count = next?.type === 'text' ? next.data.match(/^\s*\((\d+)\)/)?.[1] : undefined

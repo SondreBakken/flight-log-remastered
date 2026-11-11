@@ -37,7 +37,8 @@ const SIGNED_OUT_STATE: ViewerFollowState = { status: 'signed-out' }
 // callers that use them (the flight feed and the takeoff detail page). Every other caller leaves
 // followedTakeoffs empty, pays no extra query, and cannot be degraded by a failing takeoffs query.
 // When read, they are unscoped (candidatePilotIds does not apply) and a failure degrades the same
-// way as the pilot query. Only FollowsQueryError is caught here; any other throw (e.g. a mapping bug unrelated to the query itself) propagates.
+// way as the pilot query. Only FollowsQueryError is caught here; any other throw (e.g. a mapping
+// bug unrelated to the query itself) propagates.
 export async function resolveViewerFollowState(
   candidatePilotIds?: PilotId[],
   options: { includeTakeoffs?: boolean } = {},

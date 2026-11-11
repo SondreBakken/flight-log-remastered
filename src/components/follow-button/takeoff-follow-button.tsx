@@ -8,7 +8,7 @@ import { followTakeoffAction, unfollowTakeoffAction } from './actions'
 import type { TakeoffRef } from '@/lib/flightlog/types'
 
 type TakeoffFollowButtonProps = TakeoffRef & {
-  // Resolved once server-side per page (see resolveTakeoffFollowButtonState); this component's
+  // Resolved once server-side per page (see toTakeoffFollowButtonState); this component's
   // only own state is the optimistic flip, seeded from isFollowed.
   isFollowed: boolean
   isSignedIn: boolean

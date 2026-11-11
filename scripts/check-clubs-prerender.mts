@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { CURATED_CLUB_COUNTRY_IDS } from '../src/lib/flightlog/curated-countries'
-import { countHtmlClubRows, countRscClubRows, judgeClubRowCount } from './lib/club-row-count'
+import { countHtmlClubRows, countRscClubRows, judgeClubRowCount, type ClubRowCountInput } from './lib/club-row-count'
 import { CLUB_ROSTER_EXPECTATIONS } from './lib/curated-country-expectations'
 import { formatRange, inRange } from './lib/range'
 import {
@@ -30,9 +30,10 @@ import {
 // argues for its route.
 const { assert, fail, summarize } = createChecker('check:clubs-prerender')
 
-function assertClubRowCount(file: string, countTextMatched: boolean, rowCount: number, expectedRowCount: number, verb: string): void {
-  const verdict = judgeClubRowCount(file, countTextMatched, rowCount, expectedRowCount, verb)
-  if (verdict.kind === 'selector-drift') fail(verdict.message)
+function assertClubRowCount(input: ClubRowCountInput): void {
+  const verdict = judgeClubRowCount(input)
+  // assert, not fail: fail exits, and a drift in one file must not hide the later checks.
+  if (verdict.kind === 'selector-drift') assert(false, verdict.message)
   else assert(verdict.ok, verdict.label)
 }
 
@@ -100,7 +101,7 @@ for (const { countryId, countryName: expectedCountryName, rowCount: expectedRowC
   assert(html.includes(`>${expectedCountryName}</h1>`), `${htmlPath}: renders the resolved country name "${expectedCountryName}", not just the fallback shell`)
   const clubCountPattern = new RegExp(`<p class="text-sm opacity-70">${expectedRowCount}(?:<!--\\s*-->)?\\s*clubs</p>`)
   const htmlCountMatched = assert(clubCountPattern.test(html), `${htmlPath}: renders the expected club count "${expectedRowCount} clubs"`)
-  assertClubRowCount(htmlPath, htmlCountMatched, countHtmlClubRows(html), expectedRowCount, 'renders')
+  assertClubRowCount({ file: htmlPath, countTextMatched: htmlCountMatched, rowCount: countHtmlClubRows(html), expectedRowCount, verb: 'renders' })
 
   // The .rsc payload is Next's "Flight" wire format, not the HTML above and not plain JSON
   // either — a handful of newline-delimited lines, most JSON but some prefixed with a numeric
@@ -118,7 +119,7 @@ for (const { countryId, countryName: expectedCountryName, rowCount: expectedRowC
   assert(rscCountryNamePattern.test(rsc), `${rscPath}: serializes the resolved country name "${expectedCountryName}", not just a fallback/reference token`)
   const rscClubCountPattern = new RegExp(`"className":"text-sm opacity-70","children":\\[${expectedRowCount},"\\s*clubs"\\]`)
   const rscCountMatched = assert(rscClubCountPattern.test(rsc), `${rscPath}: serializes the expected club count "${expectedRowCount} clubs"`)
-  assertClubRowCount(rscPath, rscCountMatched, countRscClubRows(rsc), expectedRowCount, 'serializes')
+  assertClubRowCount({ file: rscPath, countTextMatched: rscCountMatched, rowCount: countRscClubRows(rsc), expectedRowCount, verb: 'serializes' })
 }
 
 assertExactRouteSet(

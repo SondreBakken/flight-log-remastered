@@ -27,20 +27,20 @@ describe('countRscClubRows', () => {
 
 describe('judgeClubRowCount', () => {
   it('names selector drift, with the class, when the count text matched but 0 rows were found', () => {
-    const verdict = judgeClubRowCount('x.html', true, 0, 91, 'renders')
+    const verdict = judgeClubRowCount({ file: 'x.html', countTextMatched: true, rowCount: 0, expectedRowCount: 91, verb: 'renders' })
     expect(verdict.kind).toBe('selector-drift')
     expect(verdict).toMatchObject({ message: expect.stringContaining('row class selector drift') })
     expect(verdict).toMatchObject({ message: expect.stringContaining(`"${CLUB_ROW_CLASS}"`) })
   })
   it('keeps the plain count label when the count text did not match', () => {
-    expect(judgeClubRowCount('x.html', false, 0, 91, 'renders')).toEqual({
+    expect(judgeClubRowCount({ file: 'x.html', countTextMatched: false, rowCount: 0, expectedRowCount: 91, verb: 'renders' })).toEqual({
       kind: 'count',
       ok: false,
       label: 'x.html: renders 91 club table rows (found 0)',
     })
   })
   it('passes on the expected count and fails on a nonzero mismatch', () => {
-    expect(judgeClubRowCount('x.rsc', true, 91, 91, 'serializes')).toMatchObject({ kind: 'count', ok: true })
-    expect(judgeClubRowCount('x.rsc', true, 90, 91, 'serializes')).toMatchObject({ kind: 'count', ok: false })
+    expect(judgeClubRowCount({ file: 'x.rsc', countTextMatched: true, rowCount: 91, expectedRowCount: 91, verb: 'serializes' })).toMatchObject({ kind: 'count', ok: true })
+    expect(judgeClubRowCount({ file: 'x.rsc', countTextMatched: true, rowCount: 90, expectedRowCount: 91, verb: 'serializes' })).toMatchObject({ kind: 'count', ok: false })
   })
 })
