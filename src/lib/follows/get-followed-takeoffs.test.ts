@@ -23,7 +23,7 @@ afterAll(async () => {
 
 async function createUserFollowing(takeoffs: { countryId: number; takeoffId: number }[]): Promise<string> {
   const userId = await createTestUser(testDatabase.client)
-  for (const takeoff of takeoffs) await followTakeoff(testDatabase.db, { userId, ...takeoff })
+  for (const takeoff of takeoffs) await followTakeoff(testDatabase.db, { userId, name: null, ...takeoff })
   return userId
 }
 

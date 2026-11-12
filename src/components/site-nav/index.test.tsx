@@ -12,21 +12,22 @@ vi.mock('./auth-status', () => ({ default: () => null }))
 vi.mock('./upstream-status-dot', () => ({ default: () => <span data-testid="upstream-status-dot-stub" /> }))
 
 describe('SiteNav', () => {
-  it('links to the flight feed, pilot search, and country index, regardless of any other page state', () => {
+  it('links to the flight feed, pilot search, country index, and followed list, regardless of any other page state', () => {
     render(<SiteNav />)
 
     // Search must be reachable from every page, not just a state that stops rendering once
-    // the user follows anyone — see the doc comment on NAV_LINKS. Asserting all three links
+    // the user follows anyone — see the doc comment on NAV_LINKS. Asserting all four links
     // exist unconditionally (SiteNav takes no props) is what that guarantee actually rests on.
     expect(screen.getByRole('link', { name: 'Flights' }).getAttribute('href')).toBe('/')
     expect(screen.getByRole('link', { name: 'Find a pilot' }).getAttribute('href')).toBe('/pilots/search')
     expect(screen.getByRole('link', { name: 'Countries' }).getAttribute('href')).toBe('/countries')
+    expect(screen.getByRole('link', { name: 'Following' }).getAttribute('href')).toBe('/following')
   })
 
   it('gives each nav link a leading icon, plus the theme toggle icon', () => {
     const { container } = render(<SiteNav />)
 
-    expect(container.querySelectorAll('svg').length).toBe(4)
+    expect(container.querySelectorAll('svg').length).toBe(5)
   })
 
   it('renders the status dot between the theme toggle and the auth status', () => {
@@ -48,7 +49,7 @@ describe('SiteNav', () => {
   it('keeps each label as sr-only text below sm: and visible from sm: up, never wrapping', () => {
     render(<SiteNav />)
 
-    for (const name of ['Flights', 'Find a pilot', 'Countries']) {
+    for (const name of ['Flights', 'Find a pilot', 'Countries', 'Following']) {
       const link = screen.getByRole('link', { name })
       expect(link.className).toContain('whitespace-nowrap')
       const label = screen.getByText(name)

@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Globe, Route, Search } from 'lucide-react'
+import { Globe, Heart, Route, Search } from 'lucide-react'
 import AuthStatus from './auth-status'
 import ThemeToggle from './theme-toggle'
 import UpstreamStatusDot from './upstream-status-dot'
@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: '/', label: 'Flights', Icon: Route },
   { href: '/pilots/search', label: 'Find a pilot', Icon: Search },
   { href: '/countries', label: 'Countries', Icon: Globe },
+  { href: '/following', label: 'Following', Icon: Heart },
 ] as const
 
 export default function SiteNav() {

@@ -1,11 +1,7 @@
 import 'server-only'
 import { cacheLife, cacheTag } from 'next/cache'
-import { fetchFlightlogText, FLIGHTLOG_ORIGIN } from './http'
-import { ENGLISH } from './config'
-import { parseFlights, parsePilot } from './parse-flights'
+import { fetchPilotPage } from './fetch-pilot-page'
 import type { Flight, Pilot } from './types'
-
-const PILOT_PAGE = 28
 
 export async function getPilotLogbook(
   userId: number,
@@ -14,10 +10,5 @@ export async function getPilotLogbook(
   cacheLife('hours')
   cacheTag(`pilot-${userId}`)
 
-  const html = await fetchFlightlogText(
-    `/fl.html?l=${ENGLISH}&a=${PILOT_PAGE}&user_id=${userId}`,
-    { referer: FLIGHTLOG_ORIGIN },
-  )
-
-  return { pilot: parsePilot(html, userId), flights: parseFlights(html, userId) }
+  return fetchPilotPage(userId)
 }
