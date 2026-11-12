@@ -1,11 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, type ReactElement } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { useFlightFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { DiscoveryLinks } from './components/discovery-links'
 import { FeedEntryRow } from './components/feed-entry-row'
+import { FeedSourceToggle, type FeedSourceMode } from './components/feed-source-toggle'
 import {
   countNewEntries,
   selectFeedPilotIds,
@@ -18,6 +19,29 @@ import { followedPilotIdsOf, followedTakeoffsOf, type ViewerFollowState } from '
 import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 import { Callout } from '@/components/callout'
 import { EmptyState } from '@/components/empty-state'
+
+const SHOW_PARAM = 'show'
+
+function parseShowMode(value: string | null): FeedSourceMode {
+  return value === 'pilots' || value === 'takeoffs' ? value : 'both'
+}
+
+// Read once, as the mode's useState initialiser, not server-side: the feed is client-fetched, so
+// only the toggle's pressed state and the summary line can differ from the server render, the
+// same trade as ?wind= in browse-country-takeoffs.
+function readShowModeFromUrl(): FeedSourceMode {
+  if (typeof window === 'undefined') return 'both'
+  return parseShowMode(new URL(window.location.href).searchParams.get(SHOW_PARAM))
+}
+
+// replaceState, not pushState: picking a source is a filter edit, not a page to step back through.
+function syncShowModeToUrl(mode: FeedSourceMode): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (mode === 'both') url.searchParams.delete(SHOW_PARAM)
+  else url.searchParams.set(SHOW_PARAM, mode)
+  window.history.replaceState(null, '', url)
+}
 
 // follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
 // the very first render, unlike the old localStorage-backed version, which had to render a
@@ -56,10 +80,24 @@ export function FlightFeedView({
     pruneSeenTripIdsToFollowedPilots(followedIds)
   }, [followedIds])
 
+  const [savedMode, setSavedMode] = useState<FeedSourceMode>(readShowModeFromUrl)
+  // The toggle only exists when there are two kinds to choose between; a saved mode for a kind
+  // the viewer no longer follows would otherwise empty the feed with no control to undo it.
+  const canToggle = (followedPilotIdsOf(follows)?.length ?? 0) > 0 && (followedTakeoffsOf(follows)?.length ?? 0) > 0
+  const mode = canToggle ? savedMode : 'both'
+
+  function changeMode(next: FeedSourceMode) {
+    setSavedMode(next)
+    syncShowModeToUrl(next)
+  }
+
   return (
     <section className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-      <FeedBody follows={follows} defaultPilotId={defaultPilotId} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
+        {canToggle && <FeedSourceToggle mode={mode} onChange={changeMode} />}
+      </div>
+      <FeedBody follows={follows} mode={mode} defaultPilotId={defaultPilotId} />
     </section>
   )
 }
@@ -71,14 +109,22 @@ export function FlightFeedView({
 // there (their own declared, non-undefined return type leaves no case free to fall through),
 // which is what makes this function's own explicit return type below a real, checked guarantee
 // rather than a comment. Both return null for exactly the same status.
-function FeedBody({ follows, defaultPilotId }: { follows: ViewerFollowState; defaultPilotId: number }): ReactElement {
+function FeedBody({
+  follows,
+  mode,
+  defaultPilotId,
+}: {
+  follows: ViewerFollowState
+  mode: FeedSourceMode
+  defaultPilotId: number
+}): ReactElement {
   const followedPilotIds = followedPilotIdsOf(follows)
   const followedTakeoffs = followedTakeoffsOf(follows)
   if (followedPilotIds === null || followedTakeoffs === null) return <FollowsUnavailableNotice />
   return (
     <FollowedSourcesFeed
-      followedPilotIds={followedPilotIds}
-      followedTakeoffs={followedTakeoffs}
+      followedPilotIds={mode === 'takeoffs' ? [] : followedPilotIds}
+      followedTakeoffs={mode === 'pilots' ? [] : followedTakeoffs}
       defaultPilotId={defaultPilotId}
     />
   )
