@@ -18,8 +18,8 @@ export type ViewerFollowState =
   | { status: 'follows-unavailable' }
 
 // The single status → follow-list mapping, shared by every caller that used to hand-roll it
-// separately (the flight feed's own prune effect, its FeedBody render switch, and
-// toFollowButtonState below) — three independent copies of this mapping drifting out of sync on
+// separately (the flight feed's own prune effect, its follow-list derivation, and
+// toFollowButtonState below) — independent copies of this mapping drifting out of sync on
 // which status has no safe list to act on is exactly how the seen-trip prune ran against an
 // empty stand-in for 'follows-unavailable' in the first place (#155 follow-up). null is reserved
 // for 'follows-unavailable', the one status with no real list to hand back — not even an empty
