@@ -7,7 +7,7 @@ export type OwnPilotIdState = { kind: 'loading' } | { kind: 'loaded'; pilotId: n
 
 // Read after mount, from a route handler, so the root layout this nav sits in stays prerendered.
 // The route answers for the session's own user; userId only re-runs the lookup when the signed-in
-// user changes. Only ever called once AuthStatus has resolved to 'signed-in'.
+// user changes. Only ever called once OwnFlightsNavItem has resolved to 'signed-in'.
 export function useOwnPilotId(userId: string): OwnPilotIdState {
   const [state, setState] = useState<OwnPilotIdState>({ kind: 'loading' })
 

@@ -1,12 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import type { ReactNode } from 'react'
-import { LogIn, LogOut, PlaneTakeoff, TriangleAlert, User, type LucideIcon } from 'lucide-react'
+import { LogIn, LogOut, User } from 'lucide-react'
 import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
 import { VerificationStamp } from '@/components/verification-stamp'
 import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
-import { useOwnPilotId } from './use-own-pilot-id'
 import { useIsOwnVerified } from './use-own-verification'
 
 // Applied to the icon and email, never to the link: opacity on the <a> would also dim the stamp inside it.
@@ -33,20 +31,19 @@ export default function AuthStatus() {
   return <SignedInStatus key={state.userId} email={state.email} userId={state.userId} />
 }
 
-// Split out from the branch above so useOwnPilotId and useIsOwnVerified (which need a userId) are only ever called
+// Split out from the branch above so useIsOwnVerified (which needs a userId) is only ever called
 // once state has actually narrowed to 'signed-in' — hooks can't be called conditionally in the
 // branch itself. Mirrors features/account/index.tsx's own SignedInAccountForm split exactly.
 function SignedInStatus({ userId, email }: { userId: string; email: string }) {
-  const ownPilotId = useOwnPilotId(userId)
   const isVerified = useIsOwnVerified(userId)
 
   return (
     <div className="flex shrink-0 items-center gap-3">
-      <OwnFlightsLink ownPilotId={ownPilotId} />
-      <NavIconLink href="/account" icon={User} iconClassName={MUTED_CLASSES}>
+      <Link className={NAV_ICON_ROW_CLASSES} href="/account">
+        <User aria-hidden="true" className={MUTED_CLASSES} size={14} />
         <span className={`${NAV_LABEL_CLASSES} ${MUTED_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
         {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
-      </NavIconLink>
+      </Link>
       <form action="/api/auth/sign-out" method="post">
         <button className={NAV_ICON_ROW_CLASSES} type="submit">
           <LogOut aria-hidden="true" size={14} />
@@ -54,45 +51,5 @@ function SignedInStatus({ userId, email }: { userId: string; email: string }) {
         </button>
       </form>
     </div>
-  )
-}
-
-// A failed pilot-id lookup must still reach the user rather than degrading identically to "no
-// pilot linked" (silently omitting both looks the same to a reader of the rendered nav) — see
-// use-own-pilot-id.ts's own 'error' state, which this is the only caller of.
-function OwnFlightsLink({ ownPilotId }: { ownPilotId: ReturnType<typeof useOwnPilotId> }) {
-  if (ownPilotId.kind === 'error') {
-    return (
-      <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-500" title="Could not load your pilot id">
-        <TriangleAlert aria-hidden="true" size={14} />
-      </span>
-    )
-  }
-
-  if (ownPilotId.kind !== 'loaded' || ownPilotId.pilotId == null) return null
-
-  return (
-    <NavIconLink href={`/pilots/${ownPilotId.pilotId}`} icon={PlaneTakeoff}>
-      <span className={NAV_LABEL_CLASSES}>My flights</span>
-    </NavIconLink>
-  )
-}
-
-function NavIconLink({
-  href,
-  icon: Icon,
-  iconClassName,
-  children,
-}: {
-  href: string
-  icon: LucideIcon
-  iconClassName?: string
-  children: ReactNode
-}) {
-  return (
-    <Link className={NAV_ICON_ROW_CLASSES} href={href}>
-      <Icon aria-hidden="true" className={iconClassName} size={14} />
-      {children}
-    </Link>
   )
 }
