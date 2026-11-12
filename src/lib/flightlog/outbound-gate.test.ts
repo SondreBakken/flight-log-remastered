@@ -24,13 +24,13 @@ afterEach(() => {
 
 describe('gatedFetch recording', () => {
   it.each([
-    ['a 200', () => Promise.resolve(new Response('ok', { status: 200 })), false],
-    ['a 302', () => Promise.resolve(new Response('', { status: 302 })), false],
-    ['a 404', () => Promise.resolve(new Response('', { status: 404 })), false],
-    ['a 500', () => Promise.resolve(new Response('', { status: 500 })), true],
-    ['a 503', () => Promise.resolve(new Response('', { status: 503 })), true],
-    ['a network error', () => Promise.reject(new TypeError('fetch failed')), true],
-  ])('records %s with failed=%s', async (_name, impl, failed) => {
+    { name: 'a 200', impl: () => Promise.resolve(new Response('ok', { status: 200 })), failed: false },
+    { name: 'a 302', impl: () => Promise.resolve(new Response('', { status: 302 })), failed: false },
+    { name: 'a 404', impl: () => Promise.resolve(new Response('', { status: 404 })), failed: false },
+    { name: 'a 500', impl: () => Promise.resolve(new Response('', { status: 500 })), failed: true },
+    { name: 'a 503', impl: () => Promise.resolve(new Response('', { status: 503 })), failed: true },
+    { name: 'a network error', impl: () => Promise.reject(new TypeError('fetch failed')), failed: true },
+  ])('records $name with failed=$failed', async ({ impl, failed }) => {
     stubFetch(impl)
     const recorder = vi.fn<(entry: UpstreamEntry) => void>()
 
