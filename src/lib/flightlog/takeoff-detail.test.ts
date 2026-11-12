@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 
-// Same reasoning as takeoffs.test.ts/clubs.test.ts: mock 'server-only', next/cache, http.ts
+// Same reasoning as takeoffs.test.ts/clubs.test.ts: mock 'server-only', next/cache, http-core.ts
 // and parse-takeoff-detail.ts so this test exercises only takeoff-detail.ts's own contract —
 // the request shape, referer, and cache tag — not the parser or the network.
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ cacheLife: vi.fn(), cacheTag: vi.fn() }))
-vi.mock('./http', () => ({
+vi.mock('./http-core', () => ({
   fetchFlightlogText: vi.fn(),
   FLIGHTLOG_ORIGIN: 'https://flightlog.org',
 }))
 vi.mock('./parse-takeoff-detail', () => ({ parseTakeoffDetail: vi.fn() }))
 
 import { cacheLife, cacheTag } from 'next/cache'
-import { fetchFlightlogText } from './http'
+import { fetchFlightlogText } from './http-core'
 import { parseTakeoffDetail } from './parse-takeoff-detail'
 import { getTakeoffDetail } from './takeoff-detail'
 

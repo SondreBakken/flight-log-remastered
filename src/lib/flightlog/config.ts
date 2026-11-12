@@ -4,10 +4,7 @@
 // real env var. 'server-only' turns that mistake into a build/dev-time error instead.
 import 'server-only'
 
-// flightlog.org's `l=` language parameter — this app only ever requests English. Declared once
-// here rather than in each of the five fetchers that build a request URL, so the five copies
-// can't drift apart.
-export const ENGLISH = 1
+export { ENGLISH } from './language'
 
 const FALLBACK_PILOT_ID = 12677
 
