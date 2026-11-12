@@ -5,8 +5,9 @@ import SiteNav from './index'
 // AuthStatus has its own colocated test (auth-status.test.tsx) covering its signed-in/signed-out
 // states. Stubbing it out here keeps this test focused on what it already promises in its name
 // — the nav links render regardless of other page state — without also having to stand up a
-// signed-in user mock this test has no other use for.
-vi.mock('./auth-status', () => ({ default: () => null }))
+// signed-in user mock this test has no other use for. The testid stub marks its position so
+// the dot-ordering test can assert against it.
+vi.mock('./auth-status', () => ({ default: () => <span data-testid="auth-status-stub" /> }))
 
 // The dot has its own colocated test; mocked so it adds no SVG and no fetch here.
 vi.mock('./upstream-status-dot', () => ({ default: () => <span data-testid="upstream-status-dot-stub" /> }))
@@ -35,7 +36,9 @@ describe('SiteNav', () => {
 
     const toggle = screen.getByRole('button', { name: /theme/i })
     const dot = screen.getByTestId('upstream-status-dot-stub')
+    const authStatus = screen.getByTestId('auth-status-stub')
     expect(toggle.compareDocumentPosition(dot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(dot.compareDocumentPosition(authStatus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('uses the Route icon for Flights, not Plane', () => {
