@@ -3,20 +3,32 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { UserCheck, UserPlus } from 'lucide-react'
-import { FOLLOW_BUTTON_SIZE_CLASSES, getFollowButtonPresentation } from './presentation'
+import { FOLLOW_BUTTON_SIZE_CLASSES, getFollowButtonPresentation, type FollowButtonVariant } from './presentation'
 import { followTakeoffAction, unfollowTakeoffAction } from './actions'
 import type { TakeoffRef } from '@/lib/flightlog/types'
 
 type TakeoffFollowButtonProps = TakeoffRef & {
-  // Resolved once server-side per page (see toTakeoffFollowButtonState); this component's
-  // only own state is the optimistic flip, seeded from isFollowed.
+  // The state at first render: resolved server-side on the detail page (see
+  // toTakeoffFollowButtonState), read from the list's shared followed set in the country list.
+  // This component's only own state is the flip after a successful action, seeded from isFollowed.
   isFollowed: boolean
   isSignedIn: boolean
+  variant?: FollowButtonVariant
+  // Called with the new state after a successful action, never on an error, so a parent holding
+  // the followed set can stay in step.
+  onChange?: (followed: boolean) => void
 }
 
 // Unlike the pilot FollowButton, unfollowing clears no localStorage state: the watermark and
 // seen-trip stores are pilot-keyed, and site-sourced feed rows never write to them.
-export function TakeoffFollowButton({ countryId, takeoffId, isFollowed, isSignedIn }: TakeoffFollowButtonProps) {
+export function TakeoffFollowButton({
+  countryId,
+  takeoffId,
+  isFollowed,
+  isSignedIn,
+  variant = 'prominent',
+  onChange,
+}: TakeoffFollowButtonProps) {
   const [followed, setFollowed] = useState(isFollowed)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -44,10 +56,11 @@ export function TakeoffFollowButton({ countryId, takeoffId, isFollowed, isSigned
         return
       }
       setFollowed(nextFollowed)
+      onChange?.(nextFollowed)
     })
   }
 
-  const presentation = getFollowButtonPresentation({ isFollowed: followed, variant: 'prominent' })
+  const presentation = getFollowButtonPresentation({ isFollowed: followed, variant })
   const FollowIcon = followed ? UserCheck : UserPlus
 
   return (

@@ -5,6 +5,14 @@ import { MAX_RENDERED_RESULTS, type RegionOption } from './select-visible-takeof
 import * as selectVisibleTakeoffsModule from './select-visible-takeoffs'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 
+const mockFollowTakeoffAction = vi.fn()
+const mockUnfollowTakeoffAction = vi.fn()
+
+vi.mock('@/components/follow-button/actions', () => ({
+  followTakeoffAction: (...args: unknown[]) => mockFollowTakeoffAction(...args),
+  unfollowTakeoffAction: (...args: unknown[]) => mockUnfollowTakeoffAction(...args),
+}))
+
 // The real TakeoffsMap constructs an actual maplibre-gl MapLibreMap against a canvas — jsdom
 // has no WebGL context, the same reason track-map.tsx has no unit test of its own (see
 // scripts/verify-*.mts instead). Stubbed here so this suite can assert the SWITCH into map
@@ -26,15 +34,33 @@ vi.mock('@/components/takeoffs-map', async (importOriginal) => {
 // Stubs the real network boundary (global fetch), not the hook — mocking the hook would let a
 // default export that never calls it, and instead returns a hardcoded state, pass this suite
 // unnoticed. Same reasoning #38's review already established for this component's ancestor.
-function stubFetch(rows: unknown[]): void {
+// Answers by URL, since the directory now makes two requests: the takeoff rows and the viewer's
+// followed takeoffs. The follows route answers signed-out unless a test says otherwise, so the
+// tests that are not about follows see no follow control.
+type FollowsAnswer = { status: number; body: unknown } | 'network-error' | 'never-settles'
+
+const SIGNED_OUT: FollowsAnswer = { status: 401, body: { error: 'signed-out' } }
+const FOLLOWS_URL = '/api/follows/takeoffs'
+
+function answerFollows(answer: FollowsAnswer): Promise<unknown> {
+  if (answer === 'network-error') return Promise.reject(new TypeError('offline'))
+  if (answer === 'never-settles') return new Promise(() => {})
+  return Promise.resolve({ ok: answer.status < 300, status: answer.status, json: () => Promise.resolve(answer.body) })
+}
+
+function stubFetch(rows: unknown[], follows: FollowsAnswer = SIGNED_OUT): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve(rows),
-    }),
+    vi.fn((url: string) =>
+      url === FOLLOWS_URL
+        ? answerFollows(follows)
+        : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(rows) }),
+    ),
   )
+}
+
+function followsCallCount(): number {
+  return vi.mocked(fetch).mock.calls.filter(([url]) => url === FOLLOWS_URL).length
 }
 
 // Builds a wire-shaped TakeoffRow tuple (see contract.ts's own field order) with realistic
@@ -722,5 +748,127 @@ describe('TakeoffDirectory — #10 map view toggle', () => {
 
     const label = screen.getByText('Sort by distance from me').closest('label')
     expect(label?.querySelector('svg')).toBeTruthy()
+  })
+})
+
+describe('TakeoffDirectory — follow buttons', () => {
+  const COUNTRY_ID = 160
+  const followedAnswer = (takeoffs: unknown[]): FollowsAnswer => ({ status: 200, body: { takeoffs } })
+
+  function renderDirectory() {
+    return render(<TakeoffDirectory countryId={COUNTRY_ID} countryName="Norway" regions={REGIONS} />)
+  }
+
+  function rowOf(name: string): HTMLElement {
+    const row = screen.getByText(name).closest('li')
+    if (row === null) throw new Error(`no row for ${name}`)
+    return row
+  }
+
+  it('shows Following on a followed row and Follow on the others, compact, on first appearance', async () => {
+    stubFetch(
+      [makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1), makeRow(3, 'Gamma', 1)],
+      // Takeoff 3 followed in ANOTHER country: ids repeat across countries, so it must not count.
+      followedAnswer([{ countryId: COUNTRY_ID, takeoffId: 1 }, { countryId: 203, takeoffId: 3 }]),
+    )
+
+    renderDirectory()
+
+    const alpha = await within(await findRow('Alpha')).findByRole('button', { name: 'Following' })
+    expect(alpha.getAttribute('aria-pressed')).toBe('true')
+    expect(alpha.className).toContain('px-2 py-0.5 text-xs')
+    const beta = within(rowOf('Beta')).getByRole('button', { name: 'Follow' })
+    expect(beta.getAttribute('aria-pressed')).toBe('false')
+    expect(within(rowOf('Gamma')).getByRole('button', { name: 'Follow' })).toBeTruthy()
+  })
+
+  async function findRow(name: string): Promise<HTMLElement> {
+    await screen.findByText(name)
+    await waitFor(() => expect(within(rowOf(name)).queryByRole('button')).not.toBeNull())
+    return rowOf(name)
+  }
+
+  it('requests the follows route once, whatever the row count, filter changes or view toggle', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1), makeRow(3, 'Gamma', 1)], followedAnswer([]))
+
+    renderDirectory()
+    await findRow('Alpha')
+    fireEvent.change(screen.getByRole('textbox', { name: /takeoff name/i }), { target: { value: 'a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Map' }))
+    await screen.findByTestId('stub-takeoffs-map')
+    fireEvent.click(screen.getByRole('button', { name: 'List' }))
+    await screen.findByText('Alpha')
+
+    expect(followsCallCount()).toBe(1)
+  })
+
+  it.each<[string, FollowsAnswer]>([
+    ['signed out (401)', SIGNED_OUT],
+    ['loading', 'never-settles'],
+    ['a 503', { status: 503, body: { error: 'follows-unavailable' } }],
+    ['a network error', 'network-error'],
+  ])('renders the list with no follow control and no sign-in link when %s', async (_label, answer) => {
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)], answer)
+
+    renderDirectory()
+    await screen.findByText('Alpha')
+    // Let the follows request settle (or not) before asserting the absence.
+    await waitFor(() => expect(followsCallCount()).toBe(1))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(screen.queryByRole('button', { name: /^follow/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Following' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /sign in to follow/i })).toBeNull()
+    expect(screen.getByText('Beta')).toBeTruthy()
+  })
+
+  it('keeps a followed row followed after a filter unmounts and remounts it', async () => {
+    mockFollowTakeoffAction.mockResolvedValue({ status: 'success' })
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)], followedAnswer([]))
+
+    renderDirectory()
+    fireEvent.click(within(await findRow('Alpha')).getByRole('button', { name: 'Follow' }))
+    await within(rowOf('Alpha')).findByRole('button', { name: 'Following' })
+    expect(mockFollowTakeoffAction).toHaveBeenCalledWith({ countryId: COUNTRY_ID, takeoffId: 1 })
+
+    const filter = screen.getByRole('textbox', { name: /takeoff name/i })
+    fireEvent.change(filter, { target: { value: 'beta' } })
+    await waitFor(() => expect(screen.queryByText('Alpha')).toBeNull())
+    fireEvent.change(filter, { target: { value: '' } })
+
+    expect(await within(await findRow('Alpha')).findByRole('button', { name: 'Following' })).toBeTruthy()
+    expect(within(rowOf('Beta')).getByRole('button', { name: 'Follow' })).toBeTruthy()
+  })
+
+  it('keeps an unfollowed row unfollowed after a remount', async () => {
+    mockUnfollowTakeoffAction.mockResolvedValue({ status: 'success' })
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)], followedAnswer([{ countryId: COUNTRY_ID, takeoffId: 1 }]))
+
+    renderDirectory()
+    fireEvent.click(within(await findRow('Alpha')).getByRole('button', { name: 'Following' }))
+    await within(rowOf('Alpha')).findByRole('button', { name: 'Follow' })
+
+    const filter = screen.getByRole('textbox', { name: /takeoff name/i })
+    fireEvent.change(filter, { target: { value: 'beta' } })
+    await waitFor(() => expect(screen.queryByText('Alpha')).toBeNull())
+    fireEvent.change(filter, { target: { value: '' } })
+
+    expect(await within(await findRow('Alpha')).findByRole('button', { name: 'Follow' })).toBeTruthy()
+  })
+
+  it('leaves the followed set unchanged when the action fails', async () => {
+    mockFollowTakeoffAction.mockResolvedValue({ status: 'error', message: 'nope' })
+    stubFetch([makeRow(1, 'Alpha', 1), makeRow(2, 'Beta', 1)], followedAnswer([]))
+
+    renderDirectory()
+    fireEvent.click(within(await findRow('Alpha')).getByRole('button', { name: 'Follow' }))
+    await screen.findByText('nope')
+
+    const filter = screen.getByRole('textbox', { name: /takeoff name/i })
+    fireEvent.change(filter, { target: { value: 'beta' } })
+    await waitFor(() => expect(screen.queryByText('Alpha')).toBeNull())
+    fireEvent.change(filter, { target: { value: '' } })
+
+    expect(await within(await findRow('Alpha')).findByRole('button', { name: 'Follow' })).toBeTruthy()
   })
 })
