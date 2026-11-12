@@ -486,11 +486,14 @@ function TakeoffRow({
       <Link className="underline underline-offset-2" href={`/countries/${countryId}/takeoffs/${takeoff.takeoffId}`}>
         {takeoff.name}
       </Link>
-      <span className="flex gap-3 opacity-70">
-        {takeoff.distanceMetres !== null && <span>{formatDistanceKm(takeoff.distanceMetres)}</span>}
-        <span>{regionName}</span>
+      <span className="flex gap-3">
+        <span className="flex gap-3 opacity-70">
+          {takeoff.distanceMetres !== null && <span>{formatDistanceKm(takeoff.distanceMetres)}</span>}
+          <span>{regionName}</span>
+        </span>
         {/* Only a known follow state gets a control: signed out, loading and failed reads show
-            none, so a row is never drawn with a default state that the request then flips. */}
+            none, so a row is never drawn with a default state that the request then flips.
+            Outside the dimmed span so the button and its error text stay at full opacity. */}
         {follow.kind === 'signed-in' && (
           <TakeoffFollowButton
             countryId={countryId}
