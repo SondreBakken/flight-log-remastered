@@ -52,7 +52,7 @@ function stubDependencies(pilot: Pilot) {
   mockedResolvePilotVerified.mockResolvedValue(false)
 }
 
-const VERIFIED_LABEL = 'Has an account on Flight Log Remastered'
+const VERIFIED_LABEL = 'Has an account on Flightlog Social'
 
 describe('Logbook', () => {
   // #239: a syntactically valid but nonexistent pilot id (e.g. a large unallocated one) flowed

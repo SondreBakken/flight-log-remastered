@@ -131,7 +131,7 @@ describe('PilotLogbook header', () => {
 })
 
 describe('PilotLogbook verified-account icon', () => {
-  const VERIFIED_LABEL = 'Has an account on Flight Log Remastered'
+  const VERIFIED_LABEL = 'Has an account on Flightlog Social'
 
   function renderLogbook(isVerified: boolean) {
     render(
