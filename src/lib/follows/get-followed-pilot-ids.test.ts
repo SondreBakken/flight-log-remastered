@@ -23,7 +23,7 @@ afterAll(async () => {
 
 async function createUserFollowing(pilotIds: number[]): Promise<string> {
   const userId = await createTestUser(testDatabase.client)
-  for (const pilotId of pilotIds) await followPilot(testDatabase.db, { userId, pilotId })
+  for (const pilotId of pilotIds) await followPilot(testDatabase.db, { userId, pilotId, name: null })
   return userId
 }
 

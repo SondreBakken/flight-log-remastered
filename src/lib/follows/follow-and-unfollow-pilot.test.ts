@@ -32,15 +32,38 @@ describe('followPilot', () => {
   it('inserts the follow as the given user only', async () => {
     const userId = await createTestUser(testDatabase.client)
 
-    expect(await followPilot(testDatabase.db, { userId, pilotId: 7001 })).toEqual({ kind: 'followed' })
+    expect(await followPilot(testDatabase.db, { userId, pilotId: 7001, name: null })).toEqual({ kind: 'followed' })
     expect(await findFollowerIds(7001)).toEqual([userId])
+  })
+
+  it('stores the given name, and a re-follow keeps the stored name', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await followPilot(testDatabase.db, { userId, pilotId: 7007, name: 'Ada Pilot' })
+    await followPilot(testDatabase.db, { userId, pilotId: 7007, name: 'Other Name' })
+
+    const { rows } = await testDatabase.client.query<{ name: string | null }>(
+      'select name from follows where user_id = $1 and pilot_id = 7007',
+      [userId],
+    )
+    expect(rows).toEqual([{ name: 'Ada Pilot' }])
+  })
+
+  it('stores a null name when none was found', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await followPilot(testDatabase.db, { userId, pilotId: 7008, name: null })
+
+    const { rows } = await testDatabase.client.query<{ name: string | null }>(
+      'select name from follows where user_id = $1 and pilot_id = 7008',
+      [userId],
+    )
+    expect(rows).toEqual([{ name: null }])
   })
 
   it('treats following an already-followed pilot as success, keeping one row', async () => {
     const userId = await createTestUser(testDatabase.client)
-    await followPilot(testDatabase.db, { userId, pilotId: 7002 })
+    await followPilot(testDatabase.db, { userId, pilotId: 7002, name: null })
 
-    expect(await followPilot(testDatabase.db, { userId, pilotId: 7002 })).toEqual({ kind: 'followed' })
+    expect(await followPilot(testDatabase.db, { userId, pilotId: 7002, name: null })).toEqual({ kind: 'followed' })
     expect(await findFollowerIds(7002)).toEqual([userId])
   })
 
@@ -48,7 +71,7 @@ describe('followPilot', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const unmigrated = createUnmigratedTestDatabase()
 
-    expect(await followPilot(unmigrated.db, { userId: 'user-abc', pilotId: 7003 })).toEqual({
+    expect(await followPilot(unmigrated.db, { userId: 'user-abc', pilotId: 7003, name: null })).toEqual({
       kind: 'db-error',
       message: 'failed to follow this pilot',
     })
@@ -60,8 +83,8 @@ describe('unfollowPilot', () => {
   it("removes the user's own follow and leaves another user's follow of the same pilot", async () => {
     const userId = await createTestUser(testDatabase.client)
     const otherUserId = await createTestUser(testDatabase.client)
-    await followPilot(testDatabase.db, { userId, pilotId: 7004 })
-    await followPilot(testDatabase.db, { userId: otherUserId, pilotId: 7004 })
+    await followPilot(testDatabase.db, { userId, pilotId: 7004, name: null })
+    await followPilot(testDatabase.db, { userId: otherUserId, pilotId: 7004, name: null })
 
     expect(await unfollowPilot(testDatabase.db, { userId, pilotId: 7004 })).toEqual({ kind: 'unfollowed' })
     expect(await findFollowerIds(7004)).toEqual([otherUserId])

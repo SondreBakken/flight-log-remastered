@@ -47,6 +47,7 @@ export const follows = pgTable(
   {
     userId: ownerUserId(),
     pilotId: integer('pilot_id').notNull(),
+    name: text('name'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (table) => [
@@ -61,6 +62,7 @@ export const followedTakeoffs = pgTable(
     userId: ownerUserId(),
     countryId: integer('country_id').notNull(),
     takeoffId: integer('takeoff_id').notNull(),
+    name: text('name'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
   },
   (table) => [

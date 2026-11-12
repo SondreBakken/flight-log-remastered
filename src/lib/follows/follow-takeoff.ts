@@ -4,6 +4,7 @@ import type { TakeoffRef } from '@/lib/flightlog/types'
 
 export type FollowTakeoffInput = TakeoffRef & {
   userId: string
+  name: string | null
 }
 
 export type FollowTakeoffResult = { kind: 'followed' } | { kind: 'db-error'; message: string }
@@ -15,7 +16,7 @@ export async function followTakeoff(db: Database, input: FollowTakeoffInput): Pr
   try {
     await db
       .insert(followedTakeoffs)
-      .values({ userId: input.userId, countryId: input.countryId, takeoffId: input.takeoffId })
+      .values({ userId: input.userId, countryId: input.countryId, takeoffId: input.takeoffId, name: input.name })
       .onConflictDoNothing()
     return { kind: 'followed' }
   } catch (error) {
