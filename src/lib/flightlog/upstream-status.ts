@@ -8,7 +8,9 @@ export type UpstreamEntry = {
   readonly failed: boolean
 }
 
-export type UpstreamState = 'up' | 'slow' | 'down' | 'unknown'
+export const UPSTREAM_STATES = ['up', 'slow', 'down', 'unknown'] as const
+
+export type UpstreamState = (typeof UPSTREAM_STATES)[number]
 
 export type UpstreamStatus = {
   readonly state: UpstreamState
