@@ -6,6 +6,7 @@ import { getFollowedPilots, type FollowedPilot } from '@/lib/follows/get-followe
 import { getFollowedTakeoffRows, type FollowedTakeoffRow } from '@/lib/follows/get-followed-takeoff-rows'
 import { FollowsQueryError } from '@/lib/follows/follows-query-error'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
+import { isFallbackPilot } from '@/lib/flightlog/is-fallback-pilot'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getCountries, countryNameFor } from '@/lib/flightlog/countries'
@@ -120,7 +121,8 @@ function TakeoffRow({ takeoff, countries }: { takeoff: FollowedTakeoffRow; count
 // from a render, the backfill script is what fills old rows.
 async function LookedUpPilotName({ pilotId }: { pilotId: PilotId }) {
   try {
-    return (await getPilotLogbook(pilotId)).pilot.name
+    const { pilot } = await getPilotLogbook(pilotId)
+    return isFallbackPilot(pilotId, pilot) ? String(pilotId) : pilot.name
   } catch {
     return String(pilotId)
   }

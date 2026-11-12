@@ -189,6 +189,14 @@ describe('Following', () => {
       ])
     })
 
+    it('renders the id, not the synthetic fallback name, when the pilot page has no profile', async () => {
+      mockGetPilotLogbook.mockResolvedValue({ pilot: { name: 'Pilot 11', country: null, club: null }, flights: [] })
+
+      const html = await renderPage({ settled: true })
+
+      expect(anchorsIn(html)[0]).toEqual({ href: '/pilots/11', text: '11' })
+    })
+
     it('falls back to the id for a takeoff whose lookup rejects', async () => {
       mockGetTakeoffDetail.mockRejectedValue(new Error('flightlog.org down'))
 

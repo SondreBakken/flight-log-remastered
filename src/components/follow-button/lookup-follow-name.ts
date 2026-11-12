@@ -1,4 +1,5 @@
 import { getPilotLogbook } from '@/lib/flightlog/flights'
+import { isFallbackPilot } from '@/lib/flightlog/is-fallback-pilot'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 
@@ -23,7 +24,11 @@ async function nameOrNull(lookup: () => Promise<string | null>): Promise<string 
 }
 
 export function lookupPilotName(pilotId: PilotId): Promise<string | null> {
-  return nameOrNull(async () => (await getPilotLogbook(pilotId)).pilot.name)
+  // The synthetic fallback name (profile missing or unreadable) is not a name: store null.
+  return nameOrNull(async () => {
+    const { pilot } = await getPilotLogbook(pilotId)
+    return isFallbackPilot(pilotId, pilot) ? null : pilot.name
+  })
 }
 
 export function lookupTakeoffName(takeoff: TakeoffRef): Promise<string | null> {

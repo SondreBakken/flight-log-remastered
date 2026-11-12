@@ -120,6 +120,16 @@ describe('followPilotAction', () => {
       expect(mockFollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 900024, name: null })
     })
 
+    it('stores a null name when the pilot page degrades to the synthetic fallback profile', async () => {
+      mockGetPilotLogbook.mockResolvedValue({
+        pilot: { name: 'Pilot 900024', country: null, club: null },
+        flights: [],
+      })
+
+      expect(await followPilotAction(900024)).toEqual({ status: 'success' })
+      expect(mockFollowPilot).toHaveBeenCalledWith(expect.anything(), { userId: 'user-abc', pilotId: 900024, name: null })
+    })
+
     it('still follows with a null name when the lookup outlasts the timeout', async () => {
       vi.useFakeTimers()
       mockGetPilotLogbook.mockReturnValue(new Promise(() => {}))
