@@ -20,10 +20,10 @@ describe('SiteNav', () => {
     expect(screen.getByRole('link', { name: 'Countries' }).getAttribute('href')).toBe('/countries')
   })
 
-  it('gives each nav link a leading icon', () => {
+  it('gives each nav link a leading icon, plus the theme toggle icon', () => {
     const { container } = render(<SiteNav />)
 
-    expect(container.querySelectorAll('svg').length).toBe(3)
+    expect(container.querySelectorAll('svg').length).toBe(4)
   })
 
   it('uses the Route icon for Flights, not Plane', () => {
