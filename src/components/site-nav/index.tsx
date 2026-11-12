@@ -19,10 +19,10 @@ const NAV_LINKS = [
   { href: '/following', label: 'Following', Icon: Heart },
 ] as const
 
-const [FLIGHTS_LINK, ...OTHER_LINKS] = NAV_LINKS
-
 // OwnFlightsNavItem is slotted right after Flights: it is a client component (it needs the session),
 // so it cannot be a NAV_LINKS entry in this server component.
+const [FLIGHTS_LINK, ...OTHER_LINKS] = NAV_LINKS
+
 function NavListItem({ link: { href, label, Icon } }: { link: (typeof NAV_LINKS)[number] }) {
   return (
     <li>

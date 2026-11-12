@@ -4,10 +4,8 @@ import type { SignedInUserState } from '@/lib/auth/use-signed-in-user'
 import SiteNav from './index'
 
 // AuthStatus has its own colocated test (auth-status.test.tsx) covering its signed-in/signed-out
-// states. Stubbing it out here keeps this test focused on what it already promises in its name
-// — the nav links render regardless of other page state — without also having to stand up a
-// signed-in user mock this test has no other use for. The testid stub marks its position so
-// the dot-ordering test can assert against it.
+// states, so it is stubbed here. The testid stub marks its position so the dot-ordering test can
+// assert against it.
 vi.mock('./auth-status', () => ({ default: () => <span data-testid="auth-status-stub" /> }))
 
 // The dot has its own colocated test; mocked so it adds no SVG and no fetch here.

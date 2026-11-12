@@ -1,8 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import type { ReactNode } from 'react'
-import { LogIn, LogOut, User, type LucideIcon } from 'lucide-react'
+import { LogIn, LogOut, User } from 'lucide-react'
 import { useSignedInUser } from '@/lib/auth/use-signed-in-user'
 import { VerificationStamp } from '@/components/verification-stamp'
 import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
@@ -40,10 +39,11 @@ function SignedInStatus({ userId, email }: { userId: string; email: string }) {
 
   return (
     <div className="flex shrink-0 items-center gap-3">
-      <NavIconLink href="/account" icon={User} iconClassName={MUTED_CLASSES}>
+      <Link className={NAV_ICON_ROW_CLASSES} href="/account">
+        <User aria-hidden="true" className={MUTED_CLASSES} size={14} />
         <span className={`${NAV_LABEL_CLASSES} ${MUTED_CLASSES} sm:max-w-[16ch] sm:truncate`}>{email}</span>
         {isVerified && <VerificationStamp label="Verified pilot" size={16} />}
-      </NavIconLink>
+      </Link>
       <form action="/api/auth/sign-out" method="post">
         <button className={NAV_ICON_ROW_CLASSES} type="submit">
           <LogOut aria-hidden="true" size={14} />
@@ -51,24 +51,5 @@ function SignedInStatus({ userId, email }: { userId: string; email: string }) {
         </button>
       </form>
     </div>
-  )
-}
-
-function NavIconLink({
-  href,
-  icon: Icon,
-  iconClassName,
-  children,
-}: {
-  href: string
-  icon: LucideIcon
-  iconClassName?: string
-  children: ReactNode
-}) {
-  return (
-    <Link className={NAV_ICON_ROW_CLASSES} href={href}>
-      <Icon aria-hidden="true" className={iconClassName} size={14} />
-      {children}
-    </Link>
   )
 }
