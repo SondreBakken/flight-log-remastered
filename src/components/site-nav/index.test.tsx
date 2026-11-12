@@ -8,6 +8,9 @@ import SiteNav from './index'
 // signed-in user mock this test has no other use for.
 vi.mock('./auth-status', () => ({ default: () => null }))
 
+// The dot has its own colocated test; mocked so it adds no SVG and no fetch here.
+vi.mock('./upstream-status-dot', () => ({ default: () => <span data-testid="upstream-status-dot-stub" /> }))
+
 describe('SiteNav', () => {
   it('links to the flight feed, pilot search, and country index, regardless of any other page state', () => {
     render(<SiteNav />)
@@ -24,6 +27,14 @@ describe('SiteNav', () => {
     const { container } = render(<SiteNav />)
 
     expect(container.querySelectorAll('svg').length).toBe(4)
+  })
+
+  it('renders the status dot between the theme toggle and the auth status', () => {
+    render(<SiteNav />)
+
+    const toggle = screen.getByRole('button', { name: /theme/i })
+    const dot = screen.getByTestId('upstream-status-dot-stub')
+    expect(toggle.compareDocumentPosition(dot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('uses the Route icon for Flights, not Plane', () => {
