@@ -1,5 +1,6 @@
 // Regenerates the raster icons from src/app/icon.svg: favicon.ico (16 and 32px, transparent,
-// PNG-in-ICO) and apple-icon.png (180px on opaque white, since iOS fills transparency with black).
+// PNG-in-ICO) and apple-icon.png (180px on opaque white, since iOS fills transparency with black, with the
+// mark inset 20px on each side so it keeps a white margin like the committed raster).
 // The SVG switches colours on prefers-color-scheme, so the render pins the light scheme.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { chromium, type Browser } from 'playwright'
@@ -9,13 +10,14 @@ const FAVICON_PATH = new URL('../src/app/favicon.ico', import.meta.url)
 const APPLE_ICON_PATH = new URL('../src/app/apple-icon.png', import.meta.url)
 const FAVICON_SIZES = [16, 32]
 const APPLE_ICON_SIZE = 180
+const APPLE_ICON_INSET = 20
 
-async function renderPng(browser: Browser, svg: string, size: number, background: 'white' | 'transparent'): Promise<Buffer> {
+async function renderPng(browser: Browser, svg: string, size: number, background: 'white' | 'transparent', inset = 0): Promise<Buffer> {
   const context = await browser.newContext({ colorScheme: 'light', viewport: { width: size, height: size } })
   try {
     const page = await context.newPage()
     await page.setContent(
-      `<style>html,body{margin:0;background:${background}}svg{display:block;width:${size}px;height:${size}px}</style>${svg}`,
+      `<style>html,body{margin:0;background:${background}}svg{display:block;margin:${inset}px;width:${size - 2 * inset}px;height:${size - 2 * inset}px}</style>${svg}`,
     )
     return await page.screenshot({ omitBackground: background === 'transparent', clip: { x: 0, y: 0, width: size, height: size } })
   } finally {
@@ -49,7 +51,7 @@ try {
   const favicons = []
   for (const size of FAVICON_SIZES) favicons.push({ size, png: await renderPng(browser, svg, size, 'transparent') })
   writeFileSync(FAVICON_PATH, buildIco(favicons))
-  writeFileSync(APPLE_ICON_PATH, await renderPng(browser, svg, APPLE_ICON_SIZE, 'white'))
+  writeFileSync(APPLE_ICON_PATH, await renderPng(browser, svg, APPLE_ICON_SIZE, 'white', APPLE_ICON_INSET))
 } finally {
   await browser.close()
 }
