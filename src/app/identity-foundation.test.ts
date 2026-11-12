@@ -30,12 +30,22 @@ function blockBody(source: string, header: RegExp): string {
 }
 
 const lightRoot = blockBody(css, /^:root\s*\{/m)
-const darkRoot = blockBody(
-  blockBody(css, /@media \(prefers-color-scheme: dark\)\s*\{/),
-  /:root\s*\{/,
-)
+const darkRoot = blockBody(css, /:root\[data-theme="dark"\]\s*\{/)
 const theme = blockBody(css, /@theme inline\s*\{/)
 const base = blockBody(css, /@layer base\s*\{/)
+
+describe('identity foundation: theme switch', () => {
+  it('follows the data-theme attribute, never the OS preference', () => {
+    expect(css).not.toContain('prefers-color-scheme')
+    expect(css).toContain('@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));')
+  })
+
+  it('keeps the root layout cookie-free with a pre-paint head script', () => {
+    expect(layout).not.toMatch(/cookies\(|headers\(/)
+    expect(layout).toContain('suppressHydrationWarning')
+    expect(layout).toContain('__html: THEME_SCRIPT')
+  })
+})
 
 describe('identity foundation: font', () => {
   it('uses Archivo with the width axis and no Geist or Arial', () => {
@@ -118,7 +128,7 @@ describe('identity foundation: base link and focus styles', () => {
 
   it('sets the root title template, default and flightlog.social description', () => {
     expect(layout).toContain(
-      "title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' }",
+      "title: { default: 'Flightlog Social', template: '%s | Flightlog Social' }",
     )
     expect(layout).toContain(
       "description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.'",

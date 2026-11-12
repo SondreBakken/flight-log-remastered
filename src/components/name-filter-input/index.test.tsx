@@ -34,8 +34,8 @@ describe('NameFilterInput', () => {
     expect((container.firstElementChild as HTMLElement).className).toBe('relative')
   })
 
-  it('replaces the wrapper class with a custom className', () => {
-    const { container } = render(<NameFilterInput label="Takeoff name" className="relative flex-1" value="" onChange={() => {}} />)
+  it('appends a custom className after relative', () => {
+    const { container } = render(<NameFilterInput label="Takeoff name" className="flex-1" value="" onChange={() => {}} />)
 
     expect((container.firstElementChild as HTMLElement).className).toBe('relative flex-1')
   })

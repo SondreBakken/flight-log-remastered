@@ -100,7 +100,7 @@ function PilotHeader({
   )
 }
 
-const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flight Log Remastered'
+const VERIFIED_ACCOUNT_LABEL = 'Has an account on Flightlog Social'
 
 function YearTables({
   flights,

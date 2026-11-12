@@ -43,6 +43,22 @@ describe('sendVerificationEmail', () => {
     )
   })
 
+  it('sends from the Flightlog Social default sender, keeping the address, with the new subject, when the env var is unset', async () => {
+    vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', 'true')
+    vi.stubEnv('FLIGHTLOG_VERIFICATION_FROM_ADDRESS', undefined)
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const send = vi.fn().mockResolvedValue({ data: { id: 'email-1' }, error: null })
+
+    await sendVerificationEmail('pilot@example.com', '123456', { send })
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'Flightlog Social <verify@flightlog.app>',
+        subject: 'Your Flightlog Social verification code',
+      }),
+    )
+  })
+
   it('does not call Resend, and logs the code server-side instead, when the flag is off', async () => {
     vi.stubEnv('FLIGHTLOG_VERIFICATION_EMAIL_ENABLED', '')
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})

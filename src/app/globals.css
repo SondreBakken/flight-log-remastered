@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --paper: #FFFFFF;
   --entry: #1B1F1D;
@@ -21,16 +23,14 @@
   --font-sans: var(--font-archivo);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #09090B;
-    --entry: #E8ECEA;
-    --muted: #9AA09C;
-    --form: #8FC2AA;
-    --rule: #2F4A40;
-    --frame: #5E6360;
-    --stamp: #B7A5EE;
-  }
+:root[data-theme="dark"] {
+  --paper: #09090B;
+  --entry: #E8ECEA;
+  --muted: #9AA09C;
+  --form: #8FC2AA;
+  --rule: #2F4A40;
+  --frame: #5E6360;
+  --stamp: #B7A5EE;
 }
 
 /* In @layer base so Tailwind utilities (no-underline, hover:underline, text-stamp) still win. */

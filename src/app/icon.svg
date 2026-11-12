@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .wing { fill: #2E5E4E; }
+    .lines { stroke: #5B3FA0; }
+    .pilot { fill: #5B3FA0; }
+    @media (prefers-color-scheme: dark) {
+      .wing { fill: #8FC2AA; }
+      .lines { stroke: #B7A5EE; }
+      .pilot { fill: #B7A5EE; }
+    }
+  </style>
+  <path class="wing" d="M1 15C1 7 8 2 16 2s15 5 15 13c-4-3.500-9.500-5-15-5S5 11.500 1 15Z"/>
+  <path class="lines" fill="none" stroke-width="2" stroke-linecap="round" d="M6 14 16 26M26 14 16 26"/>
+  <circle class="pilot" cx="16" cy="27" r="3.500"/>
+</svg>

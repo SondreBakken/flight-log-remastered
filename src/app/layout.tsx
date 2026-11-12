@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Archivo } from 'next/font/google'
 import SiteNav from '@/components/site-nav'
+import { THEME_SCRIPT } from './theme-script'
 import './globals.css'
 
 const archivo = Archivo({
@@ -11,7 +12,7 @@ const archivo = Archivo({
 })
 
 export const metadata: Metadata = {
-  title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' },
+  title: { default: 'Flightlog Social', template: '%s | Flightlog Social' },
   description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.',
 }
 
@@ -21,7 +22,10 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${archivo.variable} h-full antialiased`}>
+    <html lang="en" className={`${archivo.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col">
         <SiteNav />
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">{children}</main>

@@ -1,9 +1,9 @@
-# Flight Log Remastered
+# Flightlog Social
 
 A spike: a modern frontend reading live data from [flightlog.org](https://flightlog.org), which has no
 official API. Next.js 16 App Router, React 19, MapLibre.
 
-**Live:** https://flight-log-remastered-production.up.railway.app
+**Live:** https://flightlog.social
 
 Deployed on Railway (EU West), which autodeploys every push to `main`. Migrations run in the
 pre-deploy step (`pnpm db:migrate`). Railway's IPs are not blocked by flightlog.org's WAF, so the

@@ -12,8 +12,8 @@ export async function sendMagicLinkEmail(email: string, url: string, emailClient
   const { error } = await client.send({
     from: requireSenderAddress(),
     to: email,
-    subject: 'Sign in to Flight Log',
-    text: `Sign in to Flight Log by opening this link:\n\n${url}\n\nThe link works once and expires in 5 minutes. If you did not ask for it, ignore this email.`,
+    subject: 'Sign in to Flightlog Social',
+    text: `Sign in to Flightlog Social by opening this link:\n\n${url}\n\nThe link works once and expires in 5 minutes. If you did not ask for it, ignore this email.`,
   })
 
   if (error) throw new Error(`Failed to send magic-link email: ${error.message}`, { cause: error })

@@ -15,7 +15,7 @@ export type VerificationEmailClient = { send: Resend['emails']['send'] }
 // module without the runtime env present, and a call-time read also lets tests reach it via
 // vi.stubEnv, which a module-load-time const never would.
 function verificationFromAddress(): string {
-  return process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flight Log <verify@flightlog.app>'
+  return process.env.FLIGHTLOG_VERIFICATION_FROM_ADDRESS ?? 'Flightlog Social <verify@flightlog.app>'
 }
 
 function isVerificationEmailEnabled(): boolean {
@@ -50,7 +50,7 @@ export async function sendVerificationEmail(email: string, code: string, resendC
   const { error } = await client.send({
     from: verificationFromAddress(),
     to: email,
-    subject: 'Your Flight Log verification code',
+    subject: 'Your Flightlog Social verification code',
     text: `Your verification code is ${code}`,
   })
 
