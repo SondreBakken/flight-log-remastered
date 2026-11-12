@@ -6,6 +6,7 @@ import { List as ListIcon, LocateFixed, Map as MapIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useTakeoffs, type TakeoffsState } from './use-takeoffs'
 import { useNearby, type NearbyStatus } from './use-nearby'
+import { useFollowedTakeoffs, type FollowedTakeoffs } from './use-followed-takeoffs'
 import type { TakeoffDirectoryEntry } from './fetch-takeoffs'
 import { NameFilterInput } from '@/components/name-filter-input'
 import { TakeoffsMap, TakeoffsMapLegend } from '@/components/takeoffs-map'
@@ -14,6 +15,7 @@ import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
 import { EmptyState } from '@/components/empty-state'
 import { CountryTabs } from '@/components/country-tabs'
+import { TakeoffFollowButton } from '@/components/follow-button/takeoff-follow-button'
 import {
   selectVisibleTakeoffs,
   foldTakeoffNames,
@@ -94,6 +96,7 @@ type DirectoryView = 'list' | 'map'
 
 export default function TakeoffDirectory({ countryId, countryName, regions }: TakeoffDirectoryProps) {
   const state = useTakeoffs(countryId)
+  const followedTakeoffs = useFollowedTakeoffs(countryId)
   const [view, setView] = useState<DirectoryView>('list')
   const [query, setQuery] = useState('')
   const [regionFilter, setRegionFilter] = useState<RegionFilter>('all')
@@ -202,6 +205,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
             userLocation={userLocation}
             regions={regions}
             countryId={countryId}
+            followedTakeoffs={followedTakeoffs}
           />
         </>
       )}
@@ -393,6 +397,7 @@ function TakeoffResults({
   userLocation,
   regions,
   countryId,
+  followedTakeoffs,
 }: {
   state: TakeoffsState
   takeoffs: TakeoffDirectoryEntry[]
@@ -402,6 +407,7 @@ function TakeoffResults({
   userLocation: GeoPoint | null
   regions: RegionOption[]
   countryId: number
+  followedTakeoffs: FollowedTakeoffs
 }) {
   // All hooks run on every render regardless of state.status, so the branches below (which
   // return early) never change how many hooks this component calls — the values they compute
@@ -454,6 +460,7 @@ function TakeoffResults({
             takeoff={takeoff}
             regionName={regionNameById.get(takeoff.regionId) ?? UNREGIONED_LABEL}
             countryId={countryId}
+            followedTakeoffs={followedTakeoffs}
           />
         ))}
       </ul>
@@ -461,7 +468,19 @@ function TakeoffResults({
   )
 }
 
-function TakeoffRow({ takeoff, regionName, countryId }: { takeoff: TakeoffMatch; regionName: string; countryId: number }) {
+function TakeoffRow({
+  takeoff,
+  regionName,
+  countryId,
+  followedTakeoffs,
+}: {
+  takeoff: TakeoffMatch
+  regionName: string
+  countryId: number
+  followedTakeoffs: FollowedTakeoffs
+}) {
+  const { state: follow, markFollowed } = followedTakeoffs
+
   return (
     <li className="flex justify-between gap-4 py-2 text-sm">
       <Link className="underline underline-offset-2" href={`/countries/${countryId}/takeoffs/${takeoff.takeoffId}`}>
@@ -470,6 +489,18 @@ function TakeoffRow({ takeoff, regionName, countryId }: { takeoff: TakeoffMatch;
       <span className="flex gap-3 opacity-70">
         {takeoff.distanceMetres !== null && <span>{formatDistanceKm(takeoff.distanceMetres)}</span>}
         <span>{regionName}</span>
+        {/* Only a known follow state gets a control: signed out, loading and failed reads show
+            none, so a row is never drawn with a default state that the request then flips. */}
+        {follow.kind === 'signed-in' && (
+          <TakeoffFollowButton
+            countryId={countryId}
+            takeoffId={takeoff.takeoffId}
+            isSignedIn
+            isFollowed={follow.followedTakeoffIds.has(takeoff.takeoffId)}
+            variant="compact"
+            onChange={(followed) => markFollowed(takeoff.takeoffId, followed)}
+          />
+        )}
       </span>
     </li>
   )
