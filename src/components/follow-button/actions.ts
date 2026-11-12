@@ -6,6 +6,7 @@ import { followPilot } from '@/lib/follows/follow-pilot'
 import { unfollowPilot } from '@/lib/follows/unfollow-pilot'
 import { followTakeoff } from '@/lib/follows/follow-takeoff'
 import { unfollowTakeoff } from '@/lib/follows/unfollow-takeoff'
+import { lookupPilotName, lookupTakeoffName } from './lookup-follow-name'
 import type { PilotId, TakeoffRef } from '@/lib/flightlog/types'
 
 export type FollowActionResult = { status: 'success' } | { status: 'error'; message: string }
@@ -25,11 +26,15 @@ const UNFOLLOW_GENERIC_ERROR_MESSAGE = 'Something went wrong unfollowing this pi
 // pages with no single path to revalidate. The button already reflects the new state locally
 // (see index.tsx's own optimistic local state) — the next time any page resolves the viewer's
 // follow state server-side, it reads the row this just wrote.
+//
+// The name stored on the row comes from a server-side flightlog.org lookup, never from the
+// client, and a failed or slow lookup stores null rather than failing the follow.
 export async function followPilotAction(pilotId: PilotId): Promise<FollowActionResult> {
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: SIGN_IN_MESSAGE }
 
-  const result = await followPilot(getDb(), { userId, pilotId })
+  const name = await lookupPilotName(pilotId)
+  const result = await followPilot(getDb(), { userId, pilotId, name })
   if (result.kind === 'db-error') return { status: 'error', message: FOLLOW_GENERIC_ERROR_MESSAGE }
 
   return { status: 'success' }
@@ -56,7 +61,13 @@ export async function followTakeoffAction(takeoff: TakeoffRef): Promise<FollowAc
   const userId = await getCurrentUserId()
   if (!userId) return { status: 'error', message: TAKEOFF_SIGN_IN_MESSAGE }
 
-  const result = await followTakeoff(getDb(), { userId, countryId: takeoff.countryId, takeoffId: takeoff.takeoffId })
+  const name = await lookupTakeoffName(takeoff)
+  const result = await followTakeoff(getDb(), {
+    userId,
+    countryId: takeoff.countryId,
+    takeoffId: takeoff.takeoffId,
+    name,
+  })
   if (result.kind === 'db-error') return { status: 'error', message: FOLLOW_TAKEOFF_ERROR_MESSAGE }
 
   return { status: 'success' }
