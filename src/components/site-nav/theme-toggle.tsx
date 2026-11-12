@@ -37,11 +37,14 @@ export default function ThemeToggle() {
 
   const Icon = theme === 'dark' ? Sun : Moon
   const label = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
+  const shortLabel = theme === 'dark' ? 'Light' : 'Dark'
 
   return (
-    <button type="button" className={NAV_ICON_ROW_CLASSES} onClick={toggle}>
+    <button type="button" aria-label={label} className={NAV_ICON_ROW_CLASSES} onClick={toggle}>
       <Icon aria-hidden="true" size={14} />
-      <span className={NAV_LABEL_CLASSES}>{label}</span>
+      <span aria-hidden="true" className={NAV_LABEL_CLASSES}>
+        {shortLabel}
+      </span>
     </button>
   )
 }
