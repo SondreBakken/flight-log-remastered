@@ -114,6 +114,19 @@ describe('resolveUserLocation', () => {
 })
 
 describe('TakeoffDirectory — input-driven filtering', () => {
+  it('shows the Clubs/Takeoffs tabs with Takeoffs current, before the search controls', async () => {
+    stubFetch([makeRow(1, 'Alpha', 1)])
+
+    const { container } = render(<TakeoffDirectory countryId={160} countryName="Norway" regions={REGIONS} />)
+    await screen.findByText('Alpha')
+
+    const nav = screen.getByRole('navigation', { name: 'Country sections' })
+    expect(within(nav).getByRole('link', { name: 'Takeoffs' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'Clubs' }).getAttribute('href')).toBe('/countries/160')
+    expect(container.querySelector('header')!.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(nav.compareDocumentPosition(screen.getByRole('textbox', { name: /takeoff name/i })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   // Pins the actual interpolation, not just that a link exists: two rows with distinct
   // takeoffIds, rendered under a distinctive countryId, so neither "wrong country" nor "fixed
   // takeoff id" (e.g. always linking row 2's id) could pass by coincidence.
