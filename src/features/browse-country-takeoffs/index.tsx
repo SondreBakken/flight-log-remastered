@@ -313,7 +313,7 @@ function SearchControls({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
-        <NameFilterInput label="Takeoff name" className="relative flex-1" value={query} onChange={onQueryChange} />
+        <NameFilterInput label="Takeoff name" className="flex-1" value={query} onChange={onQueryChange} />
         <select
           value={regionFilter}
           onChange={(event) => onRegionFilterChange(event.target.value === 'all' ? 'all' : Number(event.target.value))}

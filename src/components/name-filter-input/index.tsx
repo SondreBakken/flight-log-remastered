@@ -1,16 +1,16 @@
 import { Search } from 'lucide-react'
+import { classes } from '@/lib/classes'
 
 type NameFilterInputProps = {
   value: string
   onChange: (value: string) => void
   label: string
-  // The icon is absolutely positioned, so a custom className must include `relative`.
   className?: string
 }
 
-export function NameFilterInput({ value, onChange, label, className = 'relative' }: NameFilterInputProps) {
+export function NameFilterInput({ value, onChange, label, className }: NameFilterInputProps) {
   return (
-    <div className={className}>
+    <div className={classes('relative', className)}>
       <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 opacity-50" size={14} />
       <input
         type="text"
