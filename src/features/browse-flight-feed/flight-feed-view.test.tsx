@@ -1,3 +1,4 @@
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { FeedView, FlightFeedView } from './flight-feed-view'
@@ -286,6 +287,14 @@ describe('FlightFeedView source toggle (#382)', () => {
     render(<FlightFeedView follows={BOTH_FOLLOWS} defaultPilotId={1} />)
 
     expect(pressedLabels()).toEqual([expected])
+  })
+
+  it('server-renders Both whatever ?show= says, so hydration matches the server', () => {
+    window.history.replaceState(null, '', '/?show=pilots')
+    const html = renderToString(<FlightFeedView follows={BOTH_FOLLOWS} defaultPilotId={1} />)
+
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Both</)
+    expect(html).not.toMatch(/<button[^>]*aria-pressed="true"[^>]*>Pilots</)
   })
 
   it.each([

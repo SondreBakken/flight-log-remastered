@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState, type ReactElement } from 'react'
+import { useEffect, useMemo, useSyncExternalStore, type ReactElement } from 'react'
 import { pruneSeenTripIdsToFollowedPilots } from '@/lib/seen-trip-store/storage'
 import { useFlightFeedResults, type FlightFeedResults } from './use-flight-feed'
 import { DiscoveryLinks } from './components/discovery-links'
@@ -26,21 +26,37 @@ function parseShowMode(value: string | null): FeedSourceMode {
   return value === 'pilots' || value === 'takeoffs' ? value : 'both'
 }
 
-// Read once, as the mode's useState initialiser, not server-side: the feed is client-fetched, so
-// only the toggle's pressed state and the summary line can differ from the server render, the
-// same trade as ?wind= in browse-country-takeoffs.
+const showModeListeners = new Set<() => void>()
+
+function subscribeToShowMode(listener: () => void): () => void {
+  showModeListeners.add(listener)
+  window.addEventListener('popstate', listener)
+  return () => {
+    showModeListeners.delete(listener)
+    window.removeEventListener('popstate', listener)
+  }
+}
+
 function readShowModeFromUrl(): FeedSourceMode {
-  if (typeof window === 'undefined') return 'both'
-  return parseShowMode(new URL(window.location.href).searchParams.get(SHOW_PARAM))
+  return parseShowMode(new URLSearchParams(window.location.search).get(SHOW_PARAM))
 }
 
 // replaceState, not pushState: picking a source is a filter edit, not a page to step back through.
+// replaceState fires no event, so the subscribers are told explicitly.
 function syncShowModeToUrl(mode: FeedSourceMode): void {
-  if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
   if (mode === 'both') url.searchParams.delete(SHOW_PARAM)
   else url.searchParams.set(SHOW_PARAM, mode)
   window.history.replaceState(null, '', url)
+  showModeListeners.forEach((listener) => listener())
+}
+
+// useSyncExternalStore, not a useState initialiser: the page is server-rendered per request with
+// `follows`, so a first client render that already reads ?show= would differ from the server's
+// (summary text) and fail hydration. The server snapshot is 'both'; the URL mode applies right
+// after hydration.
+function useShowModeFromUrl(): FeedSourceMode {
+  return useSyncExternalStore(subscribeToShowMode, readShowModeFromUrl, () => 'both')
 }
 
 // follows now arrives as a server-resolved prop (see index.tsx's own doc comment) — known before
@@ -61,10 +77,14 @@ export function FlightFeedView({
   // follow set is not known, so there is nothing safe to prune seen-trip-store's stored map down
   // to (see the effect below). 'signed-out' resolves to a real, genuine empty Set — that status
   // IS a resolved follow list, not a failure.
-  const followedIds = useMemo(() => {
-    const followedPilotIds = followedPilotIdsOf(follows)
-    return followedPilotIds === null ? null : new Set(followedPilotIds)
-  }, [follows])
+  // Memoised on follows: followedPilotIdsOf returns a fresh [] per call for 'signed-out', which
+  // would re-run the prune effect below on every render.
+  const followedPilotIds = useMemo(() => followedPilotIdsOf(follows), [follows])
+  const followedTakeoffs = useMemo(() => followedTakeoffsOf(follows), [follows])
+  const followedIds = useMemo(
+    () => (followedPilotIds === null ? null : new Set(followedPilotIds)),
+    [followedPilotIds],
+  )
 
   // The true, untruncated follow set — useFlightFeedResults only ever sees selectFeedPilotIds's
   // MAX_PILOTS_PER_FEED-truncated subset below, which is not enough to safely prune
@@ -80,24 +100,19 @@ export function FlightFeedView({
     pruneSeenTripIdsToFollowedPilots(followedIds)
   }, [followedIds])
 
-  const [savedMode, setSavedMode] = useState<FeedSourceMode>(readShowModeFromUrl)
+  const savedMode = useShowModeFromUrl()
   // The toggle only exists when there are two kinds to choose between; a saved mode for a kind
   // the viewer no longer follows would otherwise empty the feed with no control to undo it.
-  const canToggle = (followedPilotIdsOf(follows)?.length ?? 0) > 0 && (followedTakeoffsOf(follows)?.length ?? 0) > 0
+  const canToggle = (followedPilotIds?.length ?? 0) > 0 && (followedTakeoffs?.length ?? 0) > 0
   const mode = canToggle ? savedMode : 'both'
-
-  function changeMode(next: FeedSourceMode) {
-    setSavedMode(next)
-    syncShowModeToUrl(next)
-  }
 
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Recent flights</h1>
-        {canToggle && <FeedSourceToggle mode={mode} onChange={changeMode} />}
+        {canToggle && <FeedSourceToggle mode={mode} onChange={syncShowModeToUrl} />}
       </div>
-      <FeedBody follows={follows} mode={mode} defaultPilotId={defaultPilotId} />
+      <FeedBody followedPilotIds={followedPilotIds} followedTakeoffs={followedTakeoffs} mode={mode} defaultPilotId={defaultPilotId} />
     </section>
   )
 }
@@ -110,16 +125,16 @@ export function FlightFeedView({
 // which is what makes this function's own explicit return type below a real, checked guarantee
 // rather than a comment. Both return null for exactly the same status.
 function FeedBody({
-  follows,
+  followedPilotIds,
+  followedTakeoffs,
   mode,
   defaultPilotId,
 }: {
-  follows: ViewerFollowState
+  followedPilotIds: PilotId[] | null
+  followedTakeoffs: TakeoffRef[] | null
   mode: FeedSourceMode
   defaultPilotId: number
 }): ReactElement {
-  const followedPilotIds = followedPilotIdsOf(follows)
-  const followedTakeoffs = followedTakeoffsOf(follows)
   if (followedPilotIds === null || followedTakeoffs === null) return <FollowsUnavailableNotice />
   return (
     <FollowedSourcesFeed
