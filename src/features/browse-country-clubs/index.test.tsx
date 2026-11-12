@@ -89,8 +89,8 @@ describe('CountryClubs', () => {
     screen.getByText(/no clubs recorded/i)
   })
 
-  // #9's takeoff directory previously had no in-app link to it at all — reachable only by
-  // typing the URL. This is its one entry point.
+  // #9's takeoff directory previously had no in-app link to it at all, reachable only by
+  // typing the URL. The Clubs/Takeoffs tab bar is its entry point.
   it('shows the Clubs/Takeoffs tabs between the header and the table for a curated country', () => {
     render(
       <CountryClubs

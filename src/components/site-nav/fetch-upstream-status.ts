@@ -1,7 +1,6 @@
-import type { UpstreamState, UpstreamStatus } from '@/lib/flightlog/upstream-status'
+import { UPSTREAM_STATES, type UpstreamStatus } from '@/lib/flightlog/upstream-status'
 
 const UPSTREAM_STATUS_URL = '/api/upstream-status'
-const STATES: readonly UpstreamState[] = ['up', 'slow', 'down', 'unknown']
 
 // Throws on any answer other than a well-formed status, so the caller can show unknown.
 export async function fetchUpstreamStatus(): Promise<UpstreamStatus> {
@@ -15,6 +14,6 @@ export async function fetchUpstreamStatus(): Promise<UpstreamStatus> {
 
 function isUpstreamStatus(body: unknown): body is UpstreamStatus {
   if (typeof body !== 'object' || body === null || !('state' in body) || !('lastCheckedAt' in body)) return false
-  const validState = typeof body.state === 'string' && (STATES as readonly string[]).includes(body.state)
+  const validState = typeof body.state === 'string' && (UPSTREAM_STATES as readonly string[]).includes(body.state)
   return validState && (body.lastCheckedAt === null || typeof body.lastCheckedAt === 'number')
 }

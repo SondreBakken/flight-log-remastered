@@ -16,10 +16,10 @@ const TONE_CLASSES: Record<'unfollowed' | 'followed', string> = {
   followed: 'border-form bg-form/10',
 }
 
-// isFollowed now arrives as a server-resolved prop (see resolve-viewer-follow-state.ts),
-// known before the very first render — there is no longer a hydration gap between what the
-// server renders and what the browser knows, so unlike the old localStorage-backed version
-// this has no separate neutral/not-yet-known state to render.
+// The button is drawn only once the follow state is known, so this has no neutral/not-yet-known
+// state to render. Most surfaces get isFollowed as a server-resolved prop (see
+// resolve-viewer-follow-state.ts); the country takeoff list reads it client-side after mount
+// and renders no button until the viewer is signed in and the state has loaded.
 export function getFollowButtonPresentation({
   isFollowed,
   variant,
