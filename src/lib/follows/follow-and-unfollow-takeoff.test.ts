@@ -32,17 +32,40 @@ describe('followTakeoff', () => {
   it('inserts the follow as the given user only', async () => {
     const userId = await createTestUser(testDatabase.client)
 
-    expect(await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8001 })).toEqual({
+    expect(await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8001, name: null })).toEqual({
       kind: 'followed',
     })
     expect(await findFollowRows(8001)).toEqual([{ user_id: userId, country_id: 160 }])
   })
 
+  it('stores the given name, and a re-follow keeps the stored name', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8008, name: 'Hamar' })
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8008, name: 'Other' })
+
+    const { rows } = await testDatabase.client.query<{ name: string | null }>(
+      'select name from followed_takeoffs where user_id = $1 and takeoff_id = 8008',
+      [userId],
+    )
+    expect(rows).toEqual([{ name: 'Hamar' }])
+  })
+
+  it('stores a null name when none was found', async () => {
+    const userId = await createTestUser(testDatabase.client)
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8009, name: null })
+
+    const { rows } = await testDatabase.client.query<{ name: string | null }>(
+      'select name from followed_takeoffs where user_id = $1 and takeoff_id = 8009',
+      [userId],
+    )
+    expect(rows).toEqual([{ name: null }])
+  })
+
   it('treats following an already-followed takeoff as success, keeping one row', async () => {
     const userId = await createTestUser(testDatabase.client)
-    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8002 })
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8002, name: null })
 
-    expect(await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8002 })).toEqual({
+    expect(await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8002, name: null })).toEqual({
       kind: 'followed',
     })
     expect(await findFollowRows(8002)).toEqual([{ user_id: userId, country_id: 160 }])
@@ -50,8 +73,8 @@ describe('followTakeoff', () => {
 
   it('keeps the same takeoffId in two countries as two rows', async () => {
     const userId = await createTestUser(testDatabase.client)
-    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8003 })
-    await followTakeoff(testDatabase.db, { userId, countryId: 203, takeoffId: 8003 })
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8003, name: null })
+    await followTakeoff(testDatabase.db, { userId, countryId: 203, takeoffId: 8003, name: null })
 
     expect(await findFollowRows(8003)).toEqual([
       { user_id: userId, country_id: 160 },
@@ -63,7 +86,7 @@ describe('followTakeoff', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const unmigrated = createUnmigratedTestDatabase()
 
-    expect(await followTakeoff(unmigrated.db, { userId: 'user-abc', countryId: 160, takeoffId: 8004 })).toEqual({
+    expect(await followTakeoff(unmigrated.db, { userId: 'user-abc', countryId: 160, takeoffId: 8004, name: null })).toEqual({
       kind: 'db-error',
       message: 'failed to follow this takeoff',
     })
@@ -75,9 +98,9 @@ describe('unfollowTakeoff', () => {
   it("removes the user's own follow and leaves another user's follow and the other country's row", async () => {
     const userId = await createTestUser(testDatabase.client)
     const otherUserId = await createTestUser(testDatabase.client)
-    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8005 })
-    await followTakeoff(testDatabase.db, { userId, countryId: 203, takeoffId: 8005 })
-    await followTakeoff(testDatabase.db, { userId: otherUserId, countryId: 160, takeoffId: 8005 })
+    await followTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8005, name: null })
+    await followTakeoff(testDatabase.db, { userId, countryId: 203, takeoffId: 8005, name: null })
+    await followTakeoff(testDatabase.db, { userId: otherUserId, countryId: 160, takeoffId: 8005, name: null })
 
     expect(await unfollowTakeoff(testDatabase.db, { userId, countryId: 160, takeoffId: 8005 })).toEqual({
       kind: 'unfollowed',
