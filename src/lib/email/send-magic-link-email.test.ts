@@ -35,7 +35,7 @@ describe('sendMagicLinkEmail', () => {
     expect(emailClient.send).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: 'Sign in to Flightlog Social',
-        text: expect.stringContaining('Sign in to Flightlog Social by opening this link:'),
+        text: expect.stringMatching(/^Sign in to Flightlog Social by opening this link:/),
       }),
     )
   })

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { renderToString } from 'react-dom/server'
 import ThemeToggle from './theme-toggle'
 
 afterEach(() => {
@@ -23,6 +24,12 @@ describe('ThemeToggle', () => {
 
     const button = screen.getByRole('button', { name: 'Switch to light theme' })
     expect(button.querySelector('svg')?.classList.contains('lucide-sun')).toBe(true)
+  })
+
+  it('renders the light-theme markup on the first render even when the html attribute says dark', () => {
+    document.documentElement.dataset.theme = 'dark'
+
+    expect(renderToString(<ThemeToggle />)).toContain('Switch to dark theme')
   })
 
   it('flips the attribute and writes the cookie on click, and flips back', () => {
