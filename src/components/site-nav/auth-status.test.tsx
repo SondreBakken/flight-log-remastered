@@ -5,15 +5,10 @@ import { notifyOwnVerificationChanged } from '@/lib/profiles/own-verification-ch
 import AuthStatus from './auth-status'
 
 const mockUseSignedInUser = vi.fn<() => SignedInUserState>()
-const mockFetchOwnPilotId = vi.fn()
 const mockFetchOwnVerification = vi.fn()
 
 vi.mock('@/lib/auth/use-signed-in-user', () => ({
   useSignedInUser: () => mockUseSignedInUser(),
-}))
-
-vi.mock('./fetch-own-pilot-id', () => ({
-  fetchOwnPilotId: () => mockFetchOwnPilotId(),
 }))
 
 vi.mock('./fetch-own-verification', () => ({
@@ -23,9 +18,6 @@ vi.mock('./fetch-own-verification', () => ({
 const SIGNED_IN: SignedInUserState = { kind: 'signed-in', userId: 'user-1', email: 'pilot@example.com' }
 
 beforeEach(() => {
-  // Default: no pilot id linked, so tests asserting on the account link / sign-out control
-  // (which predate the "My flights" link below) don't also have to account for it.
-  mockFetchOwnPilotId.mockResolvedValue(null)
   mockFetchOwnVerification.mockResolvedValue('none')
 })
 
@@ -110,38 +102,6 @@ describe('AuthStatus', () => {
     expect(container.querySelectorAll('svg').length).toBe(2)
   })
 
-  it('links to the pilot page once a linked pilot id resolves (#243)', async () => {
-    mockFetchOwnPilotId.mockResolvedValue(12677)
-    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
-
-    render(<AuthStatus />)
-
-    const link = await screen.findByRole('link', { name: 'My flights' })
-    expect(link.getAttribute('href')).toBe('/pilots/12677')
-  })
-
-  it('does not show a "My flights" link when no pilot id is linked', async () => {
-    mockFetchOwnPilotId.mockResolvedValue(null)
-    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
-
-    render(<AuthStatus />)
-
-    await waitFor(() => expect(mockFetchOwnPilotId).toHaveBeenCalled())
-    expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
-  })
-
-  it('surfaces a failed pilot id lookup instead of silently hiding the link', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockFetchOwnPilotId.mockRejectedValue(new Error('/api/account/pilot-id answered 503'))
-    mockUseSignedInUser.mockReturnValue(SIGNED_IN)
-
-    render(<AuthStatus />)
-
-    await screen.findByTitle('Could not load your pilot id')
-    expect(screen.queryByRole('link', { name: 'My flights' })).toBeNull()
-    consoleError.mockRestore()
-  })
-
   it('shows a flat 16 px stamp next to the email once the verification is confirmed', async () => {
     mockFetchOwnVerification.mockResolvedValue('verified')
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
@@ -156,7 +116,6 @@ describe('AuthStatus', () => {
 
   it('keeps the stamp at full opacity: opacity-70 sits on the icon and email, not the link or any ancestor (#310)', async () => {
     mockFetchOwnVerification.mockResolvedValue('verified')
-    mockFetchOwnPilotId.mockResolvedValue(12677)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
 
     render(<AuthStatus />)
@@ -169,7 +128,6 @@ describe('AuthStatus', () => {
     }
     expect(link.querySelector('svg')?.getAttribute('class')).toContain('opacity-70')
     expect(screen.getByText('pilot@example.com').className).toContain('opacity-70')
-    expect((await screen.findByRole('link', { name: 'My flights' })).className).not.toContain('opacity-70')
   })
 
   it.each(['none', 'pending'])('still mutes the icon and email, link unmuted, with a %s verification', async (status) => {
@@ -248,19 +206,17 @@ describe('AuthStatus', () => {
     await waitFor(() => expect(screen.queryByRole('img', { name: 'Verified pilot' })).toBeNull())
   })
 
-  it('keeps every signed-out and signed-in control findable by name with a sr-only-below-sm label', async () => {
+  it('keeps every signed-out and signed-in control findable by name with a sr-only-below-sm label', () => {
     mockUseSignedInUser.mockReturnValue({ kind: 'signed-out' })
     const signedOut = render(<AuthStatus />)
     expect(screen.getByText('Sign in').className).toContain('sr-only sm:not-sr-only')
     expect(screen.getByRole('link', { name: 'Sign in' }).className).toContain('whitespace-nowrap')
     signedOut.unmount()
 
-    mockFetchOwnPilotId.mockResolvedValue(42)
     mockUseSignedInUser.mockReturnValue(SIGNED_IN)
     render(<AuthStatus />)
-    await screen.findByRole('link', { name: 'My flights' })
 
-    for (const name of ['My flights', 'pilot@example.com', 'Sign out']) {
+    for (const name of ['pilot@example.com', 'Sign out']) {
       const label = screen.getByText(name)
       expect(label.className).toContain('sr-only')
       expect(label.className).toContain('sm:not-sr-only')
