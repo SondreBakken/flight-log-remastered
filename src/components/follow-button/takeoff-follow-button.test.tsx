@@ -85,3 +85,46 @@ describe('TakeoffFollowButton, signed in', () => {
     expect(getSeenTripIds(PILOT_ID)).toEqual(new Set([1, 2]))
   })
 })
+
+describe('TakeoffFollowButton variant and onChange', () => {
+  it('defaults to the prominent size', () => {
+    render(<TakeoffFollowButton {...TAKEOFF} isFollowed={false} isSignedIn />)
+
+    expect(screen.getByRole('button').className).toContain('px-3 py-1.5 text-sm')
+  })
+
+  it('renders the compact size when asked', () => {
+    render(<TakeoffFollowButton {...TAKEOFF} isFollowed={false} isSignedIn variant="compact" />)
+
+    const { className } = screen.getByRole('button')
+    expect(className).toContain('px-2 py-0.5 text-xs')
+    expect(className).not.toContain('px-3 py-1.5')
+  })
+
+  it('calls onChange with the new state after a successful follow and unfollow', async () => {
+    mockFollowTakeoffAction.mockResolvedValue({ status: 'success' })
+    mockUnfollowTakeoffAction.mockResolvedValue({ status: 'success' })
+    const onChange = vi.fn()
+
+    render(<TakeoffFollowButton {...TAKEOFF} isFollowed={false} isSignedIn onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button'))
+    await screen.findByText('Following')
+    expect(onChange).toHaveBeenLastCalledWith(true)
+
+    fireEvent.click(screen.getByRole('button'))
+    await screen.findByText('Follow')
+    expect(onChange).toHaveBeenLastCalledWith(false)
+    expect(onChange).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not call onChange when the action fails', async () => {
+    mockFollowTakeoffAction.mockResolvedValue({ status: 'error', message: 'nope' })
+    const onChange = vi.fn()
+
+    render(<TakeoffFollowButton {...TAKEOFF} isFollowed={false} isSignedIn onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button'))
+
+    await screen.findByText('nope')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+})
