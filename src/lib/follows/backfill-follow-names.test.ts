@@ -89,6 +89,27 @@ describe('backfillFollowNames', () => {
     expect(fetchers.fetchPilotName).toHaveBeenCalledTimes(1)
   })
 
+  it("never overwrites another user's stored name for the same pilot or takeoff", async () => {
+    const nullUser = await createTestUser(testDatabase.client)
+    const namedUser = await createTestUser(testDatabase.client)
+    await testDatabase.db.insert(follows).values([
+      { userId: nullUser, pilotId: 1, name: null },
+      { userId: namedUser, pilotId: 1, name: 'Stored Name' },
+    ])
+    await testDatabase.db.insert(followedTakeoffs).values([
+      { userId: nullUser, countryId: 160, takeoffId: 5, name: null },
+      { userId: namedUser, countryId: 160, takeoffId: 5, name: 'Stored Takeoff' },
+    ])
+
+    const result = await backfillFollowNames(testDatabase.db, fetchersReturning({ 1: 'Fresh' }, { 5: 'Fresh' }))
+
+    expect(result).toEqual({ filled: 2, stillNull: 0 })
+    const names = await testDatabase.client.query<{ name: string }>(
+      'select name from follows union all select name from followed_takeoffs order by name',
+    )
+    expect(names.rows.map((row) => row.name)).toEqual(['Fresh', 'Fresh', 'Stored Name', 'Stored Takeoff'])
+  })
+
   it('leaves the name null when the lookup fails, finds nothing, or the takeoff is null, and counts it', async () => {
     const userId = await createTestUser(testDatabase.client)
     await testDatabase.db.insert(follows).values([
