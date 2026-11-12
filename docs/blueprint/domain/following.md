@@ -27,6 +27,7 @@ classDiagram
 - FollowedTakeoff: a user follows a takeoff, keyed by country and takeoff id (flightlog.org numbers takeoffs per country), at most once; following again succeeds, and unfollow removes only the session user's row (`followedTakeoffs` in src/lib/db/domain-schema.ts, `followTakeoff` and `unfollowTakeoff`).
 - FollowedTakeoff: the follower is the session user, enforced by `followTakeoffAction` and `unfollowTakeoffAction`, not by the lib functions.
 - FollowedTakeoff: a failed query throws instead of reading as no followed takeoffs (`getFollowedTakeoffs`); the viewer follow state then reads as follows-unavailable.
+- FollowedTakeoff: the country takeoff list stays prerendered, so it reads the viewer's followed takeoffs client-side after mount, once per list, from `GET /api/follows/takeoffs`; rows show a follow button only once that read answers signed in, and none while it is loading, signed out or failed.
 - FollowedTakeoff: unfollowing clears no watermark or seen-trip state, which is pilot-keyed.
 
 ## Code
@@ -34,4 +35,4 @@ classDiagram
 | Element | Path |
 |---|---|
 | Follow | src/lib/db/domain-schema.ts, src/lib/follows/follow-pilot.ts, src/lib/follows/unfollow-pilot.ts, src/lib/follows/get-followers-for-pilot.ts, src/lib/follows/get-followed-pilot-ids.ts |
-| FollowedTakeoff | src/lib/db/domain-schema.ts, src/lib/follows/follow-takeoff.ts, src/lib/follows/unfollow-takeoff.ts, src/lib/follows/get-followed-takeoffs.ts, src/components/follow-button/takeoff-follow-button.tsx |
+| FollowedTakeoff | src/lib/db/domain-schema.ts, src/lib/follows/follow-takeoff.ts, src/lib/follows/unfollow-takeoff.ts, src/lib/follows/get-followed-takeoffs.ts, src/app/api/follows/takeoffs/route.ts, src/components/follow-button/takeoff-follow-button.tsx |
