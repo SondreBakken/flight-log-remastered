@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Globe, Route, Search } from 'lucide-react'
 import AuthStatus from './auth-status'
+import ThemeToggle from './theme-toggle'
 import { NAV_ICON_ROW_CLASSES, NAV_LABEL_CLASSES } from './nav-classes'
 
 // The intended loop is search a pilot, follow them, search again for the next one — but until
@@ -29,7 +30,10 @@ export default function SiteNav() {
             </li>
           ))}
         </ul>
-        <AuthStatus />
+        <div className="flex items-center gap-3 sm:gap-4">
+          <ThemeToggle />
+          <AuthStatus />
+        </div>
       </div>
     </nav>
   )
