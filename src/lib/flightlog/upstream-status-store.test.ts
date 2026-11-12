@@ -11,8 +11,7 @@ describe('upstream status store', () => {
   it('keeps at most 10 entries, dropping the oldest', async () => {
     const { recordUpstreamRequest } = await import('./upstream-status-store')
     const now = 1_000_000
-    // Entry 0 is the only failure and the oldest: if the cap kept it, 1 of 11 would not show,
-    // so use lastCheckedAt and a failure count that depends on which 10 survive.
+    // Entries 0 to 5 fail and entry 0 is the oldest: the cap must drop entry 0, so the oldest stored entry is entry 1.
     for (let i = 0; i < 11; i++) recordUpstreamRequest({ at: now - 11_000 + i * 1_000, latencyMs: 100, failed: i < 6 })
 
     const stored = (globalThis as Record<symbol, unknown>)[STORE_KEY] as unknown[]

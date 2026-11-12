@@ -11,18 +11,18 @@ const STORE_KEY = Symbol.for('flight-log-remastered.upstream-status-window')
 
 type GlobalWithStore = typeof globalThis & { [STORE_KEY]?: UpstreamEntry[] }
 
-function window(): UpstreamEntry[] {
+function upstreamWindow(): UpstreamEntry[] {
   const holder = globalThis as GlobalWithStore
   holder[STORE_KEY] ??= []
   return holder[STORE_KEY]
 }
 
 export function recordUpstreamRequest(entry: UpstreamEntry): void {
-  const entries = window()
+  const entries = upstreamWindow()
   entries.push(entry)
   if (entries.length > WINDOW_SIZE) entries.splice(0, entries.length - WINDOW_SIZE)
 }
 
 export function readUpstreamStatus(nowMs: number): UpstreamStatus {
-  return deriveUpstreamStatus(window(), nowMs)
+  return deriveUpstreamStatus(upstreamWindow(), nowMs)
 }

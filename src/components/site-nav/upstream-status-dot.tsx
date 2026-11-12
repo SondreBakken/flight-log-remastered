@@ -59,7 +59,7 @@ export default function UpstreamStatusDot() {
         aria-expanded={isOpen}
         aria-label={text}
         className="flex h-5 w-5 items-center justify-center rounded-full"
-        onClick={() => (isOpen ? setIsOpen(false) : open())}
+        onClick={open}
         onMouseEnter={open}
         onMouseLeave={() => setIsOpen(false)}
         onFocus={open}

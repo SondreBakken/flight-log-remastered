@@ -42,7 +42,7 @@ describe('UpstreamStatusDot', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('opens on focus and toggles on tap', () => {
+  it('opens on focus', () => {
     answerWith({ state: 'unknown', lastCheckedAt: null })
     render(<UpstreamStatusDot />)
     const button = screen.getByRole('button')
@@ -51,11 +51,28 @@ describe('UpstreamStatusDot', () => {
     expect(button.getAttribute('aria-expanded')).toBe('true')
     fireEvent.blur(button)
     expect(button.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('opens on a tap with no prior hover', () => {
+    answerWith({ state: 'unknown', lastCheckedAt: null })
+    render(<UpstreamStatusDot />)
+    const button = screen.getByRole('button')
 
     fireEvent.click(button)
+
     expect(button.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('stays open when a real click follows mouseenter and focus', () => {
+    answerWith({ state: 'unknown', lastCheckedAt: null })
+    render(<UpstreamStatusDot />)
+    const button = screen.getByRole('button')
+
+    fireEvent.mouseEnter(button)
+    fireEvent.focus(button)
     fireEvent.click(button)
-    expect(button.getAttribute('aria-expanded')).toBe('false')
+
+    expect(button.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('says no recent requests for an unknown state with a null lastCheckedAt', async () => {
@@ -68,11 +85,20 @@ describe('UpstreamStatusDot', () => {
 
   it('renders unknown when the fetch fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    answerWith({ error: 'x' }, 500)
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ state: 'up', lastCheckedAt: null }), { status: 200 }))
+        .mockResolvedValue(new Response(JSON.stringify({ error: 'x' }), { status: 500 })),
+    )
     render(<UpstreamStatusDot />)
+    await waitFor(() => expect(screen.getByTestId('upstream-status-dot').className).toContain('bg-green-500'))
 
-    await waitFor(() => expect(console.error).toHaveBeenCalled())
-    expect(screen.getByTestId('upstream-status-dot').className).toContain('bg-gray-400')
+    fireEvent.mouseEnter(screen.getByRole('button'))
+
+    await waitFor(() => expect(screen.getByTestId('upstream-status-dot').className).toContain('bg-gray-400'))
+    expect(console.error).toHaveBeenCalled()
   })
 
   it('refetches on hover', async () => {

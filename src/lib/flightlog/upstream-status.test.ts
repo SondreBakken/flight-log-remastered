@@ -9,7 +9,7 @@ function entry(overrides: Partial<UpstreamEntry> & { ageMs?: number } = {}): Ups
 }
 
 // n entries, the first `failed` of them failed, newest first by age.
-function window(n: number, failed: number, latencyMs = 200): UpstreamEntry[] {
+function entriesWindow(n: number, failed: number, latencyMs = 200): UpstreamEntry[] {
   return Array.from({ length: n }, (_, i) => entry({ ageMs: 1_000 + i, failed: i < failed, latencyMs }))
 }
 
@@ -29,23 +29,23 @@ describe('deriveUpstreamStatus', () => {
   })
 
   it('is down when 6 of 10 failed', () => {
-    expect(deriveUpstreamStatus(window(10, 6), NOW).state).toBe('down')
+    expect(deriveUpstreamStatus(entriesWindow(10, 6), NOW).state).toBe('down')
   })
 
   it('is up when 5 of 10 failed and the median is 1000 ms', () => {
-    expect(deriveUpstreamStatus(window(10, 5, 1_000), NOW).state).toBe('up')
+    expect(deriveUpstreamStatus(entriesWindow(10, 5, 1_000), NOW).state).toBe('up')
   })
 
   it('is down when 1 of 1 failed', () => {
-    expect(deriveUpstreamStatus(window(1, 1), NOW).state).toBe('down')
+    expect(deriveUpstreamStatus(entriesWindow(1, 1), NOW).state).toBe('down')
   })
 
   it('is slow when none failed and the median is 3001 ms', () => {
-    expect(deriveUpstreamStatus(window(3, 0, 3_001), NOW).state).toBe('slow')
+    expect(deriveUpstreamStatus(entriesWindow(3, 0, 3_001), NOW).state).toBe('slow')
   })
 
   it('is up when the median is exactly 3000 ms', () => {
-    expect(deriveUpstreamStatus(window(3, 0, 3_000), NOW).state).toBe('up')
+    expect(deriveUpstreamStatus(entriesWindow(3, 0, 3_000), NOW).state).toBe('up')
   })
 
   it('takes the mean of the two middle values as the median of an even count', () => {
@@ -62,9 +62,8 @@ describe('deriveUpstreamStatus', () => {
   })
 
   it('counts only the newest 10 of 11 entries', () => {
-    // The 11th (oldest) entry is the only failure and the only slow one; if counted it would not change down/up,
-    // so make it decisive: 5 failures among the newest 10 plus the oldest failing would make 6 of 11.
-    const newest = window(10, 5)
+    // 5 of the newest 10 failed (up). The oldest (11th) entry also failed: if it were counted, 6 of 11 would be down.
+    const newest = entriesWindow(10, 5)
     const oldest = entry({ ageMs: 5_000, failed: true })
     expect(deriveUpstreamStatus([...newest, oldest], NOW).state).toBe('up')
   })
@@ -75,6 +74,6 @@ describe('deriveUpstreamStatus', () => {
   })
 
   it('is down, not slow, when 6 of 10 failed with slow latencies', () => {
-    expect(deriveUpstreamStatus(window(10, 6, 9_000), NOW).state).toBe('down')
+    expect(deriveUpstreamStatus(entriesWindow(10, 6, 9_000), NOW).state).toBe('down')
   })
 })
