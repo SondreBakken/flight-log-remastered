@@ -3,6 +3,8 @@
 // constants under plain tsx, which 'server-only' throws under unconditionally. Mirrors the
 // existing split between browse-flight-feed's pure feed.ts and its client-only route.
 import { createRequestGate, type RequestGate } from '@/lib/concurrency/request-gate'
+import { recordUpstreamRequest } from './upstream-status-store'
+import type { UpstreamEntry } from './upstream-status'
 
 // CAVEAT for whoever resizes this: this state lives in one module instance, so the gate is
 // process-wide. It is app-wide only while the app runs as a single replica: a second replica
@@ -80,13 +82,33 @@ export type GatedFetchResult = {
 // pass it) always run through the real limit/spacing/timeout. Tests inject a fake-clock
 // gate instead — asserting a real 8s timeout would mean actually waiting 8 real seconds
 // every check run, which a fake clock avoids without weakening what gets asserted.
-export function gatedFetch(
+//
+// Every call that reaches the network records one UpstreamEntry, outside gate.run so a timeout
+// (where the task rejects AND the gate rejects) records once. Timing starts inside the task,
+// so queue wait is excluded. A failure is a timeout, a network error or a 5xx; a 4xx is not.
+// `recorder` is injectable only for tests.
+export async function gatedFetch(
   url: string,
   init: RequestInit,
   gate: RequestGate = flightlogRequestGate,
+  recorder: (entry: UpstreamEntry) => void = recordUpstreamRequest,
 ): Promise<GatedFetchResult> {
-  return gate.run(async (signal) => {
-    const response = await fetch(url, { ...init, signal })
-    return { status: response.status, ok: response.ok, headers: response.headers, text: await response.text() }
-  })
+  let startedAt: number | null = null
+  try {
+    const result = await gate.run(async (signal) => {
+      startedAt = Date.now()
+      const response = await fetch(url, { ...init, signal })
+      return { status: response.status, ok: response.ok, headers: response.headers, text: await response.text() }
+    })
+    record(recorder, startedAt, result.status >= 500)
+    return result
+  } catch (error) {
+    record(recorder, startedAt, true)
+    throw error
+  }
+}
+
+function record(recorder: (entry: UpstreamEntry) => void, startedAt: number | null, failed: boolean): void {
+  if (startedAt === null) return
+  recorder({ at: startedAt, latencyMs: Date.now() - startedAt, failed })
 }
