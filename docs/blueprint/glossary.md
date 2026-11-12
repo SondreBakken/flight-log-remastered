@@ -38,8 +38,8 @@
 | Certificate level | Paragliding certificate rank PP2 to PP5, ordered | Certificates |
 | Requirement | A criterion for advancing to a certificate level: experience from flights, tenure at the current level, or a manual self-check | Certificates |
 | Certificate checklist | A pilot's self-check state per level and requirement id; absent means unchecked | Certificates |
-| Follow | A user's subscription to a flightlog.org pilot, keyed by user and pilot id | Following |
-| Followed takeoff | A user's subscription to a takeoff, keyed by user, country id and takeoff id; its recent flights join the flight feed | Following |
+| Follow | A user's subscription to a flightlog.org pilot, keyed by user and pilot id, with the pilot's name stored at follow time when it could be looked up | Following |
+| Followed takeoff | A user's subscription to a takeoff, keyed by user, country id and takeoff id, with the takeoff's name stored at follow time when it could be looked up; its recent flights join the flight feed | Following |
 | Follower | A user who follows a given pilot, with follow time and display name | Following |
 | Viewer | The visitor, signed in or not, acting on a page | Following |
 | Comment | A user's text remark on a flight, soft-deleted and then hidden from every reader | Comments |
