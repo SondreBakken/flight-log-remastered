@@ -9,7 +9,7 @@ import * as schema from '../src/lib/db/schema'
 import { backfillFollowNames } from '../src/lib/follows/backfill-follow-names'
 import { fetchPilotPage } from '../src/lib/flightlog/fetch-pilot-page'
 import { fetchTakeoffDetail } from '../src/lib/flightlog/fetch-takeoff-detail'
-import { isFallbackPilot } from '../src/lib/flightlog/is-fallback-pilot'
+import { pilotNameOrNull, takeoffNameOrNull } from '../src/lib/flightlog/follow-name'
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('DATABASE_URL must be set to backfill follow names.')
@@ -20,10 +20,10 @@ try {
   const { filled, stillNull } = await backfillFollowNames(db, {
     async fetchPilotName(pilotId) {
       const { pilot } = await fetchPilotPage(pilotId)
-      return isFallbackPilot(pilotId, pilot) ? null : pilot.name
+      return pilotNameOrNull(pilotId, pilot)
     },
     async fetchTakeoffName({ countryId, takeoffId }) {
-      return (await fetchTakeoffDetail(countryId, takeoffId))?.name ?? null
+      return takeoffNameOrNull(await fetchTakeoffDetail(countryId, takeoffId))
     },
   })
   console.log(`filled=${filled} still-null=${stillNull}`)

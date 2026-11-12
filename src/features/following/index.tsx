@@ -6,7 +6,7 @@ import { getFollowedPilots, type FollowedPilot } from '@/lib/follows/get-followe
 import { getFollowedTakeoffRows, type FollowedTakeoffRow } from '@/lib/follows/get-followed-takeoff-rows'
 import { FollowsQueryError } from '@/lib/follows/follows-query-error'
 import { getPilotLogbook } from '@/lib/flightlog/flights'
-import { isFallbackPilot } from '@/lib/flightlog/is-fallback-pilot'
+import { pilotNameOrNull, takeoffNameOrNull } from '@/lib/flightlog/follow-name'
 import { getTakeoffDetail } from '@/lib/flightlog/takeoff-detail'
 import { getTakeoffFlights } from '@/lib/flightlog/takeoff-flights'
 import { getCountries, countryNameFor } from '@/lib/flightlog/countries'
@@ -122,7 +122,7 @@ function TakeoffRow({ takeoff, countries }: { takeoff: FollowedTakeoffRow; count
 async function LookedUpPilotName({ pilotId }: { pilotId: PilotId }) {
   try {
     const { pilot } = await getPilotLogbook(pilotId)
-    return isFallbackPilot(pilotId, pilot) ? String(pilotId) : pilot.name
+    return pilotNameOrNull(pilotId, pilot) ?? String(pilotId)
   } catch {
     return String(pilotId)
   }
@@ -130,7 +130,7 @@ async function LookedUpPilotName({ pilotId }: { pilotId: PilotId }) {
 
 async function LookedUpTakeoffName({ takeoff }: { takeoff: TakeoffRef }) {
   try {
-    return (await getTakeoffDetail(takeoff.countryId, takeoff.takeoffId))?.name ?? String(takeoff.takeoffId)
+    return takeoffNameOrNull(await getTakeoffDetail(takeoff.countryId, takeoff.takeoffId)) ?? String(takeoff.takeoffId)
   } catch {
     return String(takeoff.takeoffId)
   }
