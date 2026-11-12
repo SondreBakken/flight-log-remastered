@@ -91,20 +91,42 @@ describe('CountryClubs', () => {
 
   // #9's takeoff directory previously had no in-app link to it at all — reachable only by
   // typing the URL. This is its one entry point.
-  it('links to the takeoff directory for a curated country', () => {
-    render(<CountryClubs countryId={160} countryName="Norway" clubs={[]} />)
-
-    expect(screen.getByRole('link', { name: /browse takeoffs/i }).getAttribute('href')).toBe(
-      '/countries/160/takeoffs',
+  it('shows the Clubs/Takeoffs tabs between the header and the table for a curated country', () => {
+    render(
+      <CountryClubs
+        countryId={160}
+        countryName="Norway"
+        clubs={[{ clubId: 32, name: 'Jetta Luftsportsklubb', memberCount: 18 }]}
+      />,
     )
+
+    expect(screen.getByRole('link', { name: 'Clubs' }).getAttribute('aria-current')).toBe('page')
+    const takeoffs = screen.getByRole('link', { name: 'Takeoffs' })
+    expect(takeoffs.getAttribute('href')).toBe('/countries/160/takeoffs')
+    const nav = screen.getByRole('navigation', { name: 'Country sections' })
+    const header = nav.parentElement!.querySelector('header')!
+    expect(header.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(nav.compareDocumentPosition(screen.getByRole('table')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  // The takeoffs route itself 404s for any country outside the curated set (see
-  // curated-countries.ts) — linking to it here for one would just be a link to a 404.
-  it('does not link to the takeoff directory for a country outside the curated set', () => {
-    render(<CountryClubs countryId={203} countryName="Sweden" clubs={[]} />)
+  it('still shows the tabs when the country has no clubs', () => {
+    render(<CountryClubs countryId={160} countryName="Norway" clubs={[]} />)
+
+    screen.getByRole('navigation', { name: 'Country sections' })
+  })
+
+  it('has no Browse takeoffs footer link', () => {
+    render(<CountryClubs countryId={160} countryName="Norway" clubs={[]} />)
 
     expect(screen.queryByRole('link', { name: /browse takeoffs/i })).toBeNull()
+  })
+
+  // The takeoffs route 404s outside the curated set, so no tab bar and no Takeoffs link there.
+  it('shows no tabs for a country outside the curated set', () => {
+    render(<CountryClubs countryId={203} countryName="Sweden" clubs={[]} />)
+
+    expect(screen.queryByRole('link', { name: 'Takeoffs' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Country sections' })).toBeNull()
   })
 
   it('shows a leading icon on the back-to-countries link', () => {
