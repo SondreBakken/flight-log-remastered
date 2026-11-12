@@ -13,6 +13,7 @@ import { buildTakeoffsMapData } from '@/components/takeoffs-map/build-takeoffs-g
 import { OCTANTS_CLOCKWISE } from '@/lib/flightlog/wind'
 import type { GeoPoint } from '@/lib/geo/distance'
 import { EmptyState } from '@/components/empty-state'
+import { CountryTabs } from '@/components/country-tabs'
 import {
   selectVisibleTakeoffs,
   foldTakeoffNames,
@@ -174,6 +175,7 @@ export default function TakeoffDirectory({ countryId, countryName, regions }: Ta
         </div>
         <TakeoffCountSummary state={state} />
       </header>
+      <CountryTabs countryId={countryId} active="takeoffs" />
       {view === 'map' ? (
         <TakeoffsMapSection state={state} takeoffs={takeoffs} countryId={countryId} />
       ) : (
