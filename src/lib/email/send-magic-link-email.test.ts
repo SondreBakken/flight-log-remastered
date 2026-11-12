@@ -15,13 +15,28 @@ afterEach(() => {
 describe('sendMagicLinkEmail', () => {
   it('sends the link from AUTH_EMAIL_FROM, read at send time', async () => {
     vi.stubEnv('RESEND_API_KEY', 're_test')
-    vi.stubEnv('AUTH_EMAIL_FROM', 'Flight Log <onboarding@resend.dev>')
+    vi.stubEnv('AUTH_EMAIL_FROM', 'Flightlog Social <onboarding@resend.dev>')
     const emailClient = fakeEmailClient({ data: { id: 'email-1' }, error: null, headers: null })
 
     await sendMagicLinkEmail('pilot@example.com', LINK, emailClient)
 
     expect(emailClient.send).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'Flight Log <onboarding@resend.dev>', to: 'pilot@example.com', text: expect.stringContaining(LINK) }),
+      expect.objectContaining({ from: 'Flightlog Social <onboarding@resend.dev>', to: 'pilot@example.com', text: expect.stringContaining(LINK) }),
+    )
+  })
+
+  it('names the product in the subject and the body', async () => {
+    vi.stubEnv('RESEND_API_KEY', 're_test')
+    vi.stubEnv('AUTH_EMAIL_FROM', 'onboarding@resend.dev')
+    const emailClient = fakeEmailClient({ data: { id: 'email-1' }, error: null, headers: null })
+
+    await sendMagicLinkEmail('pilot@example.com', LINK, emailClient)
+
+    expect(emailClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Sign in to Flightlog Social',
+        text: expect.stringContaining('Sign in to Flightlog Social by opening this link:'),
+      }),
     )
   })
 

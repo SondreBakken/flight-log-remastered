@@ -118,7 +118,7 @@ describe('identity foundation: base link and focus styles', () => {
 
   it('sets the root title template, default and flightlog.social description', () => {
     expect(layout).toContain(
-      "title: { default: 'Flight Log Remastered', template: '%s | Flight Log Remastered' }",
+      "title: { default: 'Flightlog Social', template: '%s | Flightlog Social' }",
     )
     expect(layout).toContain(
       "description: 'Pilots, flights, takeoffs and clubs from flightlog.org, on flightlog.social.'",
