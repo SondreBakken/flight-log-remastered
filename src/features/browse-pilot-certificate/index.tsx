@@ -4,6 +4,26 @@ import type { Flight } from '@/lib/flightlog/types'
 import { CertificateLevelForm } from './certificate-level-form'
 import { CertificateChecklist as CertificateChecklistCard } from './certificate-checklist'
 
+type CertificateLevelGroupProps = {
+  headingId: string
+  title: string
+  headingLevel: 'h3' | 'h4'
+  isEmphasized?: boolean
+  children: React.ReactNode
+}
+
+function CertificateLevelGroup({ headingId, title, headingLevel: Heading, isEmphasized = false, children }: CertificateLevelGroupProps) {
+  return (
+    <section
+      aria-labelledby={headingId}
+      className={`flex flex-col gap-3 rounded-md border border-rule p-4${isEmphasized ? ' bg-black/5 dark:bg-white/5' : ''}`}
+    >
+      <Heading className="text-base font-medium" id={headingId}>{title}</Heading>
+      {children}
+    </section>
+  )
+}
+
 type PilotCertificateProgressProps = {
   flights: Flight[]
   isOwner: boolean
@@ -25,29 +45,31 @@ export default function PilotCertificateProgress({ flights, isOwner, level, leve
       <h2 className="text-lg font-medium">Certificate progress</h2>
       {isOwner && <CertificateLevelForm currentLevel={level} />}
       {upcoming !== null && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-medium opacity-70">Progress toward {upcoming}</h3>
+        <CertificateLevelGroup headingId="certificate-upcoming-heading" headingLevel="h3" isEmphasized title={`Progress toward ${upcoming}`}>
           <CertificateChecklistCard
             isOwner={isOwner}
             items={evaluateRequirements(upcoming, flights, level, levelSetAt, checklist)}
             level={upcoming}
           />
-        </div>
+        </CertificateLevelGroup>
       )}
       {level !== null && (
         <details className="flex flex-col gap-3">
           <summary className="cursor-pointer text-sm font-medium opacity-70">View full requirements</summary>
           <div className="flex flex-col gap-4 pt-2">
-            {CERTIFICATE_LEVELS.filter((tableLevel) => tableLevel !== upcoming).map((tableLevel) => (
-              <div className="flex flex-col gap-2" key={tableLevel}>
-                <h4 className="text-sm font-medium opacity-70">{tableLevel}</h4>
-                <CertificateChecklistCard
-                  isOwner={isOwner}
-                  items={evaluateRequirements(tableLevel, flights, level, levelSetAt, checklist)}
-                  level={tableLevel}
-                />
-              </div>
-            ))}
+            {CERTIFICATE_LEVELS.map((tableLevel) =>
+              tableLevel === upcoming ? (
+                <p className="rounded-md border border-dashed border-rule p-4 text-sm opacity-70" key={tableLevel}>{tableLevel}: shown above</p>
+              ) : (
+                <CertificateLevelGroup headingId={`certificate-level-${tableLevel}-heading`} headingLevel="h4" key={tableLevel} title={tableLevel}>
+                  <CertificateChecklistCard
+                    isOwner={isOwner}
+                    items={evaluateRequirements(tableLevel, flights, level, levelSetAt, checklist)}
+                    level={tableLevel}
+                  />
+                </CertificateLevelGroup>
+              ),
+            )}
           </div>
         </details>
       )}
