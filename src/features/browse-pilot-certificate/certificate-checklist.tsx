@@ -50,8 +50,8 @@ function ComputedItemRow({ item }: { item: Extract<EvaluatedRequirement, { kind:
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
-        <span className="w-56 shrink-0">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="w-full sm:w-56 sm:shrink-0">
           {item.satisfied && <span aria-hidden className="mr-1">✓</span>}
           {item.label}
         </span>
